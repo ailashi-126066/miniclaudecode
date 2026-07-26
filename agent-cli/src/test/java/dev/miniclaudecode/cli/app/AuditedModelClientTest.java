@@ -1,10 +1,14 @@
 package dev.miniclaudecode.cli.app;
 
+import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
 import dev.miniclaudecode.domain.event.AgentEvent;
+import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.model.ModelClient;
 import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.model.ModelStreamEvent;
+import dev.miniclaudecode.domain.model.ModelStreamEvent.TextDelta;
+import dev.miniclaudecode.domain.model.ModelStreamEvent.ThinkingDelta;
 import dev.miniclaudecode.domain.model.ModelStreamEvent.UsageReported;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
@@ -50,7 +54,97 @@ class AuditedModelClientTest {
                     .containsEntry("cacheWriteTokens", 10L));
   }
 
-  private static Publisher<ModelStreamEvent> publisher(ModelStreamEvent event) {
+  @Test
+  void mergesConsecutiveTextDeltasIntoOneAuditEventWithoutDelayingTheRenderer() {
+    List<AgentEvent> audit = new ArrayList<>();
+    List<String> rendered = new ArrayList<>();
+    AuditedModelClient client =
+        client(
+            audit,
+            event -> {
+              if (event instanceof RenderEvent.Text text) {
+                rendered.add(text.text());
+              }
+            },
+            new TextDelta("Hel"),
+            new TextDelta("lo "),
+            new TextDelta("world"));
+    client.stream(request()).subscribe(new AuditedModelClientTest.RequestAllSubscriber());
+    // The renderer saw every delta as it streamed; the audit log got one merged entry at
+    // completion.
+    Assertions.assertThat(rendered).containsExactly("Hel", "lo ", "world");
+    Assertions.assertThat(audit)
+        .singleElement()
+        .satisfies(
+            event -> {
+              Assertions.assertThat(event.type()).isEqualTo(AgentEventType.ASSISTANT_MESSAGE);
+              Assertions.assertThat(event.payload()).containsEntry("delta", "Hello world");
+            });
+  }
+
+  @Test
+  void flushesBufferedDeltasBeforeAnyNonDeltaEventToKeepAuditOrder() {
+    List<AgentEvent> audit = new ArrayList<>();
+    AuditedModelClient client =
+        client(audit, ignored -> {}, new TextDelta("answer"), new UsageReported(10L, 2L, 0L, 0L));
+    client.stream(request()).subscribe(new AuditedModelClientTest.RequestAllSubscriber());
+    Assertions.assertThat(audit)
+        .extracting(AgentEvent::type)
+        .containsExactly(AgentEventType.ASSISTANT_MESSAGE, AgentEventType.MODEL_USAGE);
+  }
+
+  @Test
+  void switchingBetweenThinkingAndTextFlushesSoOrderIsPreserved() {
+    List<AgentEvent> audit = new ArrayList<>();
+    AuditedModelClient client =
+        client(
+            audit,
+            ignored -> {},
+            new ThinkingDelta("planning"),
+            new TextDelta("doing"),
+            new ThinkingDelta("more"));
+    client.stream(request()).subscribe(new AuditedModelClientTest.RequestAllSubscriber());
+    Assertions.assertThat(audit)
+        .extracting(AgentEvent::type)
+        .containsExactly(
+            AgentEventType.PROVIDER_THINKING,
+            AgentEventType.ASSISTANT_MESSAGE,
+            AgentEventType.PROVIDER_THINKING);
+    Assertions.assertThat(audit.get(0).payload()).containsEntry("text", "planning");
+    Assertions.assertThat(audit.get(1).payload()).containsEntry("delta", "doing");
+    Assertions.assertThat(audit.get(2).payload()).containsEntry("text", "more");
+  }
+
+  @Test
+  void flushesWhenTheBufferedTextReachesTheSizeThreshold() {
+    List<AgentEvent> audit = new ArrayList<>();
+    String half = "x".repeat(3000);
+    AuditedModelClient client =
+        client(audit, ignored -> {}, new TextDelta(half), new TextDelta(half));
+    client.stream(request()).subscribe(new AuditedModelClientTest.RequestAllSubscriber());
+    // 6000 chars crosses the 4096 threshold on the second delta: flushed right there, and the
+    // stream-end flush finds nothing left.
+    Assertions.assertThat(audit)
+        .singleElement()
+        .satisfies(
+            event -> Assertions.assertThat(event.payload()).containsEntry("delta", half + half));
+  }
+
+  private static AuditedModelClient client(
+      List<AgentEvent> audit,
+      java.util.function.Consumer<RenderEvent> renderer,
+      ModelStreamEvent... events) {
+    return new AuditedModelClient(
+        request -> publisher(events),
+        new SessionId("session-1"),
+        new TurnId(1L),
+        audit::add,
+        renderer,
+        Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC),
+        ignored -> {});
+  }
+
+  private static Publisher<ModelStreamEvent> publisher(ModelStreamEvent... events) {
     return subscriber ->
         subscriber.onSubscribe(
             new Subscription() {
@@ -60,7 +154,9 @@ class AuditedModelClientTest {
               public void request(long count) {
                 if (!this.done) {
                   this.done = true;
-                  subscriber.onNext(event);
+                  for (ModelStreamEvent event : events) {
+                    subscriber.onNext(event);
+                  }
                   subscriber.onComplete();
                 }
               }

@@ -73,6 +73,27 @@ class JsonlEventStoreTest {
         .hasSize(40);
   }
 
+  @Test
+  void appendAllWritesEveryEventInOrderAcrossSessions() throws Exception {
+    SessionId first = SessionId.of("session-batch-a");
+    SessionId second = SessionId.of("session-batch-b");
+    JsonlEventStore store = new JsonlEventStore(this.eventRoot, new SecretRedactor(), Set.of());
+    store.appendAll(
+        java.util.List.of(
+            event(first, 1L, Map.of()),
+            event(second, 2L, Map.of()),
+            event(first, 3L, Map.of()),
+            event(first, 4L, Map.of())));
+    Assertions.assertThat(store.read(first).events())
+        .extracting(event -> event.turnId().value())
+        .containsExactly(new Long[] {1L, 3L, 4L});
+    Assertions.assertThat(store.read(second).events())
+        .extracting(event -> event.turnId().value())
+        .containsExactly(new Long[] {2L});
+    Assertions.assertThatCode(() -> store.appendAll(java.util.List.of()))
+        .doesNotThrowAnyException();
+  }
+
   private static AgentEvent event(SessionId sessionId, long turn, Map<String, Object> payload) {
     return new AgentEvent(
         UUID.randomUUID(),

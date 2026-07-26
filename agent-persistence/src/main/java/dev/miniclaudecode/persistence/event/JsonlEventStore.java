@@ -15,7 +15,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,14 +46,40 @@ public final class JsonlEventStore implements SessionEventStore {
 
   public void append(AgentEvent event) {
     Objects.requireNonNull(event, "event must not be null");
-    Path file = this.eventFile(event.sessionId());
+    this.appendAll(List.of(event));
+  }
+
+  /**
+   * Appends a batch of events with one open + lock + write + fsync per session file, instead of one
+   * per event. A 2000-token streamed answer used to cost 2000 fsyncs; batched by the audit layer it
+   * costs a handful. Lines are encoded before the file is touched, so a codec failure writes
+   * nothing, and a crash mid-write loses at most the incomplete last line — which {@code read}'s
+   * tail recovery already discards.
+   */
+  public void appendAll(List<AgentEvent> events) {
+    Objects.requireNonNull(events, "events must not be null");
+    if (events.isEmpty()) {
+      return;
+    }
+    Map<Path, StringBuilder> batches = new LinkedHashMap<>();
+    for (AgentEvent event : events) {
+      Objects.requireNonNull(event, "event must not be null");
+      batches
+          .computeIfAbsent(this.eventFile(event.sessionId()), ignored -> new StringBuilder())
+          .append(this.codec.encode(event))
+          .append('\n');
+    }
+    batches.forEach(this::writeBatch);
+  }
+
+  private void writeBatch(Path file, StringBuilder lines) {
     ReentrantLock processLock =
         PROCESS_LOCKS.computeIfAbsent(file, ignoredx -> new ReentrantLock());
     processLock.lock();
 
     try {
       Files.createDirectories(this.eventRoot);
-      byte[] bytes = (this.codec.encode(event) + "\n").getBytes(StandardCharsets.UTF_8);
+      byte[] bytes = lines.toString().getBytes(StandardCharsets.UTF_8);
 
       try (FileChannel channel =
               FileChannel.open(
@@ -69,7 +97,7 @@ public final class JsonlEventStore implements SessionEventStore {
         channel.force(false);
       }
     } catch (IOException var20) {
-      throw new UncheckedIOException("cannot append session event: " + file, var20);
+      throw new UncheckedIOException("cannot append session events: " + file, var20);
     } finally {
       processLock.unlock();
     }
