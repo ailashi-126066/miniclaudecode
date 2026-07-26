@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.\\\\mvnw.cmd clean verify 2>&1 | Out-File -Encoding utf8 \"$env:TEMP\\\\mcc-verify-output.log\"; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell($log = Get-Content \"$env:TEMP\\\\mcc-verify-output.log\"; \"TOTAL LINES: $\\($log.Count\\)\"; $log | Select-Object -Last 60)",
+      "PowerShell($log = Get-Content \"$env:TEMP\\\\mcc-verify-output.log\"; $log | Select-String -Pattern \"Reactor Summary\" -Context 0,15; $log | Select-String -Pattern \"BUILD|SUCCESS|FAILED\" | Select-Object -First 20)",
+      "PowerShell($log = Get-Content \"$env:TEMP\\\\mcc-verify-output.log\"; \"LINES: $\\($log.Count\\)\"; $log | Select-String -Pattern \"Reactor Summary\" -Context 0,14; \"\"; $log | Select-String -Pattern \"^\\\\[ERROR\\\\]\" | Select-Object -First 40 -ExpandProperty Line)",
+      "PowerShell($log = Get-Content \"$env:TEMP\\\\mcc-verify-output.log\"; $log | Select-String -Pattern \"Reactor Summary\" -Context 0,14; \"\"; $log | Select-String -Pattern \"^\\\\[ERROR\\\\]\" | Select-Object -First 30 -ExpandProperty Line)"
+    ]
+  }
+}

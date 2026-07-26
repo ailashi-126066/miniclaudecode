@@ -1,0 +1,35 @@
+active-provider: ollama
+
+providers:
+  ollama:
+    type: ollama
+    base-url: http://localhost:11434
+    model: qwen2.5-coder:7b
+    temperature: 0.2
+    max-output-tokens: 8192
+    thinking: false
+    timeout-seconds: 120
+    max-retries: 3
+
+  # anthropic:
+  #   type: anthropic
+  #   api-key-env: ANTHROPIC_API_KEY
+  #   model: claude-sonnet-4-5
+  #   max-output-tokens: 8192
+  #   thinking: true
+
+  # deepseek:
+  #   type: openai-compatible
+  #   base-url: https://api.deepseek.com/v1
+  #   api-key-env: DEEPSEEK_API_KEY
+  #   model: deepseek-chat
+  #   max-output-tokens: 8192
+
+# MCP is loaded only from this user config file, never from project config.
+# mcp:
+#   servers:
+#     local-server:
+#       transport: stdio
+#       command: ["java", "-jar", "C:/absolute/path/server.jar"]
+#       launch-approved: false
+#       risk: HIGH
