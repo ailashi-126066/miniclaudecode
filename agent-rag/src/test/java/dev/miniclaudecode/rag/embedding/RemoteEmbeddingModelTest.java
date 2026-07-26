@@ -87,8 +87,10 @@ class RemoteEmbeddingModelTest {
   }
 
   @Test
-  void declaresItsIdentityFromModelAndDimensions() {
-    Assertions.assertThat(this.model(32).embeddingIdentity()).isEqualTo("remote/test-embed/32");
+  void declaresItsIdentityFromEndpointModelAndDimensions() {
+    int port = this.server.getAddress().getPort();
+    Assertions.assertThat(this.model(32).embeddingIdentity())
+        .isEqualTo("remote/127.0.0.1:" + port + "/test-embed/32");
     Assertions.assertThat(new LocalCodeEmbeddingModel(64).embeddingIdentity())
         .isEqualTo("local-hash/64");
   }

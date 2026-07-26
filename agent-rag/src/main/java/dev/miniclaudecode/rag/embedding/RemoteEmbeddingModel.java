@@ -131,7 +131,11 @@ public final class RemoteEmbeddingModel implements EmbeddingModel, EmbeddingIden
 
   @Override
   public String embeddingIdentity() {
-    return "remote/" + this.model + "/" + this.dimensions;
+    // The endpoint is part of the identity: OpenAI-compatible local servers (llama.cpp, LM
+    // Studio) routinely ignore the client-supplied model name and serve whatever is loaded, so
+    // the same model string on two hosts can mean two incompatible vector spaces. The cost — one
+    // rebuild when a backend changes address — is the safe direction.
+    return "remote/" + this.endpoint.getAuthority() + "/" + this.model + "/" + this.dimensions;
   }
 
   private static String truncate(String value) {

@@ -78,6 +78,72 @@ class LuceneCodeIndexTest {
   }
 
   @Test
+  void lostFingerprintsForceAFullRebuildSoDeletionsAreStillHonored() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-fp-loss"));
+    Files.writeString(workspace.resolve("Keep.java"), "class Keep { void keep() {} }\n");
+    Files.writeString(workspace.resolve("Gone.java"), "class Gone { void gone() {} }\n");
+    Path indexPath = this.temporaryDirectory.resolve("fp-loss-index");
+    LuceneCodeIndex index = new LuceneCodeIndex(indexPath, new FakeEmbeddingModel());
+    index.synchronize(workspace);
+
+    // Simulate losing the incremental knowledge (schema bump, corrupt/lost fingerprints) while
+    // the Lucene index survives, AND deleting a workspace file in the same window. Incremental
+    // deletion detection is impossible without fingerprints, so a full rebuild must purge the
+    // stale documents instead of letting them linger forever.
+    Files.delete(workspace.resolve("Gone.java"));
+    Files.delete(indexPath.resolve("fingerprints.properties.version"));
+    index.synchronize(workspace);
+    Assertions.assertThat(index.chunks())
+        .extracting(CodeChunk::path)
+        .containsOnly(new String[] {"Keep.java"});
+  }
+
+  @Test
+  void missingIdentitySidecarTreatsVectorsAsUnknownAndRebuilds() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-noid"));
+    Files.writeString(workspace.resolve("App.java"), "class App { void a() {} }\n");
+    Path indexPath = this.temporaryDirectory.resolve("noid-index");
+    LuceneCodeIndex index = new LuceneCodeIndex(indexPath, new FakeEmbeddingModel());
+    index.synchronize(workspace);
+
+    // An index whose identity sidecar is gone has vectors of unknown provenance (crash window,
+    // deleted file). Accepting them on faith is how mixed vector spaces sneak in.
+    Files.delete(indexPath.resolve("embedding.id"));
+    UpdateReport rebuilt = index.synchronize(workspace);
+    Assertions.assertThat(rebuilt.updatedFiles()).isEqualTo(1);
+    Assertions.assertThat(rebuilt.unchangedFiles()).isZero();
+    Assertions.assertThat(index.synchronize(workspace).unchangedFiles()).isEqualTo(1);
+  }
+
+  @Test
+  void identitySwitchToAFailingBackendLeavesTheOldIndexReadable() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-probe"));
+    Files.writeString(workspace.resolve("App.java"), "class App { void a() {} }\n");
+    Path indexPath = this.temporaryDirectory.resolve("probe-index");
+    LuceneCodeIndex healthy = new LuceneCodeIndex(indexPath, new FakeEmbeddingModel());
+    healthy.synchronize(workspace);
+
+    // Switching identity used to delete the old index before the first embed call, so a dead
+    // remote endpoint destroyed BM25 search too. The probe must fail BEFORE anything is deleted.
+    EmbeddingModel dead =
+        new EmbeddingModel() {
+          public Response<Embedding> embed(String text) {
+            throw new IllegalStateException("endpoint unreachable");
+          }
+
+          public int dimension() {
+            return 4;
+          }
+        };
+    Assertions.assertThatThrownBy(() -> new LuceneCodeIndex(indexPath, dead).synchronize(workspace))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("endpoint unreachable");
+    Assertions.assertThat(new LuceneCodeIndex(indexPath, new FakeEmbeddingModel()).chunks())
+        .extracting(CodeChunk::symbol)
+        .contains(new String[] {"a()"});
+  }
+
+  @Test
   void failedEmbeddingBatchLeavesLastCommittedSnapshotReadable() throws Exception {
     Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-failure"));
     Path source = workspace.resolve("Stable.java");

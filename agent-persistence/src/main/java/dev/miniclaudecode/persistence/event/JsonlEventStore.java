@@ -55,6 +55,11 @@ public final class JsonlEventStore implements SessionEventStore {
    * costs a handful. Lines are encoded before the file is touched, so a codec failure writes
    * nothing, and a crash mid-write loses at most the incomplete last line — which {@code read}'s
    * tail recovery already discards.
+   *
+   * <p>Batches spanning several sessions commit per file in first-seen order and are NOT atomic
+   * across files: a failure on the second file leaves the first durably written. Per-session order
+   * within a batch is always preserved. (Production currently routes single events through {@link
+   * #append}; the multi-session path exists for callers that batch at a higher level.)
    */
   public void appendAll(List<AgentEvent> events) {
     Objects.requireNonNull(events, "events must not be null");

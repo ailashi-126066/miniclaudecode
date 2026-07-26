@@ -16,6 +16,7 @@ import dev.miniclaudecode.domain.model.ModelStreamEvent.UsageReported;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Flow.Publisher;
@@ -66,7 +67,18 @@ final class AuditedModelClient implements ModelClient {
   }
 
   private void emit(AgentEventType type, Map<String, Object> payload) {
-    this.audit.emit(AgentEvent.create(this.sessionId, this.turnId, type, payload, this.clock));
+    this.emitAt(type, payload, this.clock.instant());
+  }
+
+  private void emitAt(AgentEventType type, Map<String, Object> payload, Instant occurredAt) {
+    // Audit persistence failing must degrade the log, never the stream: an exception thrown from
+    // here inside onNext propagates into the provider bridge, the terminal signal is swallowed,
+    // and the turn's future hangs until restart.
+    try {
+      this.audit.emit(AgentEvent.create(this.sessionId, this.turnId, type, payload, occurredAt));
+    } catch (RuntimeException error) {
+      System.err.println("[mini-claude-code] audit write failed (" + type + "): " + error);
+    }
   }
 
   /**
@@ -90,7 +102,7 @@ final class AuditedModelClient implements ModelClient {
     private final boolean thinkingEnabled;
     private final StringBuilder buffered = new StringBuilder();
     private AgentEventType bufferedType;
-    private long bufferedSinceMillis;
+    private Instant bufferedAt;
 
     private Observer(Subscriber<? super ModelStreamEvent> downstream, boolean thinkingEnabled) {
       this.downstream = downstream;
@@ -99,7 +111,23 @@ final class AuditedModelClient implements ModelClient {
 
     @Override
     public void onSubscribe(Subscription subscription) {
-      this.downstream.onSubscribe(subscription);
+      // Cancellation is the one terminal signal that bypasses onComplete/onError: the provider
+      // bridge stops delivering the moment cancel() lands, so the buffered tail — text the user
+      // already saw rendered — would silently vanish from the audit log. Flush on the way out.
+      // (cancel arrives from the REPL's SIGINT thread, hence the synchronized flush/buffer.)
+      this.downstream.onSubscribe(
+          new Subscription() {
+            @Override
+            public void request(long demand) {
+              subscription.request(demand);
+            }
+
+            @Override
+            public void cancel() {
+              Observer.this.flush();
+              subscription.cancel();
+            }
+          });
     }
 
     public void onNext(ModelStreamEvent item) {
@@ -160,22 +188,23 @@ final class AuditedModelClient implements ModelClient {
      * A single buffer with a kind marker: switching kind flushes first, so merged events can never
      * reorder thinking against text.
      */
-    private void buffer(AgentEventType type, String delta) {
+    private synchronized void buffer(AgentEventType type, String delta) {
       if (this.bufferedType != null && this.bufferedType != type) {
         this.flush();
       }
       if (this.bufferedType == null) {
         this.bufferedType = type;
-        this.bufferedSinceMillis = AuditedModelClient.this.clock.millis();
+        this.bufferedAt = AuditedModelClient.this.clock.instant();
       }
       this.buffered.append(delta);
-      long waitedMillis = AuditedModelClient.this.clock.millis() - this.bufferedSinceMillis;
+      long waitedMillis =
+          AuditedModelClient.this.clock.instant().toEpochMilli() - this.bufferedAt.toEpochMilli();
       if (this.buffered.length() >= FLUSH_BYTES || waitedMillis >= FLUSH_INTERVAL_MILLIS) {
         this.flush();
       }
     }
 
-    private void flush() {
+    private synchronized void flush() {
       if (this.bufferedType == null || this.buffered.isEmpty()) {
         this.bufferedType = null;
         this.buffered.setLength(0);
@@ -183,13 +212,18 @@ final class AuditedModelClient implements ModelClient {
       }
       String merged = this.buffered.toString();
       AgentEventType type = this.bufferedType;
+      // Stamp the merged event with the moment its FIRST delta arrived, not the flush time: a
+      // flush can trail the text by the full buffer window, and the audit timeline should say
+      // when the model produced the words, not when the batcher got around to writing them.
+      Instant occurredAt = this.bufferedAt;
       this.buffered.setLength(0);
       this.bufferedType = null;
-      AuditedModelClient.this.emit(
+      AuditedModelClient.this.emitAt(
           type,
           type == AgentEventType.PROVIDER_THINKING
               ? Map.of("text", merged)
-              : Map.of("delta", merged));
+              : Map.of("delta", merged),
+          occurredAt);
     }
   }
 }

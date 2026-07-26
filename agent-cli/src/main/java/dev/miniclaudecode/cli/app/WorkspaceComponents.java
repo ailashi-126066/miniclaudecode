@@ -50,6 +50,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 final class WorkspaceComponents implements AutoCloseable {
   private final Path workspace;
@@ -155,9 +156,14 @@ final class WorkspaceComponents implements AutoCloseable {
         agentTools.add(new CodeSearchTool(codeIndex, searcher));
         agentTools.add(new LoadSkillTool(skills));
         agentTools.addAll(mcp.tools());
+        // Every resolved key must land here: this set seeds the audit-log redactor, and a key
+        // missing from it (the embedding key once was) gets written to session JSONL in plain
+        // text whenever an error message or tool payload happens to contain it.
         Set<String> secrets =
-            config.providers().values().stream()
-                .map(profile -> profile.resolvedApiKey(environment))
+            Stream.concat(
+                    config.providers().values().stream()
+                        .map(profile -> profile.resolvedApiKey(environment)),
+                    Stream.of(config.embedding().resolvedApiKey(environment)))
                 .flatMap(Optional::stream)
                 .collect(Collectors.toUnmodifiableSet());
         return new WorkspaceComponents(

@@ -40,6 +40,56 @@ class CommandSandboxTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("required")
         .hasMessageContaining("MINICLAUDE_SANDBOX=auto");
+    // The approval prompt must not promise "run unsandboxed" when wrap() will refuse.
+    Assertions.assertThat(sandbox.describe()).contains("refused");
+  }
+
+  @Test
+  void requiredPolicyRefusalSurfacesThroughProcessRunner() throws Exception {
+    // Guards the one line that makes the feature real: ProcessRunner must route the argv through
+    // sandbox.wrap. If that call is ever dropped, this test fails while everything else stays
+    // green.
+    CommandSandbox sandbox =
+        CommandSandbox.detect(Policy.REQUIRED, this.temporaryDirectory, "Windows 11", null);
+    ProcessRunner runner = new ProcessRunner(ShellSelector.system(), sandbox);
+    ProcessRunner.ProcessRequest request =
+        new ProcessRunner.ProcessRequest(
+            "echo hello", this.temporaryDirectory, java.time.Duration.ofSeconds(5L), 65536, true);
+    Assertions.assertThatThrownBy(
+            () -> runner.run(request, new dev.miniclaudecode.domain.runtime.CancellationToken()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("required");
+  }
+
+  @Test
+  void linuxHomeBindsMountHomeReadOnlyAndOnlyExistingCachesWritable() throws Exception {
+    Path home = Files.createDirectory(this.temporaryDirectory.resolve("home"));
+    Files.createDirectory(home.resolve(".m2"));
+    // .npm and .gradle deliberately absent
+    Assertions.assertThat(CommandSandbox.linuxHomeBinds(home))
+        .containsExactly(
+            "--ro-bind",
+            home.toString(),
+            home.toString(),
+            "--bind",
+            home.resolve(".m2").toString(),
+            home.resolve(".m2").toString());
+    Assertions.assertThat(CommandSandbox.linuxHomeBinds(this.temporaryDirectory.resolve("missing")))
+        .isEmpty();
+  }
+
+  @Test
+  void seatbeltProfileAllowsTempDirAndToolchainCaches() {
+    Path workspace = this.temporaryDirectory.toAbsolutePath().normalize();
+    String profile = CommandSandbox.seatbeltProfile(workspace, "/var/folders/ab/T", "/Users/dev");
+    Assertions.assertThat(profile)
+        .contains("(subpath \"" + CommandSandbox.sbplEscape(workspace.toString()) + "\")")
+        .contains("/var/folders/ab/T")
+        .contains(CommandSandbox.sbplEscape(Path.of("/Users/dev", ".m2").toString()))
+        .contains(CommandSandbox.sbplEscape(Path.of("/Users/dev", ".npm").toString()));
+    // Absent TMPDIR/home degrade to the fixed allowlist instead of emitting broken subpaths.
+    Assertions.assertThat(CommandSandbox.seatbeltProfile(workspace, null, ""))
+        .doesNotContain("(subpath \"\")");
   }
 
   @Test

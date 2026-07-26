@@ -84,6 +84,54 @@ class JavaAstChunkerTest {
   }
 
   @Test
+  void initializersCompactConstructorsAndAnnotationMembersStaySearchable() {
+    String source =
+        "package example;\n\n"
+            + "class Plugins {\n"
+            + "  static {\n"
+            + "    Registry.install(new AlphaPlugin());\n"
+            + "  }\n\n"
+            + "  {\n"
+            + "    instanceCounter++;\n"
+            + "  }\n"
+            + "}\n\n"
+            + "record Wrapper(String value) {\n"
+            + "  public Wrapper {\n"
+            + "    value = value.trim();\n"
+            + "  }\n"
+            + "}\n\n"
+            + "@interface Marker {\n"
+            + "  String reason() default \"unspecified\";\n"
+            + "}\n";
+    List<CodeChunk> chunks = new JavaAstChunker().chunk("src/Plugins.java", source);
+    // The bodies must live in their own chunks now that TYPE chunks are skeletons.
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.symbol().equals("static initializer"))
+        .singleElement()
+        .satisfies(chunk -> Assertions.assertThat(chunk.content()).contains("Registry.install"));
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.symbol().equals("instance initializer"))
+        .singleElement()
+        .satisfies(chunk -> Assertions.assertThat(chunk.content()).contains("instanceCounter++"));
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.kind() == Kind.CONSTRUCTOR && chunk.owner().equals("Wrapper"))
+        .singleElement()
+        .satisfies(chunk -> Assertions.assertThat(chunk.content()).contains("value.trim()"));
+    // Skeletons keep the structural placeholders and annotation member declarations.
+    Assertions.assertThat(skeletonOf(chunks, "Plugins")).contains("static { ... }");
+    Assertions.assertThat(skeletonOf(chunks, "Marker"))
+        .contains("String reason() default \"unspecified\";");
+  }
+
+  private static String skeletonOf(List<CodeChunk> chunks, String symbol) {
+    return chunks.stream()
+        .filter(chunk -> chunk.kind() == Kind.TYPE && chunk.symbol().equals(symbol))
+        .findFirst()
+        .orElseThrow()
+        .content();
+  }
+
+  @Test
   void fallbackUsesTextWindowsForBrokenJava() {
     List<CodeChunk> chunks =
         new FallbackChunker().chunk("Broken.java", "class Broken {\n  void missing(\n");

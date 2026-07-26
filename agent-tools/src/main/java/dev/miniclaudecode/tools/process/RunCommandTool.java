@@ -112,8 +112,18 @@ public final class RunCommandTool implements AgentTool {
                   maxOutputBytes,
                   true);
           return CompletableFuture.supplyAsync(
-              () ->
-                  this.toToolResult(call, workingDirectory, this.processRunner.run(request, token)),
+              () -> {
+                // The synchronous catch below cannot see this lambda. An unmapped exception here
+                // (sandbox 'required' refusal, ProcessBuilder start failure) completes the future
+                // exceptionally, which the graph escalates to a FAILED turn — one bad command
+                // must cost one tool call, not the whole turn.
+                try {
+                  return this.toToolResult(
+                      call, workingDirectory, this.processRunner.run(request, token));
+                } catch (RuntimeException error) {
+                  return ToolResults.failed(call, error);
+                }
+              },
               VIRTUAL_EXECUTOR);
         }
       }

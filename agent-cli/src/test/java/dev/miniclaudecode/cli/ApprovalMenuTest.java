@@ -44,7 +44,67 @@ class ApprovalMenuTest {
 
     assertThatThrownBy(() -> menu.decide(request(), "0", NOW))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("1 to 5");
+        .hasMessageContaining("listed numbers");
+  }
+
+  @Test
+  void offersOnlyTheScopesEachToolFamilyActuallyConsumes() {
+    // File tools honor all four scopes; shell has no per-file rule concept; web/MCP approvals
+    // are once-only. The menu must not advertise a scope the tool will silently ignore.
+    assertThat(ApprovalMenu.optionsLine(request()))
+        .contains("2) Allow this turn")
+        .contains("3) Allow this file")
+        .contains("4) Always allow");
+    assertThat(ApprovalMenu.optionsLine(shellRequest()))
+        .contains("2) Allow this turn")
+        .doesNotContain("Allow this file")
+        .contains("4) Always allow");
+    assertThat(ApprovalMenu.optionsLine(mcpRequest()))
+        .doesNotContain("Allow this turn")
+        .doesNotContain("Allow this file")
+        .doesNotContain("Always allow");
+  }
+
+  @Test
+  void selectingAnUnsupportedScopeIsRejectedInsteadOfSilentlyDegrading() {
+    ApprovalMenu menu =
+        new ApprovalMenu(
+            org.mockito.Mockito.mock(org.jline.reader.LineReader.class),
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    assertThatThrownBy(() -> menu.decide(shellRequest(), "3", NOW))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("shell:run");
+    assertThatThrownBy(() -> menu.decide(mcpRequest(), "4", NOW))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("mcp-docs:search");
+    assertThat(menu.decide(shellRequest(), "2", NOW).scope())
+        .isEqualTo(ApprovalDecision.Scope.TURN);
+    assertThat(menu.decide(mcpRequest(), "1", NOW).scope()).isEqualTo(ApprovalDecision.Scope.ONCE);
+  }
+
+  private static ApprovalRequest shellRequest() {
+    return new ApprovalRequest(
+        UUID.fromString("11111111-2222-3333-4444-555555555555"),
+        new ToolCall("call-2", "shell:run", "{}"),
+        RiskLevel.HIGH,
+        "mvn verify",
+        "Shell command",
+        Optional.empty(),
+        Optional.empty(),
+        NOW);
+  }
+
+  private static ApprovalRequest mcpRequest() {
+    return new ApprovalRequest(
+        UUID.fromString("66666666-7777-8888-9999-aaaaaaaaaaaa"),
+        new ToolCall("call-3", "mcp-docs:search", "{}"),
+        RiskLevel.HIGH,
+        "search docs",
+        "MCP tool call",
+        Optional.empty(),
+        Optional.empty(),
+        NOW);
   }
 
   @Test

@@ -26,9 +26,16 @@ import java.util.Objects;
  */
 public final class CommandSandbox {
 
-  /** Directories offered read-only to the Linux sandbox when they exist on the host. */
+  /**
+   * Directories offered read-only to the Linux sandbox when they exist on the host. {@code var} is
+   * included because resolvconf-style hosts route {@code /etc/resolv.conf} through {@code
+   * /var/run}; without it DNS dangles inside the sandbox despite "network allowed".
+   */
   private static final List<String> LINUX_SYSTEM_PATHS =
-      List.of("usr", "bin", "sbin", "lib", "lib64", "lib32", "etc", "opt", "run");
+      List.of("usr", "bin", "sbin", "lib", "lib64", "lib32", "etc", "opt", "run", "var");
+
+  /** Toolchain caches offered read-write so builds inside the sandbox stay incremental. */
+  private static final List<String> LINUX_WRITABLE_HOME_CACHES = List.of(".m2", ".npm", ".gradle");
 
   private final Policy policy;
   private final Backend backend;
@@ -59,8 +66,10 @@ public final class CommandSandbox {
     }
     String os = osName.toLowerCase(Locale.ROOT);
     if (os.contains("linux") && executableOnPath("bwrap", pathVariable)) {
-      return new CommandSandbox(
-          policy, Backend.BUBBLEWRAP, root, linuxSystemBinds(Path.of("/"), LINUX_SYSTEM_PATHS));
+      List<String> binds = new ArrayList<>();
+      binds.addAll(linuxSystemBinds(Path.of("/"), LINUX_SYSTEM_PATHS));
+      binds.addAll(linuxHomeBinds(Path.of(System.getProperty("user.home", ""))));
+      return new CommandSandbox(policy, Backend.BUBBLEWRAP, root, binds);
     }
     if (os.contains("mac") && Files.isExecutable(Path.of("/usr/bin/sandbox-exec"))) {
       return new CommandSandbox(policy, Backend.SANDBOX_EXEC, root, List.of());
@@ -117,12 +126,20 @@ public final class CommandSandbox {
 
   public String describe() {
     return switch (this.backend) {
-      case BUBBLEWRAP -> "bubblewrap: writes confined to the workspace, network allowed";
-      case SANDBOX_EXEC -> "sandbox-exec: writes confined to the workspace, network allowed";
-      case NONE ->
-          this.policy == Policy.OFF
-              ? "off"
-              : "unavailable on this platform - commands run unsandboxed";
+      case BUBBLEWRAP ->
+          "bubblewrap: writes confined to workspace and toolchain caches, network allowed";
+      case SANDBOX_EXEC ->
+          "sandbox-exec: writes confined to workspace, temp and toolchain caches, network allowed";
+      case NONE -> {
+        if (this.policy == Policy.OFF) {
+          yield "off";
+        }
+        // With REQUIRED the wrap() call refuses instead of degrading; the prompt must not claim
+        // commands "run unsandboxed" when they will in fact be rejected.
+        yield this.policy == Policy.REQUIRED
+            ? "required but unavailable on this platform - commands will be refused"
+            : "unavailable on this platform - commands run unsandboxed";
+      }
     };
   }
 
@@ -136,12 +153,49 @@ public final class CommandSandbox {
    * disk, and a read-blocking profile is exactly the kind users disable.
    */
   private String seatbeltProfile() {
+    return seatbeltProfile(
+        this.workspace, System.getenv("TMPDIR"), System.getProperty("user.home", ""));
+  }
+
+  /**
+   * The write allowlist must cover what the tools this sandbox exists for actually touch: on macOS
+   * {@code java.io.tmpdir}/{@code $TMPDIR} is a per-user directory under {@code
+   * /private/var/folders} (NOT {@code /private/var/tmp}), and mvn/npm write their caches under the
+   * home directory — omitting either made the very builds the network stays open for fail.
+   */
+  static String seatbeltProfile(Path workspace, String tmpdirVariable, String userHome) {
+    StringBuilder writable =
+        new StringBuilder()
+            .append("(subpath \"")
+            .append(sbplEscape(workspace.toString()))
+            .append("\") (subpath \"/private/tmp\") (subpath \"/private/var/tmp\")")
+            .append(" (subpath \"/dev\")");
+    if (tmpdirVariable != null && !tmpdirVariable.isBlank()) {
+      writable.append(" (subpath \"").append(sbplEscape(realOrRaw(tmpdirVariable))).append("\")");
+    }
+    if (userHome != null && !userHome.isBlank()) {
+      for (String cache : List.of(".m2", ".npm")) {
+        writable
+            .append(" (subpath \"")
+            .append(sbplEscape(Path.of(userHome, cache).toString()))
+            .append("\")");
+      }
+    }
     return "(version 1)\n"
         + "(allow default)\n"
         + "(deny file-write*)\n"
-        + "(allow file-write* (subpath \""
-        + sbplEscape(this.workspace.toString())
-        + "\") (subpath \"/private/tmp\") (subpath \"/private/var/tmp\") (subpath \"/dev\"))";
+        + "(allow file-write* "
+        + writable
+        + ")";
+  }
+
+  /** TMPDIR is a symlink into /private on macOS; seatbelt subpaths match the resolved form. */
+  private static String realOrRaw(String path) {
+    try {
+      return Path.of(path).toRealPath().toString();
+    } catch (IOException | RuntimeException ignored) {
+      return path;
+    }
   }
 
   static String sbplEscape(String value) {
@@ -171,6 +225,33 @@ public final class CommandSandbox {
         arguments.add("--ro-bind");
         arguments.add("/" + name);
         arguments.add("/" + name);
+      }
+    }
+    return List.copyOf(arguments);
+  }
+
+  /**
+   * Home-directory binds for the Linux sandbox. Without them {@code $HOME} does not exist inside
+   * bwrap's fresh tmpfs root: Maven re-downloads its whole repository per command, git loses its
+   * identity, and home-installed toolchains (sdkman, nvm) vanish. The home is bound read-only —
+   * writes stay confined — and only well-known build caches are re-bound writable, an explicit,
+   * documented widening. Bind order matters: the workspace rw-bind comes later in the argv, so a
+   * workspace living under the home directory still overlays writable.
+   */
+  static List<String> linuxHomeBinds(Path home) {
+    List<String> arguments = new ArrayList<>();
+    if (home.toString().isEmpty() || !Files.isDirectory(home)) {
+      return List.of();
+    }
+    arguments.add("--ro-bind");
+    arguments.add(home.toString());
+    arguments.add(home.toString());
+    for (String cache : LINUX_WRITABLE_HOME_CACHES) {
+      Path candidate = home.resolve(cache);
+      if (Files.isDirectory(candidate)) {
+        arguments.add("--bind");
+        arguments.add(candidate.toString());
+        arguments.add(candidate.toString());
       }
     }
     return List.copyOf(arguments);

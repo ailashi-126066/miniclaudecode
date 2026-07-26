@@ -10,7 +10,7 @@
 
 ### OS 级沙箱
 
-分类与审批决定命令是否运行；沙箱限制它运行后的影响范围。Linux 使用 bubblewrap（`bwrap`：PID/UTS/IPC namespace 隔离、`--new-session` 防 TIOCSTI 终端注入、系统目录只读、仅工作区可写），macOS 使用系统自带的 `sandbox-exec`（写入限制在工作区与临时目录）。Windows 没有纯 Java 可用的隔离原语，会显式降级。
+分类与审批决定命令是否运行；沙箱限制它运行后的影响范围。Linux 使用 bubblewrap（`bwrap`：PID/UTS/IPC namespace 隔离、`--new-session` 防 TIOCSTI 终端注入、系统目录与 `$HOME` 只读、工作区和工具链缓存 `~/.m2`/`~/.npm`/`~/.gradle` 可写——缓存可写是显式放宽，为了让构建保持增量），macOS 使用系统自带的 `sandbox-exec`（写入限制在工作区、`$TMPDIR`、临时目录和 `~/.m2`/`~/.npm`）。Windows 没有纯 Java 可用的隔离原语，会显式降级。
 
 两个刻意的取舍：**网络默认放行**（`mvn`/`npm install` 需要网络，一个会被用户关掉的沙箱不如一个被保留的弱沙箱——文件系统隔离才是主要收益）；**探测不到后端时降级而不是拒绝执行**（工具保持可用），但降级是可见的——审批提示会写明当前沙箱状态。通过 `MINICLAUDE_SANDBOX` 环境变量选择 `auto`（默认）、`required`（无后端时拒绝执行）或 `off`。
 
@@ -30,4 +30,12 @@ JSONL codec 会按字段名清理 authorization、api-key、token、secret，并
 
 ## 审批范围
 
-菜单支持 once、turn、file、permanent 和 reject。永久规则写入用户目录 `permissions.json`。建议面试演示默认使用 once；只有明确理解目标范围时才使用 permanent。
+审批菜单只展示当前工具真正会消费的范围，各工具族支持的范围不同：
+
+| 工具族 | once | turn | file | permanent |
+|---|---|---|---|---|
+| 文件变更（workspace:write/edit/apply_patch） | ✓ | ✓ | ✓ | ✓ |
+| Shell（shell:run） | ✓ | ✓ | — | ✓ |
+| Web Fetch、MCP 工具 | ✓ | — | — | — |
+
+选择工具不支持的编号会被拒绝并要求重选，而不是静默降级为 once。永久规则写入用户目录 `permissions.json`。建议面试演示默认使用 once；只有明确理解目标范围时才使用 permanent。

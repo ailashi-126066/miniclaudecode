@@ -9,11 +9,14 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
+import com.github.javaparser.ast.body.AnnotationMemberDeclaration;
 import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.CompactConstructorDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
@@ -65,6 +68,33 @@ public final class JavaAstChunker implements DocumentChunker {
                     constructor.getSignature().asString(),
                     CodeChunk.Kind.CONSTRUCTOR,
                     constructor,
+                    lines));
+    // Compact record constructors and initializer blocks are BodyDeclarations of their own kinds;
+    // without these passes their bodies would live in no chunk at all now that the TYPE chunk is
+    // a skeleton.
+    unit.findAll(CompactConstructorDeclaration.class)
+        .forEach(
+            constructor ->
+                add(
+                    chunks,
+                    path,
+                    packageName,
+                    owner(constructor),
+                    constructor.getNameAsString() + "()",
+                    CodeChunk.Kind.CONSTRUCTOR,
+                    constructor,
+                    lines));
+    unit.findAll(InitializerDeclaration.class)
+        .forEach(
+            initializer ->
+                add(
+                    chunks,
+                    path,
+                    packageName,
+                    owner(initializer),
+                    initializer.isStatic() ? "static initializer" : "instance initializer",
+                    CodeChunk.Kind.METHOD,
+                    initializer,
                     lines));
     unit.findAll(FieldDeclaration.class)
         .forEach(
@@ -146,6 +176,13 @@ public final class JavaAstChunker implements DocumentChunker {
         text.append("  ")
             .append(constructor.getDeclarationAsString(true, true, true))
             .append(";\n");
+      } else if (member instanceof CompactConstructorDeclaration compact) {
+        text.append("  ").append(compact.getNameAsString()).append(" { ... }\n");
+      } else if (member instanceof InitializerDeclaration initializer) {
+        text.append(initializer.isStatic() ? "  static { ... }\n" : "  { ... }\n");
+      } else if (member instanceof AnnotationMemberDeclaration annotationMember) {
+        // Annotation members are one-liners; the declaration with its default IS the content.
+        text.append("  ").append(annotationMember.toString().strip()).append('\n');
       } else if (member instanceof MethodDeclaration method) {
         text.append("  ").append(method.getDeclarationAsString(true, true, true)).append(";\n");
       } else if (member instanceof TypeDeclaration<?> nested) {

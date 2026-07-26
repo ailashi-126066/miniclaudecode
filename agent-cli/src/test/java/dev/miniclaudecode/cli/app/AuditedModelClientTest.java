@@ -130,6 +130,188 @@ class AuditedModelClientTest {
             event -> Assertions.assertThat(event.payload()).containsEntry("delta", half + half));
   }
 
+  @Test
+  void cancellationFlushesTheBufferedTailBeforePropagatingUpstream() {
+    List<AgentEvent> audit = new ArrayList<>();
+    // A publisher that delivers two deltas and then goes quiet — no onComplete, like a provider
+    // stream the user interrupts mid-answer.
+    Publisher<ModelStreamEvent> silent =
+        subscriber ->
+            subscriber.onSubscribe(
+                new Subscription() {
+                  private boolean delivered;
+
+                  @Override
+                  public void request(long count) {
+                    if (!this.delivered) {
+                      this.delivered = true;
+                      subscriber.onNext(new TextDelta("partial "));
+                      subscriber.onNext(new TextDelta("answer"));
+                    }
+                  }
+
+                  @Override
+                  public void cancel() {}
+                });
+    AuditedModelClient client =
+        new AuditedModelClient(
+            request -> silent,
+            new SessionId("session-1"),
+            new TurnId(1L),
+            audit::add,
+            ignored -> {},
+            Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC),
+            ignored -> {});
+    CancellingSubscriber downstream = new CancellingSubscriber();
+    client.stream(request()).subscribe(downstream);
+    downstream.subscription.cancel();
+    // The user saw "partial answer" rendered; cancelling must not erase it from the audit log.
+    Assertions.assertThat(audit)
+        .singleElement()
+        .satisfies(
+            event ->
+                Assertions.assertThat(event.payload()).containsEntry("delta", "partial answer"));
+  }
+
+  @Test
+  void auditWriteFailureDegradesTheLogButStillDeliversTheTerminalSignal() {
+    List<String> rendered = new ArrayList<>();
+    AuditedModelClient client =
+        new AuditedModelClient(
+            request -> publisher(new TextDelta("hello"), new UsageReported(5L, 1L, 0L, 0L)),
+            new SessionId("session-1"),
+            new TurnId(1L),
+            event -> {
+              throw new IllegalStateException("disk full");
+            },
+            event -> {
+              if (event instanceof RenderEvent.Text text) {
+                rendered.add(text.text());
+              }
+            },
+            Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC),
+            ignored -> {});
+    CompletionTrackingSubscriber downstream = new CompletionTrackingSubscriber();
+    client.stream(request()).subscribe(downstream);
+    // A failing audit store must not swallow the stream: the user still sees the text and the
+    // turn still completes instead of hanging forever.
+    Assertions.assertThat(rendered).containsExactly("hello");
+    Assertions.assertThat(downstream.completed).isTrue();
+  }
+
+  @Test
+  void timeThresholdFlushesEvenWhenTheBufferStaysSmall() {
+    List<AgentEvent> audit = new ArrayList<>();
+    MutableClock clock = new MutableClock(Instant.parse("2026-07-21T00:00:00Z"));
+    Publisher<ModelStreamEvent> silent =
+        subscriber ->
+            subscriber.onSubscribe(
+                new Subscription() {
+                  private boolean delivered;
+
+                  @Override
+                  public void request(long count) {
+                    if (!this.delivered) {
+                      this.delivered = true;
+                      subscriber.onNext(new TextDelta("slow "));
+                      clock.advanceMillis(251L);
+                      subscriber.onNext(new TextDelta("trickle"));
+                    }
+                  }
+
+                  @Override
+                  public void cancel() {}
+                });
+    AuditedModelClient client =
+        new AuditedModelClient(
+            request -> silent,
+            new SessionId("session-1"),
+            new TurnId(1L),
+            audit::add,
+            ignored -> {},
+            clock,
+            ignored -> {});
+    client.stream(request()).subscribe(new AuditedModelClientTest.RequestAllSubscriber());
+    // No completion ever arrives; the 250ms rule alone must have flushed the merged event, and
+    // its timestamp must be the FIRST delta's arrival time, not the flush time.
+    Assertions.assertThat(audit)
+        .singleElement()
+        .satisfies(
+            event -> {
+              Assertions.assertThat(event.payload()).containsEntry("delta", "slow trickle");
+              Assertions.assertThat(event.occurredAt())
+                  .isEqualTo(Instant.parse("2026-07-21T00:00:00Z"));
+            });
+  }
+
+  private static final class MutableClock extends Clock {
+    private Instant now;
+
+    private MutableClock(Instant start) {
+      this.now = start;
+    }
+
+    private void advanceMillis(long millis) {
+      this.now = this.now.plusMillis(millis);
+    }
+
+    @Override
+    public Instant instant() {
+      return this.now;
+    }
+
+    @Override
+    public ZoneOffset getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(java.time.ZoneId zone) {
+      return this;
+    }
+  }
+
+  private static final class CancellingSubscriber implements Subscriber<ModelStreamEvent> {
+    private Subscription subscription;
+
+    @Override
+    public void onSubscribe(Subscription subscription) {
+      this.subscription = subscription;
+      subscription.request(Long.MAX_VALUE);
+    }
+
+    public void onNext(ModelStreamEvent item) {}
+
+    @Override
+    public void onError(Throwable throwable) {
+      throw new AssertionError(throwable);
+    }
+
+    @Override
+    public void onComplete() {}
+  }
+
+  private static final class CompletionTrackingSubscriber implements Subscriber<ModelStreamEvent> {
+    private boolean completed;
+
+    @Override
+    public void onSubscribe(Subscription subscription) {
+      subscription.request(Long.MAX_VALUE);
+    }
+
+    public void onNext(ModelStreamEvent item) {}
+
+    @Override
+    public void onError(Throwable throwable) {
+      throw new AssertionError(throwable);
+    }
+
+    @Override
+    public void onComplete() {
+      this.completed = true;
+    }
+  }
+
   private static AuditedModelClient client(
       List<AgentEvent> audit,
       java.util.function.Consumer<RenderEvent> renderer,

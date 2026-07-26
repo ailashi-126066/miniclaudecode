@@ -52,6 +52,19 @@ public record AgentEvent(
       Map<String, Object> payload,
       Clock clock) {
     Objects.requireNonNull(clock, "clock must not be null");
-    return new AgentEvent(UUID.randomUUID(), 1, sessionId, turnId, clock.instant(), type, payload);
+    return create(sessionId, turnId, type, payload, clock.instant());
+  }
+
+  /**
+   * For events recorded after the fact — a batching audit layer stamps a merged event with the
+   * moment its first fragment arrived, not with the later flush time.
+   */
+  public static AgentEvent create(
+      SessionId sessionId,
+      TurnId turnId,
+      AgentEventType type,
+      Map<String, Object> payload,
+      Instant occurredAt) {
+    return new AgentEvent(UUID.randomUUID(), 1, sessionId, turnId, occurredAt, type, payload);
   }
 }

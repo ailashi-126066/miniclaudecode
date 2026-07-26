@@ -86,6 +86,28 @@ class RunCommandToolTest {
   }
 
   @Test
+  void requiredSandboxRefusalFailsTheOneCallInsteadOfTheWholeTurn() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace"));
+    CommandSandbox refusing =
+        CommandSandbox.detect(CommandSandbox.Policy.REQUIRED, workspace, "Windows 11", null);
+    RunCommandTool tool =
+        new RunCommandTool(
+            new WorkspacePathResolver(workspace),
+            new ProcessRunner(ShellSelector.system(), refusing),
+            new ToolResultStore(
+                Files.createDirectories(this.temporaryDirectory.resolve("results-refused"))));
+    // The refusal is thrown on the async execution path; it must come back as a per-call FAILED
+    // result, not an exceptionally completed future that the graph escalates to a failed turn.
+    ToolResult result =
+        (ToolResult)
+            tool.execute(call("pwd", "."), context(workspace, Map.of()))
+                .toCompletableFuture()
+                .get();
+    Assertions.assertThat(result.status()).isEqualTo(Status.FAILED);
+    Assertions.assertThat(result.summary()).contains("required");
+  }
+
+  @Test
   void classifiesDestructiveCommandsAsHighOrCriticalRisk() {
     CommandRiskClassifier classifier = new CommandRiskClassifier();
     Assertions.assertThat(classifier.classify("git reset --hard HEAD").name()).isEqualTo("HIGH");

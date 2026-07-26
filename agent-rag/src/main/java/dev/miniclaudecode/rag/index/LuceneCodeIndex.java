@@ -7,8 +7,11 @@ import dev.miniclaudecode.rag.chunk.DocumentChunker;
 import dev.miniclaudecode.rag.chunk.FallbackChunker;
 import dev.miniclaudecode.rag.embedding.EmbeddingIdentity;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -16,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
@@ -35,6 +40,9 @@ import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.Bits;
 
 public final class LuceneCodeIndex {
+  private static final ConcurrentHashMap<Path, ReentrantLock> SYNC_LOCKS =
+      new ConcurrentHashMap<>();
+
   public static final String FIELD_DOCUMENT_TYPE = "document_type";
   public static final String FIELD_CHUNK_ID = "chunk_id";
   public static final String FIELD_PATH = "path";
@@ -75,27 +83,70 @@ public final class LuceneCodeIndex {
   }
 
   public LuceneCodeIndex.UpdateReport synchronize(Path workspace) throws IOException {
+    // One synchronize at a time per index root: the in-process lock serializes threads (two
+    // LuceneCodeIndex instances over the same root would otherwise race the IndexWriter lock and
+    // deleteTree), the file lock serializes processes (`index` CLI racing a REPL code_search).
+    ReentrantLock processLock =
+        SYNC_LOCKS.computeIfAbsent(this.indexRoot, ignored -> new ReentrantLock());
+    processLock.lock();
+    try {
+      Files.createDirectories(this.indexRoot);
+      try (FileChannel lockChannel =
+              FileChannel.open(
+                  this.indexRoot.resolve("sync.lock"),
+                  StandardOpenOption.CREATE,
+                  StandardOpenOption.WRITE);
+          FileLock ignored = lockChannel.lock()) {
+        return this.synchronizeLocked(workspace);
+      }
+    } finally {
+      processLock.unlock();
+    }
+  }
+
+  private LuceneCodeIndex.UpdateReport synchronizeLocked(Path workspace) throws IOException {
     Path lucenePath = this.indexRoot.resolve("lucene");
     Files.createDirectories(lucenePath);
+    boolean indexExists;
+    try (Directory probe = FSDirectory.open(lucenePath)) {
+      indexExists = DirectoryReader.indexExists(probe);
+    }
 
     // Vectors from a different embedding model or dimension are not comparable, and Lucene
     // rejects mixed dimensions on one field. When the recorded identity differs from the current
-    // model, drop the whole index so the scan below rebuilds it from scratch — a silent partial
-    // mix would corrupt every subsequent vector search.
+    // model — or is missing, which means the vectors have unknown provenance — drop the whole
+    // index so the scan below rebuilds it from scratch. A silent partial mix would corrupt every
+    // subsequent vector search.
     String identity = this.embeddingIdentity();
-    String recordedIdentity = this.recordedEmbeddingIdentity();
-    if (!recordedIdentity.isEmpty() && !recordedIdentity.equals(identity)) {
+    if (indexExists && !this.recordedEmbeddingIdentity().equals(identity)) {
+      this.probeEmbeddingBackendBeforeDestroying();
       deleteTree(lucenePath);
       Files.createDirectories(lucenePath);
+      indexExists = false;
     }
 
     // The fingerprints must be loaded before the scan because the scanner uses them to skip
     // reading unchanged files — and they must be discarded when no Lucene index exists, so a
     // deleted index directory can never be masked by a surviving fingerprint file.
-    Map<String, FileFingerprintStore.FileFingerprint> previous;
-    try (Directory probe = FSDirectory.open(lucenePath)) {
-      previous = DirectoryReader.indexExists(probe) ? this.fingerprintStore.load() : Map.of();
+    Map<String, FileFingerprintStore.FileFingerprint> previous =
+        indexExists ? this.fingerprintStore.load() : Map.of();
+
+    // Deletions are detected as `previous minus current`, so an index without fingerprints (lost
+    // file, schema-version bump) has no way to honor deletions incrementally: documents of files
+    // deleted while the fingerprints were absent would linger forever. No incremental knowledge
+    // means the only correct move is a full rebuild.
+    if (indexExists && previous.isEmpty()) {
+      this.probeEmbeddingBackendBeforeDestroying();
+      deleteTree(lucenePath);
+      Files.createDirectories(lucenePath);
+      indexExists = false;
     }
+
+    // Persisted BEFORE any vector is written: a crash mid-build then leaves either an empty index
+    // tagged with the current identity (rebuilt consistently on the next run) or the old index
+    // untouched — never committed vectors tagged with a stale identity, which the gate above
+    // would wrongly accept and no later run could repair.
+    Files.writeString(this.indexRoot.resolve("embedding.id"), identity);
 
     List<WorkspaceScanner.ScannedFile> scanned = this.scanner.scan(workspace, previous);
     Map<String, FileFingerprintStore.FileFingerprint> current = new HashMap<>();
@@ -154,15 +205,26 @@ public final class LuceneCodeIndex {
     }
 
     this.fingerprintStore.save(current);
-    Files.writeString(this.indexRoot.resolve("embedding.id"), identity);
     return new LuceneCodeIndex.UpdateReport(
         scanned.size(), updated, unchanged, removed.size(), chunks);
   }
 
+  /**
+   * Proves the embedding backend answers before the old index is destroyed. Without this, the path
+   * most likely to fail — first synchronize after switching to a remote provider whose endpoint is
+   * down — would delete the BM25 fields (which never needed embeddings) along with the vectors and
+   * then fail the rebuild, leaving no searchable index at all.
+   */
+  private void probeEmbeddingBackendBeforeDestroying() {
+    this.embeddingModel.embed("embedding backend probe");
+  }
+
   private String embeddingIdentity() {
+    // Fallback uses getName(): getSimpleName() is empty for anonymous classes, which would give
+    // two different anonymous models the same identity "/N".
     return this.embeddingModel instanceof EmbeddingIdentity identified
         ? identified.embeddingIdentity()
-        : this.embeddingModel.getClass().getSimpleName() + "/" + this.embeddingModel.dimension();
+        : this.embeddingModel.getClass().getName() + "/" + this.embeddingModel.dimension();
   }
 
   private String recordedEmbeddingIdentity() throws IOException {
