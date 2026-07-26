@@ -9,10 +9,12 @@ import dev.miniclaudecode.extensions.skill.LoadSkillTool;
 import dev.miniclaudecode.extensions.skill.SkillCatalog;
 import dev.miniclaudecode.persistence.config.AppConfig;
 import dev.miniclaudecode.persistence.config.ConfigLoader;
+import dev.miniclaudecode.persistence.config.EmbeddingConfig;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.persistence.permission.JsonPermissionRuleStore;
 import dev.miniclaudecode.providers.ProviderFactory;
 import dev.miniclaudecode.rag.embedding.LocalCodeEmbeddingModel;
+import dev.miniclaudecode.rag.embedding.RemoteEmbeddingModel;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.Bm25Retriever;
 import dev.miniclaudecode.rag.search.HybridCodeSearcher;
@@ -121,7 +123,7 @@ final class WorkspaceComponents implements AutoCloseable {
       JsonPermissionRuleStore permissionRules =
           new JsonPermissionRuleStore(layout.permissionsFile());
       PermissionEngine permissions = new PermissionEngine(permissionRules, Clock.systemUTC());
-      EmbeddingModel embeddings = new LocalCodeEmbeddingModel();
+      EmbeddingModel embeddings = embeddingModel(config.embedding(), environment);
       LuceneCodeIndex codeIndex =
           new LuceneCodeIndex(layout.indexWorkspaceRoot(workspace), embeddings);
       Bm25Retriever bm25 = new Bm25Retriever(codeIndex.luceneDirectory());
@@ -177,6 +179,30 @@ final class WorkspaceComponents implements AutoCloseable {
         throw failure;
       }
     }
+  }
+
+  /**
+   * Selects the embedding provider from configuration. {@code fast} keeps the offline hashing model
+   * (zero dependencies, reproducible); {@code remote} points the index at an OpenAI-compatible
+   * embeddings endpoint. The index itself persists the provider identity and rebuilds when it
+   * changes, so switching here can never silently mix vector spaces.
+   */
+  private static EmbeddingModel embeddingModel(
+      EmbeddingConfig embedding, Map<String, String> environment) {
+    return switch (embedding.provider()) {
+      case FAST -> new LocalCodeEmbeddingModel(embedding.dimensions());
+      case REMOTE ->
+          new RemoteEmbeddingModel(
+              embedding
+                  .baseUrl()
+                  .orElseThrow(
+                      () ->
+                          new IllegalStateException("remote embedding provider requires base-url")),
+              embedding.resolvedApiKey(environment),
+              embedding.model(),
+              embedding.dimensions(),
+              embedding.timeout());
+    };
   }
 
   /**

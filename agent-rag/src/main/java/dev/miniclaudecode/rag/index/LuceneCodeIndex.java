@@ -5,6 +5,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.miniclaudecode.rag.chunk.CodeChunk;
 import dev.miniclaudecode.rag.chunk.DocumentChunker;
 import dev.miniclaudecode.rag.chunk.FallbackChunker;
+import dev.miniclaudecode.rag.embedding.EmbeddingIdentity;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,6 +78,17 @@ public final class LuceneCodeIndex {
     Path lucenePath = this.indexRoot.resolve("lucene");
     Files.createDirectories(lucenePath);
 
+    // Vectors from a different embedding model or dimension are not comparable, and Lucene
+    // rejects mixed dimensions on one field. When the recorded identity differs from the current
+    // model, drop the whole index so the scan below rebuilds it from scratch — a silent partial
+    // mix would corrupt every subsequent vector search.
+    String identity = this.embeddingIdentity();
+    String recordedIdentity = this.recordedEmbeddingIdentity();
+    if (!recordedIdentity.isEmpty() && !recordedIdentity.equals(identity)) {
+      deleteTree(lucenePath);
+      Files.createDirectories(lucenePath);
+    }
+
     // The fingerprints must be loaded before the scan because the scanner uses them to skip
     // reading unchanged files — and they must be discarded when no Lucene index exists, so a
     // deleted index directory can never be masked by a surviving fingerprint file.
@@ -142,8 +154,31 @@ public final class LuceneCodeIndex {
     }
 
     this.fingerprintStore.save(current);
+    Files.writeString(this.indexRoot.resolve("embedding.id"), identity);
     return new LuceneCodeIndex.UpdateReport(
         scanned.size(), updated, unchanged, removed.size(), chunks);
+  }
+
+  private String embeddingIdentity() {
+    return this.embeddingModel instanceof EmbeddingIdentity identified
+        ? identified.embeddingIdentity()
+        : this.embeddingModel.getClass().getSimpleName() + "/" + this.embeddingModel.dimension();
+  }
+
+  private String recordedEmbeddingIdentity() throws IOException {
+    Path identityFile = this.indexRoot.resolve("embedding.id");
+    return Files.exists(identityFile) ? Files.readString(identityFile).trim() : "";
+  }
+
+  private static void deleteTree(Path root) throws IOException {
+    if (!Files.exists(root)) {
+      return;
+    }
+    try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+      for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+        Files.delete(path);
+      }
+    }
   }
 
   public List<CodeChunk> chunks() throws IOException {

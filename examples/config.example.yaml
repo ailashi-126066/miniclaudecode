@@ -25,6 +25,20 @@ providers:
   #   model: deepseek-chat
   #   max-output-tokens: 8192
 
+# Code-index embeddings. `fast` (default) is the offline hashing model: zero dependencies,
+# reproducible, fine for demos and CI. `remote` calls an OpenAI-compatible /v1/embeddings
+# endpoint; `dimensions` must match what the model actually returns (the index checks and
+# fails with a clear message when it does not). Switching provider or dimensions triggers a
+# one-time full index rebuild — vectors from different models are not comparable.
+# rag:
+#   embedding:
+#     provider: remote
+#     base-url: https://api.openai.com/v1
+#     api-key-env: OPENAI_API_KEY
+#     model: text-embedding-3-small
+#     dimensions: 1536
+#     timeout-seconds: 30
+
 # MCP is loaded only from this user config file, never from project config.
 # mcp:
 #   servers:

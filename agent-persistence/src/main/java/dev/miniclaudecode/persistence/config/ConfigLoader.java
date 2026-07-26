@@ -138,10 +138,25 @@ public final class ConfigLoader {
         providers.put(entry.getKey(), parseProfile(profileNode));
       }
 
-      return new AppConfig(providers, activeProvider);
+      return new AppConfig(providers, activeProvider, parseEmbedding(root));
     } else {
       throw new IllegalArgumentException("providers must be an object");
     }
+  }
+
+  private static EmbeddingConfig parseEmbedding(ObjectNode root) {
+    JsonNode node = root.path("rag").path("embedding");
+    if (!(node instanceof ObjectNode embedding)) {
+      return EmbeddingConfig.fastDefault();
+    }
+    return new EmbeddingConfig(
+        EmbeddingConfig.Provider.parse(optionalText(embedding, "provider").orElse("fast")),
+        optionalText(embedding, "base-url").map(ConfigLoader::parseUri),
+        optionalText(embedding, "api-key"),
+        optionalText(embedding, "api-key-env"),
+        optionalText(embedding, "model").orElse(""),
+        embedding.path("dimensions").asInt(384),
+        Duration.ofSeconds(embedding.path("timeout-seconds").asLong(30L)));
   }
 
   private static ProviderProfile parseProfile(ObjectNode node) {

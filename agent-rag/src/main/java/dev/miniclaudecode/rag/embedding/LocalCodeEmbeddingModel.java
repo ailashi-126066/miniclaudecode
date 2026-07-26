@@ -6,7 +6,7 @@ import dev.langchain4j.model.output.Response;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
-public final class LocalCodeEmbeddingModel implements EmbeddingModel {
+public final class LocalCodeEmbeddingModel implements EmbeddingModel, EmbeddingIdentity {
   public static final int DEFAULT_DIMENSIONS = 384;
   private final int dimensions;
 
@@ -46,6 +46,11 @@ public final class LocalCodeEmbeddingModel implements EmbeddingModel {
 
   public int dimension() {
     return this.dimensions;
+  }
+
+  @Override
+  public String embeddingIdentity() {
+    return "local-hash/" + this.dimensions;
   }
 
   private static String splitIdentifiers(String value) {

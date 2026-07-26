@@ -67,5 +67,44 @@ class ConfigLoaderTest {
     Assertions.assertThat(config.providers()).containsKey(config.activeProvider());
     Assertions.assertThat(config.activeProfile().maxOutputTokens()).isPositive();
     Assertions.assertThat(config.activeProfile().timeout().toSeconds()).isPositive();
+    Assertions.assertThat(config.embedding().provider()).isEqualTo(EmbeddingConfig.Provider.FAST);
+    Assertions.assertThat(config.embedding().dimensions()).isEqualTo(384);
+  }
+
+  @Test
+  void parsesRemoteEmbeddingConfigurationWithEnvironmentKey() throws Exception {
+    Path userConfig = this.tempDir.resolve("user.yaml");
+    Files.writeString(
+        userConfig,
+        "rag:\n"
+            + "  embedding:\n"
+            + "    provider: remote\n"
+            + "    base-url: https://api.example/v1\n"
+            + "    api-key-env: EMBED_KEY\n"
+            + "    model: text-embedding-3-small\n"
+            + "    dimensions: 1536\n"
+            + "    timeout-seconds: 10\n");
+    EmbeddingConfig embedding = new ConfigLoader().load(userConfig, Optional.empty()).embedding();
+    Assertions.assertThat(embedding.provider()).isEqualTo(EmbeddingConfig.Provider.REMOTE);
+    Assertions.assertThat(embedding.baseUrl())
+        .hasValueSatisfying(uri -> Assertions.assertThat(uri).hasHost("api.example"));
+    Assertions.assertThat(embedding.model()).isEqualTo("text-embedding-3-small");
+    Assertions.assertThat(embedding.dimensions()).isEqualTo(1536);
+    Assertions.assertThat(embedding.timeout()).isEqualTo(java.time.Duration.ofSeconds(10L));
+    Assertions.assertThat(embedding.resolvedApiKey(Map.of("EMBED_KEY", "sk-embed")))
+        .contains("sk-embed");
+  }
+
+  @Test
+  void rejectsPlaintextEmbeddingKeyInProjectConfig() throws Exception {
+    Path userConfig = this.tempDir.resolve("user.yaml");
+    Files.writeString(userConfig, "{}");
+    Path projectConfig = this.tempDir.resolve("project.yaml");
+    Files.writeString(
+        projectConfig, "rag:\n  embedding:\n    api-key: sk-project-embedding-secret\n");
+    Assertions.assertThatThrownBy(
+            () -> new ConfigLoader().load(userConfig, Optional.of(projectConfig)))
+        .isInstanceOf(SecurityException.class)
+        .hasMessageContaining("api-key");
   }
 }

@@ -49,6 +49,35 @@ class LuceneCodeIndexTest {
   }
 
   @Test
+  void changingTheEmbeddingIdentityRebuildsTheWholeIndex() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-identity"));
+    Files.writeString(workspace.resolve("App.java"), "class App { void first() {} }\n");
+    Path indexPath = this.temporaryDirectory.resolve("identity-index");
+    LuceneCodeIndex first = new LuceneCodeIndex(indexPath, new FakeEmbeddingModel());
+    first.synchronize(workspace);
+    Assertions.assertThat(first.synchronize(workspace).unchangedFiles()).isEqualTo(1);
+
+    // Same index root, different vector space. Lucene rejects mixed dimensions on one field, so
+    // the index must rebuild from zero instead of appending 16-dim vectors next to 8-dim ones.
+    EmbeddingModel other =
+        new EmbeddingModel() {
+          public Response<Embedding> embed(String text) {
+            return Response.from(Embedding.from(new float[] {1.0F, 0.0F, 0.0F, 0.0F}));
+          }
+
+          public int dimension() {
+            return 4;
+          }
+        };
+    LuceneCodeIndex switched = new LuceneCodeIndex(indexPath, other);
+    UpdateReport rebuilt = switched.synchronize(workspace);
+    Assertions.assertThat(rebuilt.updatedFiles()).isEqualTo(1);
+    Assertions.assertThat(rebuilt.unchangedFiles()).isZero();
+    Assertions.assertThat(switched.stats().vectorDimensions()).isEqualTo(4);
+    Assertions.assertThat(switched.synchronize(workspace).unchangedFiles()).isEqualTo(1);
+  }
+
+  @Test
   void failedEmbeddingBatchLeavesLastCommittedSnapshotReadable() throws Exception {
     Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-failure"));
     Path source = workspace.resolve("Stable.java");

@@ -9,3 +9,10 @@ providers:
     thinking: false
     timeout-seconds: 120
     max-retries: 3
+
+rag:
+  embedding:
+    # fast = offline hashing model (no downloads, reproducible). Switch to `remote` for an
+    # OpenAI-compatible /v1/embeddings endpoint; see examples/config.example.yaml.
+    provider: fast
+    dimensions: 384
