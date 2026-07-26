@@ -17,6 +17,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -43,6 +44,22 @@ public final class WorkspaceScanner {
   }
 
   public List<WorkspaceScanner.ScannedFile> scan(Path workspace) throws IOException {
+    return this.scan(workspace, Map.of());
+  }
+
+  /**
+   * Scans the workspace, skipping the read and SHA-256 of any file whose size and mtime both match
+   * a known fingerprint. Such entries reuse the stored content hash and carry no content.
+   *
+   * <p>The cheap signal only ever skips work — it never declares a file changed on its own, so the
+   * content hash stays the single source of truth. The accepted trade-off: a content change that
+   * keeps the same byte size within one mtime clock granule goes unnoticed until either changes.
+   * That window is theoretical for editor saves, and it buys back one full-tree read plus one
+   * SHA-256 per file on every {@code code_search} call.
+   */
+  public List<WorkspaceScanner.ScannedFile> scan(
+      Path workspace, Map<String, FileFingerprintStore.FileFingerprint> known) throws IOException {
+    Objects.requireNonNull(known, "known must not be null");
     final Path root = workspace.toRealPath();
     final List<WorkspaceScanner.ScannedFile> files = new ArrayList<>();
     Files.walkFileTree(
@@ -62,15 +79,30 @@ public final class WorkspaceScanner {
                 && !attributes.isSymbolicLink()
                 && attributes.size() <= WorkspaceScanner.this.maximumFileBytes
                 && !WorkspaceScanner.knownBinary(file)) {
-              byte[] bytes = Files.readAllBytes(file);
-              WorkspaceScanner.decode(bytes)
-                  .ifPresent(
-                      content ->
-                          files.add(
-                              new WorkspaceScanner.ScannedFile(
-                                  WorkspaceScanner.portable(root.relativize(file)),
-                                  content,
-                                  WorkspaceScanner.sha256(bytes))));
+              String path = WorkspaceScanner.portable(root.relativize(file));
+              long size = attributes.size();
+              long modified = attributes.lastModifiedTime().toMillis();
+              FileFingerprintStore.FileFingerprint previous = known.get(path);
+              if (previous != null
+                  && previous.hasCheapSignal()
+                  && previous.sizeBytes() == size
+                  && previous.modifiedMillis() == modified) {
+                files.add(
+                    new WorkspaceScanner.ScannedFile(
+                        path, Optional.empty(), previous.contentHash(), size, modified));
+              } else {
+                byte[] bytes = Files.readAllBytes(file);
+                WorkspaceScanner.decode(bytes)
+                    .ifPresent(
+                        content ->
+                            files.add(
+                                new WorkspaceScanner.ScannedFile(
+                                    path,
+                                    Optional.of(content),
+                                    WorkspaceScanner.sha256(bytes),
+                                    size,
+                                    modified)));
+              }
             }
 
             return FileVisitResult.CONTINUE;
@@ -124,5 +156,15 @@ public final class WorkspaceScanner {
     }
   }
 
-  public static record ScannedFile(String path, String content, String fingerprint) {}
+  /**
+   * One scanned workspace file. {@code content} is empty exactly when the cheap change signal
+   * matched a known fingerprint and the read was skipped; in that case {@code fingerprint} is the
+   * stored hash, which by construction equals the previous scan's hash.
+   */
+  public static record ScannedFile(
+      String path,
+      Optional<String> content,
+      String fingerprint,
+      long sizeBytes,
+      long modifiedMillis) {}
 }

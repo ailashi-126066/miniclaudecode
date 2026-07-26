@@ -7,14 +7,21 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
+import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public final class JavaAstChunker implements DocumentChunker {
   private final JavaParser parser =
@@ -34,17 +41,7 @@ public final class JavaAstChunker implements DocumentChunker {
     List<CodeChunk> chunks = new ArrayList<>();
     unit.findAll(TypeDeclaration.class).stream()
         .map(TypeDeclaration.class::cast)
-        .forEach(
-            type ->
-                add(
-                    chunks,
-                    path,
-                    packageName,
-                    owner(type),
-                    type.getNameAsString(),
-                    CodeChunk.Kind.TYPE,
-                    type,
-                    lines));
+        .forEach(type -> addType(chunks, path, packageName, unit, type));
     unit.findAll(MethodDeclaration.class)
         .forEach(
             method ->
@@ -89,6 +86,150 @@ public final class JavaAstChunker implements DocumentChunker {
             .thenComparing(CodeChunk::kind)
             .thenComparing(CodeChunk::symbol));
     return List.copyOf(chunks);
+  }
+
+  /**
+   * Emits the TYPE chunk as a structural skeleton instead of the full class body.
+   *
+   * <p>Every method, constructor and field already gets its own chunk, so a TYPE chunk holding the
+   * whole body stored each file roughly (1 + members) times: the index bloated, and one oversized
+   * top-ranked chunk could eat the entire search token budget. The skeleton keeps what only the
+   * type-level view can answer — "what does this class contain" — while member bodies stay in their
+   * member chunks. The chunk id is unchanged: it hashes path/kind/owner/symbol/ startLine, none of
+   * which move.
+   */
+  private static void addType(
+      List<CodeChunk> chunks,
+      String path,
+      String packageName,
+      CompilationUnit unit,
+      TypeDeclaration<?> type) {
+    type.getRange()
+        .ifPresent(
+            range ->
+                chunks.add(
+                    CodeChunk.create(
+                        path,
+                        "java",
+                        CodeChunk.Kind.TYPE,
+                        packageName,
+                        owner(type),
+                        type.getNameAsString(),
+                        range.begin.line,
+                        range.end.line,
+                        skeleton(unit, type))));
+  }
+
+  private static String skeleton(CompilationUnit unit, TypeDeclaration<?> type) {
+    StringBuilder text = new StringBuilder();
+    unit.getPackageDeclaration()
+        .ifPresent(pkg -> text.append(pkg.toString().trim()).append("\n\n"));
+    type.getJavadocComment()
+        .ifPresent(comment -> text.append(comment.toString().stripTrailing()).append('\n'));
+    type.getAnnotations().forEach(annotation -> text.append(annotation).append('\n'));
+    text.append(typeHeader(type)).append(" {\n");
+    if (type instanceof EnumDeclaration enumeration && !enumeration.getEntries().isEmpty()) {
+      text.append("  ")
+          .append(
+              enumeration.getEntries().stream()
+                  .map(entry -> entry.getNameAsString())
+                  .collect(Collectors.joining(", ")))
+          .append(";\n");
+    }
+
+    for (BodyDeclaration<?> member : type.getMembers()) {
+      if (member instanceof FieldDeclaration field) {
+        for (VariableDeclarator variable : field.getVariables()) {
+          text.append("  ").append(fieldLine(field, variable)).append('\n');
+        }
+      } else if (member instanceof ConstructorDeclaration constructor) {
+        text.append("  ")
+            .append(constructor.getDeclarationAsString(true, true, true))
+            .append(";\n");
+      } else if (member instanceof MethodDeclaration method) {
+        text.append("  ").append(method.getDeclarationAsString(true, true, true)).append(";\n");
+      } else if (member instanceof TypeDeclaration<?> nested) {
+        // Nested types get their own TYPE chunk; here only their existence matters.
+        text.append("  ").append(typeHeader(nested)).append(" { ... }\n");
+      }
+    }
+
+    text.append('}');
+    return text.toString();
+  }
+
+  private static String typeHeader(TypeDeclaration<?> type) {
+    String modifiers =
+        type.getModifiers().stream()
+            .map(modifier -> modifier.getKeyword().asString())
+            .collect(Collectors.joining(" "));
+    String prefix = modifiers.isEmpty() ? "" : modifiers + " ";
+    if (type instanceof ClassOrInterfaceDeclaration declaration) {
+      StringBuilder header =
+          new StringBuilder(prefix)
+              .append(declaration.isInterface() ? "interface " : "class ")
+              .append(declaration.getNameAsString());
+      if (!declaration.getTypeParameters().isEmpty()) {
+        header.append('<').append(joinNodes(declaration.getTypeParameters())).append('>');
+      }
+      if (!declaration.getExtendedTypes().isEmpty()) {
+        header.append(" extends ").append(joinNodes(declaration.getExtendedTypes()));
+      }
+      if (!declaration.getImplementedTypes().isEmpty()) {
+        header.append(" implements ").append(joinNodes(declaration.getImplementedTypes()));
+      }
+      return header.toString();
+    }
+    if (type instanceof RecordDeclaration record) {
+      StringBuilder header =
+          new StringBuilder(prefix)
+              .append("record ")
+              .append(record.getNameAsString())
+              .append('(')
+              .append(joinNodes(record.getParameters()))
+              .append(')');
+      if (!record.getImplementedTypes().isEmpty()) {
+        header.append(" implements ").append(joinNodes(record.getImplementedTypes()));
+      }
+      return header.toString();
+    }
+    if (type instanceof EnumDeclaration enumeration) {
+      StringBuilder header =
+          new StringBuilder(prefix).append("enum ").append(enumeration.getNameAsString());
+      if (!enumeration.getImplementedTypes().isEmpty()) {
+        header.append(" implements ").append(joinNodes(enumeration.getImplementedTypes()));
+      }
+      return header.toString();
+    }
+    if (type instanceof AnnotationDeclaration annotation) {
+      return prefix + "@interface " + annotation.getNameAsString();
+    }
+    return prefix + type.getNameAsString();
+  }
+
+  private static String joinNodes(NodeList<? extends Node> nodes) {
+    return nodes.stream().map(Node::toString).collect(Collectors.joining(", "));
+  }
+
+  private static String fieldLine(FieldDeclaration field, VariableDeclarator variable) {
+    String modifiers =
+        field.getModifiers().stream()
+            .map(modifier -> modifier.getKeyword().asString())
+            .collect(Collectors.joining(" "));
+    // Short one-line initializers (constants, defaults) carry signal; anything larger is body,
+    // and bodies belong to member chunks, not the skeleton.
+    String initializer =
+        variable
+            .getInitializer()
+            .map(Node::toString)
+            .map(value -> value.length() <= 60 && !value.contains("\n") ? " = " + value : " = ...")
+            .orElse("");
+    return (modifiers.isEmpty() ? "" : modifiers + " ")
+        + variable.getTypeAsString()
+        + " "
+        + variable.getNameAsString()
+        + initializer
+        + ";";
   }
 
   private static void add(

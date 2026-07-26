@@ -39,6 +39,51 @@ class JavaAstChunkerTest {
   }
 
   @Test
+  void typeChunkIsAStructuralSkeletonWithoutMethodBodies() {
+    String source =
+        "package example.orders;\n\n"
+            + "/** Coordinates order lookups. */\n"
+            + "public class OrderService extends Base implements Lookup {\n"
+            + "  private final String name = \"orders\";\n\n"
+            + "  private static final String QUERY =\n"
+            + "      \"select order_id, customer_id, total from orders where region = ?\";\n\n"
+            + "  OrderService() {}\n\n"
+            + "  String find(int id) {\n"
+            + "    return name + id;\n"
+            + "  }\n\n"
+            + "  static class Inner {\n"
+            + "    void helper() {}\n"
+            + "  }\n"
+            + "}\n";
+    List<CodeChunk> chunks = new JavaAstChunker().chunk("src/OrderService.java", source);
+    CodeChunk outer =
+        chunks.stream()
+            .filter(chunk -> chunk.kind() == Kind.TYPE && chunk.symbol().equals("OrderService"))
+            .findFirst()
+            .orElseThrow();
+    Assertions.assertThat(outer.content())
+        .contains("package example.orders;")
+        .contains("Coordinates order lookups.")
+        .contains("public class OrderService extends Base implements Lookup {")
+        .contains("private final String name = \"orders\";")
+        .contains("OrderService();")
+        .contains("String find(int id);")
+        .contains("static class Inner { ... }")
+        .doesNotContain("return name + id;")
+        .doesNotContain("void helper() {}");
+    // Large initializers are body, not structure: elided from the skeleton.
+    Assertions.assertThat(outer.content()).contains("QUERY = ...;");
+    // The skeleton replaces the content only; the chunk still spans the real file region and the
+    // member bodies still live in their own chunks.
+    Assertions.assertThat(outer.startLine()).isEqualTo(4);
+    Assertions.assertThat(outer.endLine()).isEqualTo(19);
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.kind() == Kind.METHOD && chunk.symbol().equals("find(int)"))
+        .singleElement()
+        .satisfies(chunk -> Assertions.assertThat(chunk.content()).contains("return name + id;"));
+  }
+
+  @Test
   void fallbackUsesTextWindowsForBrokenJava() {
     List<CodeChunk> chunks =
         new FallbackChunker().chunk("Broken.java", "class Broken {\n  void missing(\n");

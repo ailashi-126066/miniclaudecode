@@ -74,53 +74,52 @@ public final class LuceneCodeIndex {
   }
 
   public LuceneCodeIndex.UpdateReport synchronize(Path workspace) throws IOException {
-    List<WorkspaceScanner.ScannedFile> scanned = this.scanner.scan(workspace);
-    Map<String, String> previous = this.fingerprintStore.load();
     Path lucenePath = this.indexRoot.resolve("lucene");
     Files.createDirectories(lucenePath);
-    Directory existing = FSDirectory.open(lucenePath);
 
-    try {
-      if (!DirectoryReader.indexExists(existing)) {
-        previous = Map.of();
-      }
-    } catch (Throwable var24) {
-      if (existing != null) {
-        try {
-          existing.close();
-        } catch (Throwable var23) {
-          var24.addSuppressed(var23);
-        }
-      }
-
-      throw var24;
+    // The fingerprints must be loaded before the scan because the scanner uses them to skip
+    // reading unchanged files — and they must be discarded when no Lucene index exists, so a
+    // deleted index directory can never be masked by a surviving fingerprint file.
+    Map<String, FileFingerprintStore.FileFingerprint> previous;
+    try (Directory probe = FSDirectory.open(lucenePath)) {
+      previous = DirectoryReader.indexExists(probe) ? this.fingerprintStore.load() : Map.of();
     }
 
-    if (existing != null) {
-      existing.close();
-    }
-
-    Map<String, String> current = new HashMap<>();
-    scanned.forEach(file -> current.put(file.path(), file.fingerprint()));
+    List<WorkspaceScanner.ScannedFile> scanned = this.scanner.scan(workspace, previous);
+    Map<String, FileFingerprintStore.FileFingerprint> current = new HashMap<>();
+    scanned.forEach(
+        file ->
+            current.put(
+                file.path(),
+                new FileFingerprintStore.FileFingerprint(
+                    file.fingerprint(), file.sizeBytes(), file.modifiedMillis())));
     int unchanged = 0;
     int updated = 0;
     int chunks = 0;
     Set<String> removed = new HashSet<>(previous.keySet());
     removed.removeAll(current.keySet());
-    Directory directory = FSDirectory.open(lucenePath);
 
-    try {
+    try (Directory directory = FSDirectory.open(lucenePath)) {
       IndexWriter writer =
           new IndexWriter(directory, new IndexWriterConfig(new StandardAnalyzer()));
       boolean completed = false;
 
       try {
         for (WorkspaceScanner.ScannedFile file : scanned) {
-          if (file.fingerprint().equals(previous.get(file.path()))) {
+          FileFingerprintStore.FileFingerprint before = previous.get(file.path());
+          if (before != null && file.fingerprint().equals(before.contentHash())) {
             unchanged++;
           } else {
-            List<Document> documents =
-                this.documents(this.chunker.chunk(file.path(), file.content()));
+            // A changed file always carries content: the scanner only omits it when the cheap
+            // signal matched an entry of `previous`, and that same entry makes the branch above
+            // take the unchanged path. Failing loudly here beats silently skipping a re-chunk.
+            String content =
+                file.content()
+                    .orElseThrow(
+                        () ->
+                            new IllegalStateException(
+                                "scanner returned a changed file without content: " + file.path()));
+            List<Document> documents = this.documents(this.chunker.chunk(file.path(), content));
             writer.updateDocuments(new Term("path", file.path()), documents);
             updated++;
             chunks += documents.size();
@@ -140,20 +139,6 @@ public final class LuceneCodeIndex {
           writer.rollback();
         }
       }
-    } catch (Throwable var26) {
-      if (directory != null) {
-        try {
-          directory.close();
-        } catch (Throwable var22) {
-          var26.addSuppressed(var22);
-        }
-      }
-
-      throw var26;
-    }
-
-    if (directory != null) {
-      directory.close();
     }
 
     this.fingerprintStore.save(current);
