@@ -27,15 +27,30 @@ public final class ProcessRunner {
   private static final Duration TERMINATION_GRACE = Duration.ofMillis(300L);
   private static final Duration STREAM_DRAIN_TIMEOUT = Duration.ofSeconds(2L);
   private final ShellSelector shellSelector;
+  private final CommandSandbox sandbox;
   private final Consumer<Process> startedHook;
 
   public ProcessRunner(ShellSelector shellSelector) {
-    this(shellSelector, process -> {});
+    this(shellSelector, CommandSandbox.none(), process -> {});
+  }
+
+  public ProcessRunner(ShellSelector shellSelector, CommandSandbox sandbox) {
+    this(shellSelector, sandbox, process -> {});
   }
 
   ProcessRunner(ShellSelector shellSelector, Consumer<Process> startedHook) {
+    this(shellSelector, CommandSandbox.none(), startedHook);
+  }
+
+  ProcessRunner(
+      ShellSelector shellSelector, CommandSandbox sandbox, Consumer<Process> startedHook) {
     this.shellSelector = Objects.requireNonNull(shellSelector, "shellSelector must not be null");
+    this.sandbox = Objects.requireNonNull(sandbox, "sandbox must not be null");
     this.startedHook = Objects.requireNonNull(startedHook, "startedHook must not be null");
+  }
+
+  public String sandboxDescription() {
+    return this.sandbox.describe();
   }
 
   public ProcessRunner.ProcessResult run(
@@ -49,7 +64,10 @@ public final class ProcessRunner {
 
       Process process;
       try {
-        ProcessBuilder builder = new ProcessBuilder(this.shellSelector.command(request.command()));
+        ProcessBuilder builder =
+            new ProcessBuilder(
+                this.sandbox.wrap(
+                    this.shellSelector.command(request.command()), request.workingDirectory()));
         builder.directory(request.workingDirectory().toFile());
         builder.redirectErrorStream(request.mergeErrorStream());
         process = builder.start();

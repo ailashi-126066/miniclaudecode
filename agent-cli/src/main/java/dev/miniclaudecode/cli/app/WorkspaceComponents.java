@@ -29,6 +29,7 @@ import dev.miniclaudecode.tools.fs.ListTool;
 import dev.miniclaudecode.tools.fs.ReadTool;
 import dev.miniclaudecode.tools.fs.WorkspacePathResolver;
 import dev.miniclaudecode.tools.fs.WriteTool;
+import dev.miniclaudecode.tools.process.CommandSandbox;
 import dev.miniclaudecode.tools.process.ProcessRunner;
 import dev.miniclaudecode.tools.process.RunCommandTool;
 import dev.miniclaudecode.tools.process.ShellSelector;
@@ -141,8 +142,12 @@ final class WorkspaceComponents implements AutoCloseable {
         agentTools.add(new WriteTool(paths, permissions));
         agentTools.add(new EditTool(paths, permissions));
         agentTools.add(new ApplyPatchTool(paths, permissions));
+        CommandSandbox sandbox =
+            CommandSandbox.detect(
+                CommandSandbox.Policy.parse(environment.getOrDefault("MINICLAUDE_SANDBOX", "auto")),
+                workspace);
         agentTools.add(
-            new RunCommandTool(paths, new ProcessRunner(ShellSelector.system()), results));
+            new RunCommandTool(paths, new ProcessRunner(ShellSelector.system(), sandbox), results));
         agentTools.add(new WebFetchTool(results));
         TodoTool todoTool = new TodoTool();
         agentTools.add(todoTool);

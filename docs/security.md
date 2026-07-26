@@ -8,6 +8,14 @@
 
 命令由 `ProcessBuilder` 启动：Windows 选择 PowerShell，Linux/macOS 选择 POSIX shell。分类器识别删除、权限、系统管理、网络下载和其他高风险模式；安全测试/构建命令可以直接执行，高风险命令要求审批。
 
+### OS 级沙箱
+
+分类与审批决定命令是否运行；沙箱限制它运行后的影响范围。Linux 使用 bubblewrap（`bwrap`：PID/UTS/IPC namespace 隔离、`--new-session` 防 TIOCSTI 终端注入、系统目录只读、仅工作区可写），macOS 使用系统自带的 `sandbox-exec`（写入限制在工作区与临时目录）。Windows 没有纯 Java 可用的隔离原语，会显式降级。
+
+两个刻意的取舍：**网络默认放行**（`mvn`/`npm install` 需要网络，一个会被用户关掉的沙箱不如一个被保留的弱沙箱——文件系统隔离才是主要收益）；**探测不到后端时降级而不是拒绝执行**（工具保持可用），但降级是可见的——审批提示会写明当前沙箱状态。通过 `MINICLAUDE_SANDBOX` 环境变量选择 `auto`（默认）、`required`（无后端时拒绝执行）或 `off`。
+
+诚实的边界说明：这不是完整的安全边界。沙箱内的进程仍可访问网络、读取大部分文件系统（macOS 策略刻意允许读），bubblewrap 的用户 namespace 在部分发行版默认关闭。真实 Claude Code 的 sandbox 更完善；本项目的防御纵深是「分类 → 审批 → 沙箱」三层叠加，而非任何单层。
+
 Web Fetch 仅允许 HTTP(S)，手动处理并重新校验最多五次重定向，限制连接/请求时间和响应字节。localhost、私网和 link-local 地址需要审批，已知云元数据地址硬阻断。DNS 在每次重定向后重新分类。
 
 ## MCP 与 Skills

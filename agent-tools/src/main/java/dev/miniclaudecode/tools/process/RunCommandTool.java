@@ -140,13 +140,17 @@ public final class RunCommandTool implements AgentTool {
       Object requestValue = context.attributes().get("approvalRequest");
       Object decisionValue = context.attributes().get("approvalDecision");
       if (requestValue == null && decisionValue == null) {
+        // The sandbox state travels inside the prompt so a user approving a command always sees
+        // whether OS-level isolation applies or the platform degraded to classification-only.
         ApprovalRequest request =
             new ApprovalRequest(
                 UUID.randomUUID(),
                 call,
                 risk,
                 command,
-                "Shell commands can modify files or cause external side effects",
+                "Shell commands can modify files or cause external side effects (sandbox: "
+                    + this.processRunner.sandboxDescription()
+                    + ")",
                 Optional.empty(),
                 Optional.empty(),
                 Instant.now(this.clock));
