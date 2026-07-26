@@ -30,7 +30,7 @@ JLine / Picocli CLI (composition root)
         └── index / rag diagnostics
 ```
 
-依赖方向和状态图详见 [docs/architecture.md](docs/architecture.md)。
+依赖方向和状态图详见 [docs/architecture.md](docs/architecture.md)。想逐文件读懂代码，从分章教程 [docs/tutorial/00-index.md](docs/tutorial/00-index.md) 开始——每章给出入口文件、方法表和可跟着断点走的调用链。
 
 ## 5 分钟启动
 
