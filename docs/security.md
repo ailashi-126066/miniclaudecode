@@ -1,12 +1,28 @@
 # Security model
 
+## 不可信内容与受控委派
+
+仓库文件、Web、MCP、Skill、历史记忆和外置工具结果都属于不可信数据。
+`RegistryToolExecutor` 会扫描成功的工具结果，识别指令覆盖、密钥外传、系统 Prompt
+暴露和强迫工具调用等提示注入信号。命中内容会携带风险等级与信号列表，但扫描本身
+不会扩大权限，也不能替代审批和沙箱。
+
+`agent:delegate` 创建的子 Agent 只拥有只读工具白名单，不能写文件、运行命令、调用
+MCP 或向用户申请权限。规划、写入、审批、验证和最终答复始终由中心 Agent 完成。
+
 ## 文件系统
 
 所有本地文件工具接收工作区相对路径。解析同时检查 lexical normalization、真实路径与符号链接，工作区外路径会拒绝。写入使用临时文件和原子替换；审批请求绑定目标、before hash 和 diff hash，避免 TOCTOU 后应用过期审批。
 
 ## 命令与网络
 
-命令由 `ProcessBuilder` 启动：Windows 选择 PowerShell，Linux/macOS 选择 POSIX shell。分类器识别删除、权限、系统管理、网络下载和其他高风险模式；安全测试/构建命令可以直接执行，高风险命令要求审批。
+命令先经过 `CommandPolicy`：deny fragment 命中时硬拒绝，审批不能绕过；allow prefix
+仅快速放行非高危命令；未命中项在严格 allowlist 模式下拒绝，否则交给风险分类和审批。
+安全策略只能来自用户配置，项目配置不能覆盖 `security`。
+
+通过策略后，命令由 `ProcessBuilder` 启动：Windows 选择 PowerShell，Linux/macOS
+选择 POSIX shell。分类器识别删除、权限、系统管理、网络下载和其他高风险模式；安全
+测试/构建命令可以直接执行，高风险命令要求审批。
 
 ### OS 级沙箱
 
@@ -38,4 +54,7 @@ JSONL codec 会按字段名清理 authorization、api-key、token、secret，并
 | Shell（shell:run） | ✓ | ✓ | — | ✓ |
 | Web Fetch、MCP 工具 | ✓ | — | — | — |
 
-选择工具不支持的编号会被拒绝并要求重选，而不是静默降级为 once。永久规则写入用户目录 `permissions.json`。建议面试演示默认使用 once；只有明确理解目标范围时才使用 permanent。
+选择工具不支持的编号会被拒绝并要求重选，而不是静默降级为 once。永久规则写入用户目录
+`permissions.json`，文件修改与 Shell 共用同一个持久化规则存储。TURN 规则同时绑定
+session id 和 turn id，切换或恢复其他会话不会继承旧会话的临时授权。建议面试演示默认
+使用 once；只有明确理解目标范围时才使用 permanent。

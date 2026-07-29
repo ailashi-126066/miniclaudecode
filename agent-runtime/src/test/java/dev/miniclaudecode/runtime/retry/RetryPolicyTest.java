@@ -34,4 +34,14 @@ class RetryPolicyTest {
             this.policy.decide("http_429", true, 0, Optional.of(Duration.ofSeconds(2L))).delay())
         .isEqualTo(Duration.ofSeconds(2L));
   }
+
+  @Test
+  void honorsThePerRequestMaximumRetryOverride() {
+    Assertions.assertThat(this.policy.decide("http_503", true, 0, Optional.empty(), 0).retry())
+        .isFalse();
+    Assertions.assertThat(this.policy.decide("http_503", true, 4, Optional.empty(), 5).retry())
+        .isTrue();
+    Assertions.assertThat(this.policy.decide("http_503", true, 5, Optional.empty(), 5).retry())
+        .isFalse();
+  }
 }

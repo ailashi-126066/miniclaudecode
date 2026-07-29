@@ -4,6 +4,7 @@ import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
 import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
 import dev.miniclaudecode.domain.runtime.CancellationToken;
+import dev.miniclaudecode.domain.session.AgentStatus;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -266,7 +267,7 @@ public final class Repl {
       Throwable cause = error.getCause() == null ? error : error.getCause();
       renderer.submit(new RenderEvent.Error(safeMessage(cause)));
       renderer.renderAvailable();
-      return TurnOutcome.completed();
+      return TurnOutcome.failed();
     }
   }
 
@@ -300,8 +301,11 @@ public final class Repl {
   }
 
   public record TurnOutcome(
-      Optional<ApprovalRequest> approvalRequest, Optional<String> approvalPreview) {
+      AgentStatus status,
+      Optional<ApprovalRequest> approvalRequest,
+      Optional<String> approvalPreview) {
     public TurnOutcome {
+      status = Objects.requireNonNull(status, "status must not be null");
       approvalRequest = Objects.requireNonNull(approvalRequest, "approvalRequest must not be null");
       approvalPreview =
           Objects.requireNonNull(approvalPreview, "approvalPreview must not be null")
@@ -310,7 +314,15 @@ public final class Repl {
     }
 
     public static TurnOutcome completed() {
-      return new TurnOutcome(Optional.empty(), Optional.empty());
+      return finished(AgentStatus.COMPLETED);
+    }
+
+    public static TurnOutcome failed() {
+      return finished(AgentStatus.FAILED);
+    }
+
+    public static TurnOutcome finished(AgentStatus status) {
+      return new TurnOutcome(status, Optional.empty(), Optional.empty());
     }
 
     public static TurnOutcome waitingFor(ApprovalRequest request) {
@@ -318,7 +330,8 @@ public final class Repl {
     }
 
     public static TurnOutcome waitingFor(ApprovalRequest request, String preview) {
-      return new TurnOutcome(Optional.of(request), Optional.ofNullable(preview));
+      return new TurnOutcome(
+          AgentStatus.WAITING_APPROVAL, Optional.of(request), Optional.ofNullable(preview));
     }
   }
 }

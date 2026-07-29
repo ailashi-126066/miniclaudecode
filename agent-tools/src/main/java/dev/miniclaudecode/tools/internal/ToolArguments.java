@@ -68,6 +68,20 @@ public final class ToolArguments {
     }
   }
 
+  public int optionalNonNegativeInt(String name, int defaultValue, int maximum) {
+    JsonNode value = this.root.get(name);
+    if (value != null && !value.isNull()) {
+      if (value.canConvertToInt() && value.intValue() >= 0 && value.intValue() <= maximum) {
+        return value.intValue();
+      } else {
+        throw new IllegalArgumentException(
+            "argument '" + name + "' must be between 0 and " + maximum);
+      }
+    } else {
+      return defaultValue;
+    }
+  }
+
   public boolean optionalBoolean(String name, boolean defaultValue) {
     JsonNode value = this.root.get(name);
     if (value == null || value.isNull()) {

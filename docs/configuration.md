@@ -1,6 +1,8 @@
 # Configuration
 
-用户配置位于 `~/.mini-claude-code/config.yaml`，项目覆盖配置位于 `<workspace>/.mini-claude-code/config.yaml`。对象字段递归合并，项目配置禁止出现明文 `api-key`。
+用户配置位于 `~/.mini-claude-code/config.yaml`，项目覆盖配置位于
+`<workspace>/.mini-claude-code/config.yaml`。对象字段递归合并；项目配置禁止出现
+明文 `api-key`，也禁止覆盖用户控制的 `security` 策略。
 
 无需手工编辑 YAML 也可以运行配置向导：
 
@@ -23,6 +25,8 @@ providers:
     thinking: false
     timeout-seconds: 120
     max-retries: 3
+    output-protocol: json
+    max-output-repairs: 2
 ```
 
 Provider 类型：
@@ -33,7 +37,45 @@ Provider 类型：
 
 Key 解析优先级是 `api-key-env` 指向的环境变量，其次是用户配置中的 `api-key`。允许在用户配置中写明文 Key 是为了本地使用方便，但应限制文件权限并避免同步到网盘；更推荐环境变量。
 
-`/provider`、`/model` 和 `/thinking on|off` 只影响当前 CLI 进程。每个 profile 当前配置一个默认模型，可通过增加不同 profile 表示同一网关的多个模型。
+`/provider`、`/model` 和 `/thinking on|off` 只影响当前 CLI 进程。Provider 客户端按
+profile、模型、thinking 模式和最大输出 Token 分别缓存，因此切换 thinking 会创建匹配
+模式的客户端：Anthropic 会设置 thinking budget，OpenAI-compatible 会设置 reasoning
+effort，Ollama 会把 think 标志传给后端。具体模型仍必须实际支持推理输出。
+
+`max-retries` 控制当前 profile 每次模型调用遇到可重试错误时的最大重试次数，取值
+`0..10`；认证、配置和非法请求错误不会重试。
+
+`output-protocol` 控制最终回答的终止契约：
+
+- `natural-language`：非空自然语言即为有效终止，适合 Claude/Ollama 等模型。
+- `json`：要求 `{"status":"completed","final":"..."}`，适合需要显式完成标志的模型。
+
+无效输出会被反馈给模型重新格式化，最多执行 `max-output-repairs` 次（`0..5`）。修复
+耗尽后任务明确失败，不会把不合法输出猜测成成功。
+
+## Shell 黑白名单
+
+命令策略只能放在用户配置：
+
+```yaml
+security:
+  shell:
+    allowlist-only: false
+    allow-prefixes:
+      - rg
+      - git status
+      - git diff
+      - get-content
+    deny-fragments:
+      - rm -rf
+      - git reset --hard
+      - git clean -f
+      - diskpart
+```
+
+deny 始终优先，不能用一次审批绕过。命中 allow 前缀的命令仍会经过高危检查，避免
+`git` 或 shell 之类过宽前缀放行危险子命令。未命中的命令在
+`allowlist-only: false` 时进入风险分类和审批；设为 `true` 时直接拒绝。
 
 ## RAG / Embeddings
 

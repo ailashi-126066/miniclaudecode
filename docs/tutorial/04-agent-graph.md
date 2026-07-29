@@ -1,6 +1,6 @@
 # 04 状态图引擎：agent 的心脏
 
-前三章讲清了从 `main` 到 REPL 的组装（参见 01-boot-and-wiring.md）、agent 的领域词汇（参见 02-domain-model.md）和一次轮次的外层生命周期（参见 03-turn-lifecycle.md）。本章深入轮次内部：`agent-runtime` 模块用 LangGraph4j 把「模型调用 → 工具执行 → 再调模型」这个循环建成一张显式状态图。读完本章你会掌握三样东西：状态的每个 channel 是什么、图上每个节点和每条边做什么、以及为什么图中的三个循环（模型-工具、压缩、重试）都不可能无限转下去。这是全仓库最核心的一章，后面讲工具（06）、审批（07）、持久化（08）时都会回跳到这里。
+前三章讲清了从 `main` 到 REPL 的组装（参见 01-boot-and-wiring.md）、agent 的领域词汇（参见 02-domain-model.md）和一次轮次的外层生命周期（参见 03-turn-lifecycle.md）。本章深入轮次内部：`agent-runtime` 模块用 LangGraph4j 把「模型调用 → 工具执行 → 再调模型」这个循环建成一张显式状态图。读完本章你会掌握状态 channel、节点与边，以及模型-工具、压缩、重试、验证和输出修复为什么都不会无限循环。
 
 ## 本章文件
 
@@ -20,8 +20,9 @@
 12. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/node/FinishNode.java`
 13. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/route/ResponseRouter.java`
 14. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/retry/RetryPolicy.java`
-15. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/context/ContextPlanner.java`
-16. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/context/DeterministicContextReducer.java`
+15. `agent-context/src/main/java/dev/miniclaudecode/context/ContextPlanner.java`
+16. `agent-context/src/main/java/dev/miniclaudecode/context/ContextPipeline.java`
+17. `agent-context/src/main/java/dev/miniclaudecode/context/DeterministicContextReducer.java`
 17. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/ToolExecutor.java`
 18. `agent-runtime/src/main/java/dev/miniclaudecode/runtime/LedgeredToolExecutor.java`
 
@@ -48,7 +49,7 @@
 | `providerMetadata` | 空 Map | 供应商元数据（token 用量等，参见 05-model-providers.md） |
 | `status` | `RUNNING` | `AgentStatus`：RUNNING / WAITING_APPROVAL / COMPLETED / FAILED / CANCELLED |
 | `error` / `failureType` / `failureRetryable` | `""` / `""` / `false` | 最近一次失败的信息、类型标签、供应商是否声明可重试 |
-| `retryCount` / `compactionCount` / `modelSteps` / `toolSteps` / `verificationPrompts` | `0` | 五个计数器，分别约束重试、压缩、模型步、工具步、验证提示——三个循环有界全靠它们 |
+| `retryCount` / `compactionCount` / `modelSteps` / `toolSteps` / `verificationPrompts` / `outputRepairCount` | `0` | 分别约束重试、压缩、模型步、工具步、验证提示和输出修复 |
 | `trace` | 空 List | 节点访问轨迹，appender 语义，调试与测试断言用 |
 
 ## MiniClaudeState：状态的类型化读取器
@@ -72,7 +73,8 @@
 
 ## AgentGraphFactory：把节点连成图
 
-`AgentGraphFactory` 在构造时把 8 个节点和所有边编译成一张 `CompiledGraph<MiniClaudeState>`，对外只暴露三个入口。
+`AgentGraphFactory` 在构造时把 9 个节点和所有边编译成一张
+`CompiledGraph<MiniClaudeState>`，对外只暴露三个入口。
 
 | 方法 | 参数 | 做什么 |
 |---|---|---|
@@ -92,9 +94,11 @@ flowchart TD
     CM -- "tools" --> ET[execute_tools]
     CM -- "compact" --> CC
     CM -- "retry" --> RE[recover_error]
+    CM -- "repair" --> RO[repair_output]
     CM -- "verify" --> RV[require_verification]
     CM -- "finish" --> FI[finish]
     RE --> CM
+    RO --> CM
     RV --> CM
     ET -- "model" --> CM
     ET -- "approval" --> AA[await_approval]
@@ -103,9 +107,11 @@ flowchart TD
     FI --> END([END])
 ```
 
-`recursionLimit` 是最后的保险丝，按**节点执行次数**而非逻辑步数计算：`2 * (maxModelSteps + 1) + maxToolSteps + 16`——一次重试消耗两次节点执行（recover_error + call_model），压缩与验证门也各占一次；源码注释解释了此前按单倍计数会在业务限额触发前先撞上 LangGraph4j 的递归保护，抛异常而不是干净地进入 FAILED。
+`recursionLimit` 是最后的保险丝，按**节点执行次数**而非逻辑步数计算：
+`3 * (maxModelSteps + 1) + maxToolSteps + 16`。重试、压缩、验证和输出修复都会额外
+消耗节点执行次数，业务计数上限仍先于图保险丝生效。
 
-## 八个节点
+## 九个节点
 
 所有节点都实现 `AsyncNodeAction<MiniClaudeState>`，唯一方法是 `apply(MiniClaudeState state)`，返回 `CompletableFuture<Map<String, Object>>` 局部更新。逐个看：
 
@@ -115,10 +121,11 @@ flowchart TD
 | `CallModelNode` | 先查 `modelSteps >= limits.maxModelSteps()`，超限直接 FAILED（"model step limit exceeded"）；否则用 `state.messages()` 重建 `ModelRequest`（压缩后的消息因此生效），`modelClient.stream(request)` 订阅流式响应 | 见下文 |
 | `ExecuteToolsNode` | 执行 `pendingToolCalls`；先算 carried（见下文），再查 `toolSteps + outstanding.size() > limits.maxToolSteps()` 超限即 FAILED；否则委托 `ToolExecutor.execute(...)` | `messages`（追加 `ToolMessage`）`toolResults` `toolSteps` 等 |
 | `AwaitApprovalNode` | 断言 `pendingApproval` 存在（否则抛异常），仅写 `status=WAITING_APPROVAL`。编译时 `interruptAfter` 让图恰好停在它之后 | `status` |
-| `CompactContextNode` | 调 `DeterministicContextReducer.reduce(state.messages())` 压缩历史，清空错误字段，`compactionCount + 1` | `messages` `compactionCount` |
+| `CompactContextNode` | 调可插拔 `ContextPipeline` 压缩历史，清空错误字段，`compactionCount + 1` | `messages` `compactionCount` |
 | `RecoverErrorNode` | 用 `RetryPolicy.decide(...)` 复核；决定重试则经 `CompletableFuture.delayedExecutor` 延迟后清 `error`、`retryCount + 1`（不重试则返回空更新——防御分支，路由已保证到这里必然可重试） | `error` `retryCount` |
 | `RequireVerificationNode` | 向 `messages` 追加一条 `SystemMessage`「Completion gate」提示（要求补完任务清单并用 `shell:run` 跑最窄验证），`verificationPrompts + 1`，回到 call_model | `messages` `verificationPrompts` |
-| `FinishNode` | 收敛终态：CANCELLED 保持 CANCELLED（取消也带 error 文本但不算失败）；否则有 `error` 即 FAILED，无则 COMPLETED | `status` |
+| `RepairOutputNode` | 把 `OutputProtocol` 生成的格式修复指令追加给模型，并增加有界修复计数 | `messages` `outputRepairCount` |
+| `FinishNode` | 收敛终态并再次验证输出协议；JSON 协议会把 `final` 字段规范化为最终文本 | `status` `finalText` |
 
 ### CallModelNode 的流式聚合
 
@@ -142,7 +149,8 @@ flowchart TD
 | | 有 `error`，不可重试 | `finish` → finish |
 | | 无错且 `pendingToolCalls` 非空 | `tools` → execute_tools |
 | | 无错无工具，但 `requiresVerification(state)` 或 `hasIncompleteTasks(state)` | `verify` → require_verification |
-| | 以上皆否 | `finish` → finish |
+| | 输出不满足当前协议且修复次数未满 | `repair` → repair_output |
+| | 输出有效，或修复次数耗尽 | `finish` → finish |
 | `afterTools()` | 有 `error` | `finish` → finish |
 | | `pendingApproval` 存在 | `approval` → await_approval |
 | | 否则 | `model` → call_model |
@@ -162,7 +170,7 @@ flowchart TD
 
 `Decision(boolean retry, Duration delay)` 是内部 record。注意路由（`afterModel`）与执行（`RecoverErrorNode`）各调一次 `decide`：输入相同、`retry` 位确定性一致，抖动只影响 `delay`。
 
-## ContextPlanner 与 DeterministicContextReducer：压缩的判定与执行
+## ContextPlanner、ContextPipeline 与 Reducer：压缩的判定与执行
 
 `ContextPlanner` 只做算术，回答「该不该压缩」。
 
@@ -172,7 +180,10 @@ flowchart TD
 | `isContextOverflow(failureType, message)` | 失败类型与错误文本 | 匹配 `context_length` / `context window` / `too many tokens` / `prompt is too long` 任一子串即认定为上下文溢出 |
 | `estimateTokens(messages)` | 当前对话 | 粗估：字符数 ÷ 4，每条消息 +12、每个工具调用参数 +16 |
 
-`DeterministicContextReducer` 执行压缩，纯规则、不调模型，默认保留最近 8 条消息、行内工具输出上限 512 字符。`reduce(messages)` 的流程：消息不足 8 条只做旧工具输出瘦身；否则取 `size - 8` 为拟定切点，经 `safeCutoff` 对齐后，切点前的历史折叠成一条「Conversation compact summary」`SystemMessage`（原有 SystemMessage 原样保留），切点后的尾巴保留原文（最后 3 条完全不动，更早的超长 `ToolMessage` 替换为 `[older tool output omitted; reference=sha256:...]` 占位，`extractReference` 优先复用文本里已有的 sha256 引用）。
+`ContextPipeline` 按顺序组合多个 `ContextTransformer`，Runtime 不导入具体压缩算法。
+默认的 `DeterministicContextReducer` 纯规则、不调模型，保留最近 8 条消息、行内工具输出
+上限 512 字符。`reduce(messages)` 的流程：消息不足 8 条只做旧工具输出瘦身；否则取
+`size - 8` 为拟定切点，经 `safeCutoff` 对齐后折叠历史。
 
 `safeCutoff` 是这里最关键的十几行——供应商要求每个 `tool_result` 前面必须有产生它的 `tool_use`，朴素切点一旦落在多工具调用组中间，下一次请求必被拒绝，而压缩每轮只跑一次，这种失败是终态的：
 
@@ -210,13 +221,15 @@ if (backwards > 0 || !(messages.get(0) instanceof ToolMessage)) {
 2. **不确定副作用二次确认**：命中 `PENDING` / `UNKNOWN`（`isUncertain`）且该工具不在 `SAFE_RETRY_TOOLS`（`workspace:read` / `list` / `glob` / `grep` / `code_search`、`task:todo`——无副作用、可放心重跑）——说明上一个进程可能死在这个工具执行中途。没有审批决定时，构造一个 HIGH 风险 `ApprovalRequest`（文案即「A previous process stopped while this tool might have been executing...」）返回 `APPROVAL_REQUIRED`；有决定时，校验 `toolCallId` 与 `approvalId` 双匹配且非 REJECT 才放行，否则返回 `CANCELLED`。
 3. **正常执行**：先落一条 `PENDING` 账本记录，再委托内层执行，完成后 `recordResult` 落终态；中途异常由 `markInterrupted` 记 `UNKNOWN`——正是下一次恢复时触发第 2 路的伏笔。
 
-## 三个循环为何有界
+## 所有回路为何有界
 
 - **模型-工具循环**（call_model ⇄ execute_tools）：`CallModelNode` 在入口检查 `modelSteps >= maxModelSteps`，`ExecuteToolsNode` 检查 `toolSteps + outstanding > maxToolSteps`，超限即写 FAILED，路由随即导向 finish。计数只增不减，循环必然终止。
 - **压缩循环**（→ compact_context → call_model）：`afterPrepare` 与 `afterModel` 的溢出分支都带 `compactionCount == 0` 前置条件——**每轮最多压缩一次**。压缩后仍溢出就走重试或失败，不会反复压缩。
-- **重试循环**（call_model → recover_error → call_model）：`RetryPolicy` 要求 `retriesAlreadyAttempted < 3`，`retryCount` 只在模型成功时清零，连续失败最多 3 次退避后必然 finish。取消（CANCELLED）在进入重试判定之前就被拦截为终态。
+- **重试循环**（call_model → recover_error → call_model）：`RetryPolicy` 要求重试次数低于当前 Provider 的 `max-retries`，`retryCount` 只在模型成功时清零。取消（CANCELLED）在进入重试判定之前就被拦截为终态。
+- **输出修复循环**（call_model → repair_output → call_model）：只在最终输出不满足当前 `OutputProtocol` 时进入，由 Provider 的 `max-output-repairs` 封顶；耗尽后 `FinishNode` 把任务标为 FAILED。
 
-另有第四个小循环（require_verification → call_model）由 `verificationPrompts < 2` 封顶；即便未来某处判定出错，`recursionLimit` 仍会按节点执行次数硬性熔断。
+验证回路（require_verification → call_model）由 `verificationPrompts < 2` 封顶；即便未来
+某处判定出错，`recursionLimit` 仍会按节点执行次数硬性熔断。
 
 ## 关键调用链
 

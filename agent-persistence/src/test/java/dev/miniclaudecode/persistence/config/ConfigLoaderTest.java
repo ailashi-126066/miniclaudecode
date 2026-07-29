@@ -107,4 +107,30 @@ class ConfigLoaderTest {
         .isInstanceOf(SecurityException.class)
         .hasMessageContaining("api-key");
   }
+
+  @Test
+  void rejectsSecurityPolicyOverridesInProjectConfig() throws Exception {
+    Path userConfig = this.tempDir.resolve("user.yaml");
+    Files.writeString(userConfig, "{}");
+    Path projectConfig = this.tempDir.resolve("project.yaml");
+    Files.writeString(
+        projectConfig,
+        "security:\n" + "  shell:\n" + "    allowlist-only: false\n" + "    deny-fragments: []\n");
+
+    Assertions.assertThatThrownBy(
+            () -> new ConfigLoader().load(userConfig, Optional.of(projectConfig)))
+        .isInstanceOf(SecurityException.class)
+        .hasMessageContaining("security");
+  }
+
+  @Test
+  void commandPolicyAccessorsReturnDefensiveCopies() {
+    CommandPolicyConfig policy = CommandPolicyConfig.defaults();
+
+    policy.allowPrefixes().clear();
+    policy.denyFragments().clear();
+
+    Assertions.assertThat(policy.allowPrefixes()).isNotEmpty();
+    Assertions.assertThat(policy.denyFragments()).isNotEmpty();
+  }
 }

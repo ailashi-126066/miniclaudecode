@@ -15,6 +15,21 @@
     <dependencies>
         <dependency>
             <groupId>dev.miniclaudecode</groupId>
+            <artifactId>agent-model-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.miniclaudecode</groupId>
+            <artifactId>agent-context</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.miniclaudecode</groupId>
+            <artifactId>agent-prompt</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.miniclaudecode</groupId>
             <artifactId>agent-runtime</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -103,6 +118,8 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

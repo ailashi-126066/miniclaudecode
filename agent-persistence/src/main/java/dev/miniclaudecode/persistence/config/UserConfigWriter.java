@@ -95,6 +95,10 @@ public final class UserConfigWriter {
     node.put("thinking", profile.thinking());
     node.put("timeout-seconds", profile.timeout().toSeconds());
     node.put("max-retries", profile.maxRetries());
+    node.put(
+        "output-protocol",
+        profile.outputProtocol().name().toLowerCase(Locale.ROOT).replace('_', '-'));
+    node.put("max-output-repairs", profile.maxOutputRepairs());
     return node;
   }
 

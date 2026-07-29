@@ -34,11 +34,19 @@ mcp:
 ---
 name: java-review
 description: Review Java changes for concurrency and API compatibility.
+tags: java, review, concurrency
+triggers: review Java changes, inspect thread safety
+boundaries: do not deploy, do not change permissions
+examples: review this patch for race conditions
 ---
 
 # Java review
 
 Inspect tests and public API before suggesting a change.
 ```
+
+模型应先调用 `skills:route_skill`，仅用上述元数据召回和重排候选，再调用
+`skills:load_skill` 读取选中正文。`tags`、`triggers`、`boundaries`、`examples`
+都是可选的单行字段，可用逗号、分号或竖线分隔。
 
 Skill 文件最大读取量受限，必须是 UTF-8，且不能通过符号链接逃逸根目录。Skill 中即使写着“无需审批”，也不会改变文件、命令、Web 或 MCP 的权限策略。

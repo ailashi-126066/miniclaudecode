@@ -1,14 +1,36 @@
 # MiniClaudeCode
 
-MiniClaudeCode 是一个 Java 21 实现的单 Agent 终端编程助手。它用 LangGraph4j 驱动可中断、可恢复的 Agent 状态图，用 LangChain4j 统一接入 Anthropic、OpenAI-compatible 与 Ollama，并把代码检索、安全审批、MCP、Skills 和会话审计做成一条完整主链路。
+## 新增：从 Query Loop 到可进化 Agent
+
+项目现已补齐一组面向复杂 Coding 任务的闭环能力：
+
+- `skills:route_skill` 对 Skill 元数据先召回、再按名称/标签/触发词/示例重排，正文仍由
+  `skills:load_skill` 按需加载。
+- 成功任务会自动蒸馏为路径经验、错误修复、会话结果或用户偏好，并由
+  `memory:search` 跨会话复用；输入 `记住：...` 可明确保存偏好。
+- 大型代码检索和工具结果使用 `sha256:` 内容地址外置，`context:read_result` 支持按
+  offset 分页取回，避免把完整结果反复塞回 Prompt。
+- `agent:delegate` 可并发运行 1–4 个探索/审查/规划子 Agent。子 Agent 只有只读工具，
+  主 Agent 始终保留规划、写入、审批和最终质量控制权。
+- 所有工具结果经过提示注入风险扫描；可疑内容会附加风险级别和命中信号，并被明确
+  标记为“不可信数据”。
+
+设计取舍、源码落点和与需求图片的逐项映射见
+[能力增强设计说明](docs/image-capability-upgrade.md)。
+
+MiniClaudeCode 是一个 Java 21 实现的中心化多 Agent 终端编程助手。它用 LangGraph4j 驱动可中断、可恢复的主 Agent 状态图，用 LangChain4j 统一接入 Anthropic、OpenAI-compatible 与 Ollama，并把只读子 Agent、代码检索、安全审批、跨会话记忆、MCP、Skills 和会话审计做成一条完整主链路。
 
 项目定位不是 Claude Code 的界面仿制品，而是适合 Java Agent 实习/面试展示的工程项目：核心无 Spring、显式构造器装配、多模块 Maven、真实工具调用和跨进程一致性。
 
 ## 亮点
 
+- 可插拔 Agent 流水线：模型 API、Prompt、Context、Provider、Tools 和输出协议均有独立
+  模块或目录，不使用 `BaseAgent`/子类 Agent 继承树。
 - LangGraph4j 状态图：上下文准备、模型调用、工具路由、审批暂停、checkpoint 恢复、重试和完成节点。
+- 有界输出兜底：可按 Provider 选择自然语言或 JSON 终止协议；格式不稳定时反馈模型
+  修复，达到上限后明确失败。
 - LangChain4j Provider：Anthropic、OpenAI-compatible（OpenAI、DeepSeek、通义兼容网关等）和 Ollama；支持流式文本与 thinking 摘要。
-- 安全 Coding Tools：读、列目录、Glob、Grep、Write/Edit/Apply Patch、跨平台命令、Web Fetch、Todo、Ask User；文件变更先展示 unified diff。
+- 安全 Coding Tools：命令 denylist/allowlist、风险审批和 OS 沙箱分层；文件变更先展示 unified diff。
 - 可审计恢复：JSONL 会话事件、LangGraph4j 文件 checkpoint、工具执行账本；区分“等待审批”和“不确定副作用”。
 - 有含金量但可讲清的 RAG：JavaParser AST 分块（TYPE chunk 为结构骨架）、Lucene BM25、可插拔嵌入（默认离线哈希，可切换 OpenAI-compatible 远程模型）、RRF 融合、size+mtime 增量指纹、explain 与评测指标。
 - 扩展能力：真实 MCP stdio/Streamable HTTP Client，以及用户、`.claude/skills`、项目级 `SKILL.md` 的按需加载。
@@ -19,18 +41,25 @@ MiniClaudeCode 是一个 Java 21 实现的单 Agent 终端编程助手。它用 
 ```text
 JLine / Picocli CLI (composition root)
         │
-        ├── LangGraph4j Agent Runtime ── JSONL / Checkpoint / Tool Ledger
+        ├── Prompt Pipeline ── Context Pipeline
         │          │
-        │          ├── LangChain4j Provider adapters
+        │          └── Model API ── ServiceLoader Provider plugins
+        │
+        ├── LangGraph4j Query Loop ── Output Protocol / Repair / Termination
+        │          │
         │          └── Unified Tool Registry
         │                    ├── secure local coding tools
         │                    ├── Lucene hybrid code_search
+        │                    ├── read-only delegated agents
+        │                    ├── memory / externalized result retrieval
         │                    ├── MCP tools/resources
-        │                    └── SKILL.md loader
-        └── index / rag diagnostics
+        │                    └── SKILL.md router + loader
+        └── JSONL / Checkpoint / Tool Ledger / index diagnostics
 ```
 
-依赖方向和状态图详见 [docs/architecture.md](docs/architecture.md)。想逐文件读懂代码，从分章教程 [docs/tutorial/00-index.md](docs/tutorial/00-index.md) 开始——每章给出入口文件、方法表和可跟着断点走的调用链。
+依赖方向和状态图详见 [docs/architecture.md](docs/architecture.md)，本次模块化改造和扩展方法
+见 [Agent 架构重构说明](docs/modular-agent-architecture.md)。想逐文件读懂代码，从分章教程
+[docs/tutorial/00-index.md](docs/tutorial/00-index.md) 开始。
 
 ## 5 分钟启动
 
@@ -66,6 +95,9 @@ miniclaude rag -w PATH explain Q    展示 BM25、Vector 和 RRF 解释
 miniclaude rag -w PATH eval FILE    计算 Recall@5/10、MRR、P50/P95
 ```
 
+`miniclaude run` 的退出码适合脚本调用：`0` 表示成功，`2` 表示 Agent 或配置失败，
+`3` 表示需要交互审批，`130` 表示任务被取消。
+
 交互命令包括 `/status`、`/usage`、`/provider`、`/model`、`/thinking on|off`、`/tools`、`/compact`、`/sessions`、`/resume`、`/mcp`、`/skills`、`/config`、`/config setup` 和 `/exit`。`/usage` 展示会话 Token、Provider Prompt Cache 读写量与命中率；`/config setup` 使用掩码输入 Key，原子更新用户配置，下一次启动生效。`index` 与 `rag` 是顶层诊断命令，不会模仿成 Claude Code 的斜杠命令。
 
 ## 安全模型
@@ -73,6 +105,8 @@ miniclaude rag -w PATH eval FILE    计算 Recall@5/10、MRR、P50/P95
 - 工作区内读取自动允许；路径逃逸和符号链接逃逸被拒绝。
 - Write/Edit/Patch 先生成 diff，再把文件哈希和 diff 哈希绑定到审批决定；文件变化后旧审批失效。
 - 危险命令、私网 Web URL、MCP 调用需要审批；云元数据端点硬阻断。
+- Shell denylist 永远优先于 allowlist 和审批；可开启严格 allowlist。项目配置不能覆盖
+  `security`，避免仓库自行弱化全局策略。
 - API Key 可以明文写在用户配置中以方便使用，但风险更高；项目配置禁止明文 Key。JSONL 会对已知 Key 和敏感字段脱敏。
 
 完整威胁边界见 [docs/security.md](docs/security.md)。
@@ -86,6 +120,8 @@ java -jar agent-cli\target\mini-claude-code.jar --version
 ```
 
 `package` 同时生成 fat JAR、zip 和 tar.gz 发行包。GitHub Actions 在 Windows、Ubuntu 和 macOS 的 JDK 21 上执行验证。
+JaCoCo 对每个模块强制执行最低 50% 行覆盖率；每周安全工作流额外执行
+`verify -Psecurity-scan` 和 OWASP Dependency-Check。
 
 ## 面试讲解主线
 

@@ -7,7 +7,6 @@ import dev.miniclaudecode.providers.LangChainStreamingModelClient;
 import dev.miniclaudecode.providers.ProviderSpec;
 import dev.miniclaudecode.providers.ProviderSpec.Type;
 import dev.miniclaudecode.providers.ThinkingSupport;
-import java.net.URI;
 
 public final class OllamaModelClient extends LangChainStreamingModelClient {
   public OllamaModelClient(ProviderSpec spec) {
@@ -19,26 +18,16 @@ public final class OllamaModelClient extends LangChainStreamingModelClient {
   }
 
   private static StreamingChatModel build(ProviderSpec spec) {
-    return ((OllamaStreamingChatModelBuilder)
-            ((OllamaStreamingChatModelBuilder)
-                    ((OllamaStreamingChatModelBuilder)
-                            ((OllamaStreamingChatModelBuilder)
-                                    ((OllamaStreamingChatModelBuilder)
-                                            ((OllamaStreamingChatModelBuilder)
-                                                    ((OllamaStreamingChatModelBuilder)
-                                                            OllamaStreamingChatModel.builder()
-                                                                .baseUrl(
-                                                                    ((URI)
-                                                                            spec.baseUrl()
-                                                                                .orElseThrow())
-                                                                        .toString()))
-                                                        .modelName(spec.model()))
-                                                .temperature(spec.temperature()))
-                                        .numPredict(spec.maxOutputTokens()))
-                                .think(spec.thinking()))
-                        .returnThinking(true))
-                .timeout(spec.timeout()))
-        .build();
+    OllamaStreamingChatModelBuilder builder =
+        OllamaStreamingChatModel.builder()
+            .baseUrl(spec.baseUrl().orElseThrow().toString())
+            .modelName(spec.model())
+            .temperature(spec.temperature())
+            .numPredict(spec.maxOutputTokens())
+            .think(spec.thinking())
+            .returnThinking(true)
+            .timeout(spec.timeout());
+    return builder.build();
   }
 
   private static ProviderSpec requireType(ProviderSpec spec) {

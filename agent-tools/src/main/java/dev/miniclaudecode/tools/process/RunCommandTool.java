@@ -51,6 +51,7 @@ public final class RunCommandTool implements AgentTool {
   private final ProcessRunner processRunner;
   private final ToolResultStore resultStore;
   private final CommandRiskClassifier riskClassifier;
+  private final CommandPolicy commandPolicy;
   private final PermissionRuleStore ruleStore;
   private final Clock clock;
 
@@ -61,6 +62,7 @@ public final class RunCommandTool implements AgentTool {
         processRunner,
         resultStore,
         new CommandRiskClassifier(),
+        CommandPolicy.defaults(),
         PermissionRuleStore.NONE,
         Clock.systemUTC());
   }
@@ -72,10 +74,29 @@ public final class RunCommandTool implements AgentTool {
       CommandRiskClassifier riskClassifier,
       PermissionRuleStore ruleStore,
       Clock clock) {
+    this(
+        resolver,
+        processRunner,
+        resultStore,
+        riskClassifier,
+        CommandPolicy.defaults(),
+        ruleStore,
+        clock);
+  }
+
+  public RunCommandTool(
+      WorkspacePathResolver resolver,
+      ProcessRunner processRunner,
+      ToolResultStore resultStore,
+      CommandRiskClassifier riskClassifier,
+      CommandPolicy commandPolicy,
+      PermissionRuleStore ruleStore,
+      Clock clock) {
     this.resolver = Objects.requireNonNull(resolver, "resolver must not be null");
     this.processRunner = Objects.requireNonNull(processRunner, "processRunner must not be null");
     this.resultStore = Objects.requireNonNull(resultStore, "resultStore must not be null");
     this.riskClassifier = Objects.requireNonNull(riskClassifier, "riskClassifier must not be null");
+    this.commandPolicy = Objects.requireNonNull(commandPolicy, "commandPolicy must not be null");
     this.ruleStore = Objects.requireNonNull(ruleStore, "ruleStore must not be null");
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
@@ -98,7 +119,16 @@ public final class RunCommandTool implements AgentTool {
       if (!Files.isDirectory(workingDirectory)) {
         throw new IllegalArgumentException("workingDirectory is not a directory");
       } else {
-        RiskLevel risk = this.riskClassifier.classify(command);
+        CommandPolicy.Decision policyDecision = this.commandPolicy.evaluate(command);
+        if (policyDecision == CommandPolicy.Decision.DENY) {
+          throw new SecurityException("command blocked by shell denylist: " + command);
+        }
+        RiskLevel classifiedRisk = this.riskClassifier.classify(command);
+        RiskLevel risk =
+            policyDecision == CommandPolicy.Decision.ALLOW
+                    && classifiedRisk.ordinal() < RiskLevel.HIGH.ordinal()
+                ? RiskLevel.LOW
+                : classifiedRisk;
         Optional<ToolResult> authorization = this.authorize(call, context, command, risk);
         if (authorization.isPresent()) {
           return CompletableFuture.completedFuture(authorization.orElseThrow());
@@ -137,7 +167,13 @@ public final class RunCommandTool implements AgentTool {
       java.util.concurrent.ConcurrentHashMap.newKeySet();
 
   private static String turnKey(String workspace, ToolContext context, String command) {
-    return workspace + " " + context.turnId().value() + " " + command;
+    return workspace
+        + "\u0000"
+        + context.sessionId().value()
+        + "\u0000"
+        + context.turnId().value()
+        + "\u0000"
+        + command;
   }
 
   private Optional<ToolResult> authorize(

@@ -3,13 +3,14 @@ package dev.miniclaudecode.runtime;
 import static org.bsc.langgraph4j.GraphDefinition.END;
 import static org.bsc.langgraph4j.GraphDefinition.START;
 
+import dev.miniclaudecode.context.ContextPipeline;
+import dev.miniclaudecode.context.ContextPlanner;
+import dev.miniclaudecode.context.DeterministicContextReducer;
 import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.model.ModelClient;
 import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.runtime.CancellationToken;
 import dev.miniclaudecode.domain.session.SessionId;
-import dev.miniclaudecode.runtime.context.ContextPlanner;
-import dev.miniclaudecode.runtime.context.DeterministicContextReducer;
 import dev.miniclaudecode.runtime.node.AwaitApprovalNode;
 import dev.miniclaudecode.runtime.node.CallModelNode;
 import dev.miniclaudecode.runtime.node.CompactContextNode;
@@ -17,11 +18,14 @@ import dev.miniclaudecode.runtime.node.ExecuteToolsNode;
 import dev.miniclaudecode.runtime.node.FinishNode;
 import dev.miniclaudecode.runtime.node.PrepareContextNode;
 import dev.miniclaudecode.runtime.node.RecoverErrorNode;
+import dev.miniclaudecode.runtime.node.RepairOutputNode;
 import dev.miniclaudecode.runtime.node.RequireVerificationNode;
+import dev.miniclaudecode.runtime.output.OutputProtocolRegistry;
 import dev.miniclaudecode.runtime.retry.RetryPolicy;
 import dev.miniclaudecode.runtime.route.ResponseRouter;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.bsc.langgraph4j.CompileConfig;
@@ -42,6 +46,7 @@ public final class AgentGraphFactory {
   public static final String RECOVER_ERROR = "recover_error";
   public static final String FINISH = "finish";
   public static final String REQUIRE_VERIFICATION = "require_verification";
+  public static final String REPAIR_OUTPUT = "repair_output";
 
   private final CompiledGraph<MiniClaudeState> graph;
 
@@ -102,19 +107,24 @@ public final class AgentGraphFactory {
       CancellationToken cancellationToken) {
     ContextPlanner contextPlanner = new ContextPlanner();
     RetryPolicy retryPolicy = new RetryPolicy();
-    ResponseRouter router = new ResponseRouter(contextPlanner, retryPolicy);
+    OutputProtocolRegistry outputProtocols = new OutputProtocolRegistry();
+    ResponseRouter router = new ResponseRouter(contextPlanner, retryPolicy, outputProtocols);
     try {
       StateGraph<MiniClaudeState> stateGraph =
           new StateGraph<>(StateSchema.channels(), MiniClaudeState::new);
       stateGraph
           .addNode(PREPARE_CONTEXT, new PrepareContextNode())
           .addNode(CALL_MODEL, new CallModelNode(modelClient, limits, cancellationToken))
-          .addNode(COMPACT_CONTEXT, new CompactContextNode(new DeterministicContextReducer()))
+          .addNode(
+              COMPACT_CONTEXT,
+              new CompactContextNode(
+                  new ContextPipeline(List.of(new DeterministicContextReducer()))))
           .addNode(RECOVER_ERROR, new RecoverErrorNode(retryPolicy))
           .addNode(EXECUTE_TOOLS, new ExecuteToolsNode(toolExecutor, limits))
           .addNode(AWAIT_APPROVAL, new AwaitApprovalNode())
-          .addNode(FINISH, new FinishNode())
+          .addNode(FINISH, new FinishNode(outputProtocols))
           .addNode(REQUIRE_VERIFICATION, new RequireVerificationNode())
+          .addNode(REPAIR_OUTPUT, new RepairOutputNode(outputProtocols))
           .addEdge(START, PREPARE_CONTEXT)
           .addConditionalEdges(
               PREPARE_CONTEXT,
@@ -132,10 +142,13 @@ public final class AgentGraphFactory {
                   COMPACT_CONTEXT,
                   "retry",
                   RECOVER_ERROR,
+                  "repair",
+                  REPAIR_OUTPUT,
                   "verify",
                   REQUIRE_VERIFICATION,
                   "finish",
                   FINISH))
+          .addEdge(REPAIR_OUTPUT, CALL_MODEL)
           .addEdge(REQUIRE_VERIFICATION, CALL_MODEL)
           .addConditionalEdges(
               EXECUTE_TOOLS,
@@ -149,7 +162,7 @@ public final class AgentGraphFactory {
       // than a clean FAILED state — before the turn's own step limits were ever reached.
       CompileConfig.Builder compileConfig =
           CompileConfig.builder()
-              .recursionLimit(2 * (limits.maxModelSteps() + 1) + limits.maxToolSteps() + 16);
+              .recursionLimit(3 * (limits.maxModelSteps() + 1) + limits.maxToolSteps() + 16);
       if (checkpointSaver != null) {
         compileConfig.checkpointSaver(checkpointSaver).interruptAfter(AWAIT_APPROVAL);
       }

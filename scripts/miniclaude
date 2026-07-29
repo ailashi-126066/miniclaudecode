@@ -6,4 +6,4 @@ JAR="$ROOT_DIR/lib/mini-claude-code.jar"
 if [ ! -f "$JAR" ]; then
   JAR="$ROOT_DIR/agent-cli/target/mini-claude-code.jar"
 fi
-exec java --enable-native-access=ALL-UNNAMED -jar "$JAR" "$@"
+exec java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -jar "$JAR" "$@"

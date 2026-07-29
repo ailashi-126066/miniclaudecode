@@ -10,10 +10,13 @@
     <packaging>pom</packaging>
 
     <name>MiniClaudeCode</name>
-    <description>A Java 21 single-agent coding CLI.</description>
+    <description>A Java 21 modular coding-agent runtime.</description>
 
     <modules>
         <module>agent-domain</module>
+        <module>agent-model-api</module>
+        <module>agent-context</module>
+        <module>agent-prompt</module>
         <module>agent-runtime</module>
         <module>agent-providers</module>
         <module>agent-tools</module>
@@ -45,7 +48,7 @@
         <maven.surefire.version>3.5.4</maven.surefire.version>
         <maven.failsafe.version>3.5.4</maven.failsafe.version>
         <maven.enforcer.version>3.6.3</maven.enforcer.version>
-        <jacoco.haltOnFailure>false</jacoco.haltOnFailure>
+        <jacoco.haltOnFailure>true</jacoco.haltOnFailure>
         <jacoco.version>0.8.13</jacoco.version>
         <spotless.version>3.1.0</spotless.version>
         <spotbugs.version>4.9.8.2</spotbugs.version>
@@ -279,12 +282,8 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <!-- Reports the shortfall but does not fail the build until the real
-                                 per-module floor has been measured. Run `./mvnw verify` once, read
-                                 target/site/jacoco/index.html per module, set the minimum to just
-                                 below the weakest module, then enforce with
-                                 `-Djacoco.haltOnFailure=true` (and set it in CI). Shipping an
-                                 uncalibrated hard gate would just break the build. -->
+                            <!-- This is a deliberately modest per-module floor, not a target.
+                                 Raising it should follow additional contract and branch tests. -->
                             <haltOnFailure>${jacoco.haltOnFailure}</haltOnFailure>
                             <rules>
                                 <rule>

@@ -1,0 +1,37 @@
+name: Dependency security scan
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: OWASP dependency check
+        shell: bash
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          args=()
+          if [[ -n "$NVD_API_KEY" ]]; then
+            args+=("-Dnvd.api.key=$NVD_API_KEY")
+          fi
+          ./mvnw --batch-mode --no-transfer-progress verify -Psecurity-scan "${args[@]}"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-reports
+          path: target/dependency-check-report.*
+          if-no-files-found: warn

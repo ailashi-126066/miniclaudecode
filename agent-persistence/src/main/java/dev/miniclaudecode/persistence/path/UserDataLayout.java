@@ -60,6 +60,10 @@ public final class UserDataLayout {
     return this.root.resolve("indexes");
   }
 
+  public Path memoryFile(Path workspace) {
+    return this.sessionWorkspaceRoot(workspace).resolve("memory.jsonl");
+  }
+
   public Path skillsRoot() {
     return this.root.resolve("skills");
   }

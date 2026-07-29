@@ -1,23 +1,20 @@
-package dev.miniclaudecode.runtime.context;
+package dev.miniclaudecode.context;
 
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.AssistantMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.ToolMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class DeterministicContextReducer {
+public final class DeterministicContextReducer implements ContextTransformer {
   private final int recentMessageCount;
   private final int inlineToolCharacters;
 
@@ -58,6 +55,13 @@ public final class DeterministicContextReducer {
       reduced.addAll(this.reduceLargeOldToolResults(messages.subList(cutoff, messages.size()), 3));
       return List.copyOf(reduced);
     }
+  }
+
+  @Override
+  public List<AgentMessage> transform(
+      dev.miniclaudecode.domain.model.ModelRequest request, List<AgentMessage> messages) {
+    Objects.requireNonNull(request, "request must not be null");
+    return this.reduce(messages);
   }
 
   /**
@@ -102,12 +106,15 @@ public final class DeterministicContextReducer {
       if (index < replaceBefore
           && message instanceof ToolMessage tool
           && tool.text().length() > this.inlineToolCharacters) {
-        String reference = extractReference(tool.text());
+        String retrieval =
+            extractReference(tool.text())
+                .map(reference -> "reference=" + reference)
+                .orElse("not externalized; rerun " + tool.qualifiedToolName() + " if needed");
         reduced.add(
             new ToolMessage(
                 tool.toolCallId(),
                 tool.qualifiedToolName(),
-                "[older tool output omitted; reference=" + reference + "]",
+                "[older tool output omitted; " + retrieval + "]",
                 tool.error()));
         continue;
       }
@@ -217,19 +224,9 @@ public final class DeterministicContextReducer {
     }
   }
 
-  private static String extractReference(String text) {
+  private static Optional<String> extractReference(String text) {
     Matcher matcher = Pattern.compile("sha256:[0-9a-f]{64}").matcher(text);
-    return matcher.find() ? matcher.group() : "sha256:" + sha256(text).substring(0, 16);
-  }
-
-  private static String sha256(String value) {
-    try {
-      return HexFormat.of()
-          .formatHex(
-              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
-    } catch (NoSuchAlgorithmException var2) {
-      throw new IllegalStateException("SHA-256 is unavailable", var2);
-    }
+    return matcher.find() ? Optional.of(matcher.group()) : Optional.empty();
   }
 
   private static String abbreviate(String text, int maximum) {

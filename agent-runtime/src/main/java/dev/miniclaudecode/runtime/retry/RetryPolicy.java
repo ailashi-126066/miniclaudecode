@@ -33,7 +33,20 @@ public final class RetryPolicy {
       boolean providerRetryable,
       int retriesAlreadyAttempted,
       Optional<Duration> retryAfter) {
+    return this.decide(
+        failureType, providerRetryable, retriesAlreadyAttempted, retryAfter, this.maximumRetries);
+  }
+
+  public RetryPolicy.Decision decide(
+      String failureType,
+      boolean providerRetryable,
+      int retriesAlreadyAttempted,
+      Optional<Duration> retryAfter,
+      int configuredMaximumRetries) {
     Objects.requireNonNull(retryAfter, "retryAfter must not be null");
+    if (configuredMaximumRetries < 0 || configuredMaximumRetries > 10) {
+      throw new IllegalArgumentException("configuredMaximumRetries must be between 0 and 10");
+    }
     String normalized = failureType == null ? "" : failureType.toLowerCase(Locale.ROOT);
     boolean forbidden =
         normalized.contains("auth")
@@ -47,7 +60,7 @@ public final class RetryPolicy {
             || normalized.contains("503")
             || normalized.contains("rate_limit")
             || normalized.contains("timeout");
-    if (!forbidden && transientFailure && retriesAlreadyAttempted < this.maximumRetries) {
+    if (!forbidden && transientFailure && retriesAlreadyAttempted < configuredMaximumRetries) {
       Duration exponential =
           this.baseDelay.multipliedBy(1L << Math.min(retriesAlreadyAttempted, 20));
       Duration bounded =

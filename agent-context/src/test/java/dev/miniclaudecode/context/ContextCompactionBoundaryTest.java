@@ -1,4 +1,4 @@
-package dev.miniclaudecode.runtime.context;
+package dev.miniclaudecode.context;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

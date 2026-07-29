@@ -12,6 +12,8 @@ import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.HybridCodeSearcher;
 import dev.miniclaudecode.rag.search.SearchResult;
+import dev.miniclaudecode.tools.internal.ToolResults;
+import dev.miniclaudecode.tools.result.ToolResultStore;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
@@ -30,10 +32,22 @@ public final class CodeSearchTool implements AgentTool {
           RiskLevel.LOW);
   private final LuceneCodeIndex index;
   private final HybridCodeSearcher searcher;
+  private final Optional<ToolResultStore> resultStore;
 
   public CodeSearchTool(LuceneCodeIndex index, HybridCodeSearcher searcher) {
+    this(index, searcher, Optional.empty());
+  }
+
+  public CodeSearchTool(
+      LuceneCodeIndex index, HybridCodeSearcher searcher, ToolResultStore resultStore) {
+    this(index, searcher, Optional.of(Objects.requireNonNull(resultStore)));
+  }
+
+  private CodeSearchTool(
+      LuceneCodeIndex index, HybridCodeSearcher searcher, Optional<ToolResultStore> resultStore) {
     this.index = Objects.requireNonNull(index, "index must not be null");
     this.searcher = Objects.requireNonNull(searcher, "searcher must not be null");
+    this.resultStore = Objects.requireNonNull(resultStore);
   }
 
   public ToolDescriptor descriptor() {
@@ -52,21 +66,24 @@ public final class CodeSearchTool implements AgentTool {
               query,
               new HybridCodeSearcher.SearchOptions(topK, tokenBudget, Math.max(40, topK * 4)));
       String output = render(response);
-      return CompletableFuture.completedFuture(
-          new ToolResult(
-              call.toolCallId(),
-              Status.COMPLETED,
-              output,
-              Optional.empty(),
-              Map.of(
-                  "results",
-                  response.results().size(),
-                  "estimatedTokens",
-                  response.estimatedTokens(),
-                  "bm25Candidates",
-                  response.bm25Hits().size(),
-                  "vectorCandidates",
-                  response.vectorHits().size())));
+      Map<String, Object> metadata =
+          Map.of(
+              "results",
+              response.results().size(),
+              "estimatedTokens",
+              response.estimatedTokens(),
+              "bm25Candidates",
+              response.bm25Hits().size(),
+              "vectorCandidates",
+              response.vectorHits().size());
+      ToolResult result =
+          this.resultStore
+              .map(store -> ToolResults.completed(call, output, metadata, store, 4_096))
+              .orElseGet(
+                  () ->
+                      new ToolResult(
+                          call.toolCallId(), Status.COMPLETED, output, Optional.empty(), metadata));
+      return CompletableFuture.completedFuture(result);
     } catch (RuntimeException | IOException var9) {
       return CompletableFuture.completedFuture(
           new ToolResult(

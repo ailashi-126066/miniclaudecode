@@ -1,5 +1,6 @@
 package dev.miniclaudecode.persistence.config;
 
+import dev.miniclaudecode.domain.model.OutputProtocolType;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Locale;
@@ -17,7 +18,9 @@ public record ProviderProfile(
     int maxOutputTokens,
     boolean thinking,
     Duration timeout,
-    int maxRetries) {
+    int maxRetries,
+    OutputProtocolType outputProtocol,
+    int maxOutputRepairs) {
   public ProviderProfile(
       ProviderProfile.Type type,
       Optional<URI> baseUrl,
@@ -29,6 +32,34 @@ public record ProviderProfile(
       boolean thinking,
       Duration timeout,
       int maxRetries) {
+    this(
+        type,
+        baseUrl,
+        apiKey,
+        apiKeyEnv,
+        model,
+        temperature,
+        maxOutputTokens,
+        thinking,
+        timeout,
+        maxRetries,
+        OutputProtocolType.NATURAL_LANGUAGE,
+        1);
+  }
+
+  public ProviderProfile(
+      ProviderProfile.Type type,
+      Optional<URI> baseUrl,
+      Optional<String> apiKey,
+      Optional<String> apiKeyEnv,
+      String model,
+      double temperature,
+      int maxOutputTokens,
+      boolean thinking,
+      Duration timeout,
+      int maxRetries,
+      OutputProtocolType outputProtocol,
+      int maxOutputRepairs) {
     Objects.requireNonNull(type, "type must not be null");
     baseUrl = Objects.requireNonNull(baseUrl, "baseUrl must not be null");
     baseUrl.ifPresent(ProviderProfile::validateBaseUrl);
@@ -45,6 +76,10 @@ public record ProviderProfile(
         if (timeout.isZero() || timeout.isNegative()) {
           throw new IllegalArgumentException("timeout must be positive");
         } else if (maxRetries >= 0 && maxRetries <= 10) {
+          Objects.requireNonNull(outputProtocol, "outputProtocol must not be null");
+          if (maxOutputRepairs < 0 || maxOutputRepairs > 5) {
+            throw new IllegalArgumentException("maxOutputRepairs must be between 0 and 5");
+          }
           this.type = type;
           this.baseUrl = baseUrl;
           this.apiKey = apiKey;
@@ -55,6 +90,8 @@ public record ProviderProfile(
           this.thinking = thinking;
           this.timeout = timeout;
           this.maxRetries = maxRetries;
+          this.outputProtocol = outputProtocol;
+          this.maxOutputRepairs = maxOutputRepairs;
         } else {
           throw new IllegalArgumentException("maxRetries must be between 0 and 10");
         }

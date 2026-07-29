@@ -33,6 +33,7 @@ public final class MiniClaudeState extends AgentState {
   public static final String MODEL_STEPS = "modelSteps";
   public static final String TOOL_STEPS = "toolSteps";
   public static final String VERIFICATION_PROMPTS = "verificationPrompts";
+  public static final String OUTPUT_REPAIR_COUNT = "outputRepairCount";
   public static final String TRACE = "trace";
 
   public MiniClaudeState(Map<String, Object> data) {
@@ -118,6 +119,10 @@ public final class MiniClaudeState extends AgentState {
 
   public int verificationPrompts() {
     return this.scalar("verificationPrompts", Integer.class, 0);
+  }
+
+  public int outputRepairCount() {
+    return this.scalar("outputRepairCount", Integer.class, 0);
   }
 
   public List<String> trace() {

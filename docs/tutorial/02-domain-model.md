@@ -1,14 +1,20 @@
 # 02 领域模型：agent 的词汇表
 
-`agent-domain` 是全项目唯一零第三方依赖的模块：只用 JDK，定义消息、工具、模型、审批、事件、会话、取消这七组类型。其余七个模块（agent-runtime、agent-providers、agent-tools、agent-extensions、agent-rag、agent-persistence、agent-cli）都只依赖它、并通过它互相通信——runtime 不认识 LangChain4j，providers 不认识终端，它们交换的只有本章这些 record 和接口。所以先把词汇表读熟，后面章节的每条调用链都会反复出现这些名字。本章逐类讲解每个类型的字段与方法，并标注「谁生产、谁消费」。
+`agent-domain` 只用 JDK，定义消息、工具、审批、事件、会话和取消等稳定领域类型。
+与模型厂商无关的 `ModelClient`、`ModelRequest`、`ModelStreamEvent` 与输出协议类型已物理
+拆到 `agent-model-api`；Java 包名仍保持 `dev.miniclaudecode.domain.model`，避免消费者
+承担无意义的包名迁移。Runtime 不认识 LangChain4j，Providers 不认识终端，两者只交换
+这些端口类型。
 
 ## 本章文件
 
-按建议阅读顺序（均在 `agent-domain/src/main/java/dev/miniclaudecode/domain/` 下）：
+按建议阅读顺序；除第 3 项位于 `agent-model-api` 外，其余均在
+`agent-domain/src/main/java/dev/miniclaudecode/domain/` 下：
 
 1. `message/AgentMessage.java`
 2. `tool/ToolCall.java`、`tool/ToolResult.java`、`tool/ToolDescriptor.java`、`tool/AgentTool.java`
-3. `model/ModelRequest.java`、`model/ModelStreamEvent.java`、`model/ModelClient.java`
+3. `agent-model-api/.../model/ModelRequest.java`、`ModelStreamEvent.java`、
+   `ModelClient.java`、`OutputProtocolType.java`
 4. `approval/RiskLevel.java`、`approval/ApprovalRequest.java`、`approval/ApprovalDecision.java`、`approval/PermissionRule.java`、`approval/PermissionRuleStore.java`
 5. `event/AgentEventType.java`、`event/AgentEvent.java`、`event/EventSink.java`
 6. `session/SessionId.java`、`session/TurnId.java`、`session/AgentStatus.java`、`session/SessionEventStore.java`
@@ -67,6 +73,9 @@
 内嵌 record `ToolContext` 是执行环境：`sessionId` / `turnId` 标识当前会话与轮次；`workspace`（构造时强制 `toAbsolutePath().normalize()`，工具的路径越界检查以它为根）；`eventSink` 让工具在执行中途发进度事件；`attributes` 是执行器塞入的扩展位（例如取消令牌、审批回调）。实现方在 agent-tools、agent-extensions（MCP/Skills 适配）、agent-rag（`CodeSearchTool`）；调用方是 agent-runtime 的 `LedgeredToolExecutor` 与 agent-cli 的 `RegistryToolExecutor`。
 
 ## 模型接入三件套
+
+以下类型属于 `agent-model-api` 模块。它只依赖 `agent-domain`，Provider 实现、Runtime
+和配置模块都依赖这层稳定端口。
 
 ### ModelRequest（`model/ModelRequest.java`）
 
@@ -179,7 +188,8 @@ flowchart LR
   PERS -->|"PermissionRule · ReadResult（恢复）"| RT
 ```
 
-一句话总结：agent-domain 定义的是箭头上的货物，后面各章讲的都是箭头两端的机器。
+一句话总结：`agent-domain` 与 `agent-model-api` 定义箭头上的货物和调用端口，后面各章
+讲的是箭头两端的机器。
 
 ## 下一章
 

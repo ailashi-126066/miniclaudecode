@@ -9,6 +9,8 @@ providers:
     thinking: false
     timeout-seconds: 120
     max-retries: 3
+    output-protocol: natural-language
+    max-output-repairs: 1
 
 rag:
   embedding:
@@ -16,3 +18,25 @@ rag:
     # OpenAI-compatible /v1/embeddings endpoint; see examples/config.example.yaml.
     provider: fast
     dimensions: 384
+
+security:
+  shell:
+    # Deny always wins. When allowlist-only is false, unmatched commands still go through risk
+    # classification and approval instead of being silently allowed.
+    allowlist-only: false
+    allow-prefixes:
+      - rg
+      - git status
+      - git diff
+      - git log
+      - get-content
+      - get-childitem
+    deny-fragments:
+      - rm -rf
+      - git reset --hard
+      - git clean -f
+      - "format "
+      - diskpart
+      - shutdown
+      - reboot
+      - remove-item -recurse -force

@@ -16,7 +16,7 @@ final class RoutingModelClient implements ModelClient {
   private final Map<String, ProviderProfile> profiles;
   private final Map<String, String> environment;
   private final ProviderFactory factory;
-  private final Map<String, ModelClient> clients = new ConcurrentHashMap<>();
+  private final Map<ClientKey, ModelClient> clients = new ConcurrentHashMap<>();
 
   RoutingModelClient(
       Map<String, ProviderProfile> profiles,
@@ -32,24 +32,32 @@ final class RoutingModelClient implements ModelClient {
     if (profile == null) {
       throw new IllegalArgumentException("unknown provider profile: " + request.providerProfile());
     } else {
+      ClientKey key =
+          new ClientKey(
+              request.providerProfile(),
+              request.modelName(),
+              request.thinkingEnabled(),
+              request.maxOutputTokens());
       return this.clients
           .computeIfAbsent(
-              request.providerProfile(),
-              ignored -> this.factory.create(this.specification(profile)))
+              key, ignored -> this.factory.create(this.specification(profile, request)))
           .stream(request);
     }
   }
 
-  private ProviderSpec specification(ProviderProfile profile) {
+  private ProviderSpec specification(ProviderProfile profile, ModelRequest request) {
     return new ProviderSpec(
         Type.valueOf(profile.type().name()),
         profile.baseUrl(),
         profile.resolvedApiKey(this.environment),
-        profile.model(),
+        request.modelName(),
         profile.temperature(),
-        profile.maxOutputTokens(),
-        profile.thinking(),
+        request.maxOutputTokens(),
+        request.thinkingEnabled(),
         profile.timeout(),
         profile.maxRetries());
   }
+
+  private record ClientKey(
+      String providerProfile, String modelName, boolean thinking, int maxOutputTokens) {}
 }

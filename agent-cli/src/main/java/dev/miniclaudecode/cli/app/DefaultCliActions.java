@@ -93,92 +93,80 @@ public final class DefaultCliActions implements CliActions {
   }
 
   public int interactive(Path workspace) {
-    try {
-      byte var14;
-      try (WorkspaceComponents components = this.components(workspace)) {
-        AtomicReference<SessionCommandHandler> commands = new AtomicReference<>();
-        ApplicationSession session =
-            new ApplicationSession(
-                components, () -> selection(commands.get(), components), Clock.systemUTC());
-        SessionCommandHandler commandHandler =
-            new SessionCommandHandler(
-                components.providerModels(),
-                components.config().activeProvider(),
-                components.config().activeProfile().model(),
-                components.config().activeProfile().thinking(),
-                toolNames(components),
-                session::status,
-                session::usage,
-                session::sessions,
-                components::mcpStatus,
-                () -> skills(components),
-                session::compact,
-                session::switchTo,
-                this.layout.configFile());
-        commands.set(commandHandler);
+    try (WorkspaceComponents components = this.components(workspace)) {
+      AtomicReference<SessionCommandHandler> commands = new AtomicReference<>();
+      ApplicationSession session =
+          new ApplicationSession(
+              components, () -> selection(commands.get(), components), Clock.systemUTC());
+      SessionCommandHandler commandHandler =
+          new SessionCommandHandler(
+              components.providerModels(),
+              components.config().activeProvider(),
+              components.config().activeProfile().model(),
+              components.config().activeProfile().thinking(),
+              toolNames(components),
+              session::status,
+              session::usage,
+              session::sessions,
+              components::mcpStatus,
+              () -> skills(components),
+              session::compact,
+              session::switchTo,
+              this.layout.configFile());
+      commands.set(commandHandler);
 
-        try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
-          AgentCompleter completer =
-              new AgentCompleter(
-                  components.workspace(),
-                  () -> components.providerModels().keySet(),
-                  () -> components.providerModels().get(commandHandler.activeProvider()),
-                  () -> toolNames(components));
-          Repl.create(
-                  terminal,
-                  this.layout.historyFile(),
-                  completer,
-                  commandHandler,
-                  session,
-                  reader -> this.configurationWizard().run(reader))
-              .withHeader(
-                  ReplHeader.render(
-                      terminal,
-                      commandHandler.activeProvider(),
-                      commandHandler.activeModel(),
-                      commandHandler.thinkingEnabled(),
-                      components.workspace().toString()))
-              .run();
-        }
-
-        var14 = 0;
+      try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
+        AgentCompleter completer =
+            new AgentCompleter(
+                components.workspace(),
+                () -> components.providerModels().keySet(),
+                () -> components.providerModels().get(commandHandler.activeProvider()),
+                () -> toolNames(components));
+        Repl.create(
+                terminal,
+                this.layout.historyFile(),
+                completer,
+                commandHandler,
+                session,
+                reader -> this.configurationWizard().run(reader))
+            .withHeader(
+                ReplHeader.render(
+                    terminal,
+                    commandHandler.activeProvider(),
+                    commandHandler.activeModel(),
+                    commandHandler.thinkingEnabled(),
+                    components.workspace().toString()))
+            .run();
       }
-
-      return var14;
+      return 0;
     } catch (RuntimeException | IOException var13) {
       return this.failed(var13);
     }
   }
 
   public int run(Path workspace, String prompt) {
-    try {
-      byte var8;
-      try (WorkspaceComponents components = this.components(workspace)) {
-        ProviderProfile profile = components.config().activeProfile();
-        ApplicationSession session =
-            new ApplicationSession(
-                components,
-                () ->
-                    new ApplicationSession.TurnSelection(
-                        components.config().activeProvider(), profile.model(), profile.thinking()),
-                Clock.systemUTC());
-        AtomicReference<ApprovalRequest> approval = new AtomicReference<>();
-        TurnOutcome outcome =
-            session
-                .start(prompt, new CancellationToken(), this::renderNonInteractive)
-                .toCompletableFuture()
-                .join();
-        outcome.approvalRequest().ifPresent(approval::set);
-        if (approval.get() != null) {
-          this.error.println("Approval required: " + approval.get().reason());
-          this.error.println("Target: " + approval.get().target());
-          return 3;
-        }
-
-        var8 = 0;
+    try (WorkspaceComponents components = this.components(workspace)) {
+      ProviderProfile profile = components.config().activeProfile();
+      ApplicationSession session =
+          new ApplicationSession(
+              components,
+              () ->
+                  new ApplicationSession.TurnSelection(
+                      components.config().activeProvider(), profile.model(), profile.thinking()),
+              Clock.systemUTC());
+      AtomicReference<ApprovalRequest> approval = new AtomicReference<>();
+      TurnOutcome outcome =
+          session
+              .start(prompt, new CancellationToken(), this::renderNonInteractive)
+              .toCompletableFuture()
+              .join();
+      outcome.approvalRequest().ifPresent(approval::set);
+      if (approval.get() != null) {
+        this.error.println("Approval required: " + approval.get().reason());
+        this.error.println("Target: " + approval.get().target());
+        return 3;
       }
-
-      return var8;
+      return exitCode(outcome);
     } catch (CompletionException var11) {
       return this.failed((Throwable) (var11.getCause() == null ? var11 : var11.getCause()));
     } catch (RuntimeException | IOException var12) {
@@ -187,59 +175,48 @@ public final class DefaultCliActions implements CliActions {
   }
 
   public int index(Path workspace) {
-    try {
-      byte var4;
-      try (WorkspaceComponents components = this.components(workspace)) {
-        UpdateReport report = components.codeIndex().synchronize(components.workspace());
-        this.output.printf(
-            "Indexed %d files: %d updated, %d unchanged, %d deleted, %d chunks written%n",
-            report.files(),
-            report.updatedFiles(),
-            report.unchangedFiles(),
-            report.deletedFiles(),
-            report.writtenChunks());
-        var4 = 0;
-      }
-
-      return var4;
+    try (WorkspaceComponents components = this.components(workspace)) {
+      UpdateReport report = components.codeIndex().synchronize(components.workspace());
+      this.output.printf(
+          "Indexed %d files: %d updated, %d unchanged, %d deleted, %d chunks written%n",
+          report.files(),
+          report.updatedFiles(),
+          report.unchangedFiles(),
+          report.deletedFiles(),
+          report.writtenChunks());
+      return 0;
     } catch (RuntimeException | IOException var7) {
       return this.failed(var7);
     }
   }
 
   public int rag(Path workspace, String query) {
-    try {
-      byte var8;
-      try (WorkspaceComponents components = this.components(workspace)) {
-        components.codeIndex().synchronize(components.workspace());
-        String trimmed = query.trim();
-        if (trimmed.equalsIgnoreCase("stats")) {
-          IndexStats stats = components.codeIndex().stats();
-          this.output.printf(
-              "files=%d chunks=%d vectorDimensions=%d%n",
-              stats.files(), stats.chunks(), stats.vectorDimensions());
-          return 0;
-        }
-
-        if (trimmed.toLowerCase(Locale.ROOT).startsWith("eval ")) {
-          return this.evaluate(components, Path.of(trimmed.substring(5).trim()));
-        }
-
-        boolean explain = trimmed.toLowerCase(Locale.ROOT).startsWith("explain ");
-        String actualQuery = explain ? trimmed.substring(8).trim() : trimmed;
-        SearchResponse response = components.searcher().search(actualQuery);
-        if (explain) {
-          this.output.println(response.explain());
-        } else if (response.results().isEmpty()) {
-          this.output.println("No relevant code found.");
-        } else {
-          response.results().forEach(this::printResult);
-        }
-
-        var8 = 0;
+    try (WorkspaceComponents components = this.components(workspace)) {
+      components.codeIndex().synchronize(components.workspace());
+      String trimmed = query.trim();
+      if (trimmed.equalsIgnoreCase("stats")) {
+        IndexStats stats = components.codeIndex().stats();
+        this.output.printf(
+            "files=%d chunks=%d vectorDimensions=%d%n",
+            stats.files(), stats.chunks(), stats.vectorDimensions());
+        return 0;
       }
 
-      return var8;
+      if (trimmed.toLowerCase(Locale.ROOT).startsWith("eval ")) {
+        return this.evaluate(components, Path.of(trimmed.substring(5).trim()));
+      }
+
+      boolean explain = trimmed.toLowerCase(Locale.ROOT).startsWith("explain ");
+      String actualQuery = explain ? trimmed.substring(8).trim() : trimmed;
+      SearchResponse response = components.searcher().search(actualQuery);
+      if (explain) {
+        this.output.println(response.explain());
+      } else if (response.results().isEmpty()) {
+        this.output.println("No relevant code found.");
+      } else {
+        response.results().forEach(this::printResult);
+      }
+      return 0;
     } catch (RuntimeException | IOException var11) {
       return this.failed(var11);
     }
@@ -354,6 +331,16 @@ public final class DefaultCliActions implements CliActions {
       return new ApplicationSession.TurnSelection(
           commands.activeProvider(), commands.activeModel(), commands.thinkingEnabled());
     }
+  }
+
+  static int exitCode(TurnOutcome outcome) {
+    Objects.requireNonNull(outcome, "outcome must not be null");
+    return switch (outcome.status()) {
+      case COMPLETED -> 0;
+      case WAITING_APPROVAL -> 3;
+      case CANCELLED -> 130;
+      case FAILED, RUNNING -> 2;
+    };
   }
 
   private static List<String> toolNames(WorkspaceComponents components) {

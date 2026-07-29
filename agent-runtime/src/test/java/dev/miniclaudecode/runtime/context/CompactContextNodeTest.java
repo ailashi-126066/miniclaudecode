@@ -1,5 +1,7 @@
 package dev.miniclaudecode.runtime.context;
 
+import dev.miniclaudecode.context.ContextPipeline;
+import dev.miniclaudecode.context.DeterministicContextReducer;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
@@ -34,7 +36,10 @@ class CompactContextNodeTest {
                 AgentStatus.FAILED));
     Map<String, Object> update =
         (Map<String, Object>)
-            new CompactContextNode(new DeterministicContextReducer(4, 64)).apply(state).join();
+            new CompactContextNode(
+                    new ContextPipeline(List.of(new DeterministicContextReducer(4, 64))))
+                .apply(state)
+                .join();
     Assertions.assertThat(update.get("error")).isEqualTo("");
     Assertions.assertThat(update.get("status")).isEqualTo(AgentStatus.RUNNING);
     Assertions.assertThat((List) update.get("messages")).hasSizeLessThan(messages.size());

@@ -1,8 +1,10 @@
 package dev.miniclaudecode.runtime.route;
 
+import dev.miniclaudecode.context.ContextPlanner;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.ToolMessage;
-import dev.miniclaudecode.runtime.context.ContextPlanner;
+import dev.miniclaudecode.runtime.output.OutputProtocol;
+import dev.miniclaudecode.runtime.output.OutputProtocolRegistry;
 import dev.miniclaudecode.runtime.retry.RetryPolicy;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import java.util.List;
@@ -14,10 +16,20 @@ import org.bsc.langgraph4j.action.AsyncEdgeAction;
 public final class ResponseRouter {
   private final ContextPlanner contextPlanner;
   private final RetryPolicy retryPolicy;
+  private final OutputProtocolRegistry outputProtocols;
 
   public ResponseRouter(ContextPlanner contextPlanner, RetryPolicy retryPolicy) {
+    this(contextPlanner, retryPolicy, new OutputProtocolRegistry());
+  }
+
+  public ResponseRouter(
+      ContextPlanner contextPlanner,
+      RetryPolicy retryPolicy,
+      OutputProtocolRegistry outputProtocols) {
     this.contextPlanner = Objects.requireNonNull(contextPlanner, "contextPlanner must not be null");
     this.retryPolicy = Objects.requireNonNull(retryPolicy, "retryPolicy must not be null");
+    this.outputProtocols =
+        Objects.requireNonNull(outputProtocols, "outputProtocols must not be null");
   }
 
   public AsyncEdgeAction<MiniClaudeState> afterPrepare() {
@@ -51,14 +63,30 @@ public final class ResponseRouter {
                 state.failureType().orElse(""),
                 state.failureRetryable(),
                 state.retryCount(),
-                Optional.empty());
+                Optional.empty(),
+                maximumRetries(state));
         return retry.retry() ? "retry" : "finish";
       }
     } else if (!state.pendingToolCalls().isEmpty()) {
       return "tools";
     } else {
-      return !requiresVerification(state) && !hasIncompleteTasks(state) ? "finish" : "verify";
+      if (requiresVerification(state) || hasIncompleteTasks(state)) {
+        return "verify";
+      }
+      OutputProtocol.Evaluation output =
+          this.outputProtocols.evaluate(state.request(), state.finalText());
+      if (!output.valid()) {
+        return state.outputRepairCount() < this.outputProtocols.maximumRepairs(state.request())
+            ? "repair"
+            : "finish";
+      }
+      return "finish";
     }
+  }
+
+  private static int maximumRetries(MiniClaudeState state) {
+    Object configured = state.request().attributes().get("maxRetries");
+    return configured instanceof Number number ? number.intValue() : 3;
   }
 
   private static boolean requiresVerification(MiniClaudeState state) {

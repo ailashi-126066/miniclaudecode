@@ -10,6 +10,8 @@ providers:
     thinking: false
     timeout-seconds: 120
     max-retries: 3
+    output-protocol: natural-language
+    max-output-repairs: 1
 
   # anthropic:
   #   type: anthropic
@@ -17,13 +19,21 @@ providers:
   #   model: claude-sonnet-4-5
   #   max-output-tokens: 8192
   #   thinking: true
-
+  #   output-protocol: natural-language
+  #   max-output-repairs: 1
+  #
   # deepseek:
   #   type: openai-compatible
-  #   base-url: https://api.deepseek.com/v1
+  #   base-url: https://api.deepseek.com
   #   api-key-env: DEEPSEEK_API_KEY
   #   model: deepseek-chat
+  #   temperature: 0.2
   #   max-output-tokens: 8192
+  #   thinking: false
+  #   timeout-seconds: 120
+  #   max-retries: 3
+  #   output-protocol: json
+  #   max-output-repairs: 2
 
 # Code-index embeddings. `fast` (default) is the offline hashing model: zero dependencies,
 # reproducible, fine for demos and CI. `remote` calls an OpenAI-compatible /v1/embeddings
@@ -47,3 +57,25 @@ providers:
 #       command: ["java", "-jar", "C:/absolute/path/server.jar"]
 #       launch-approved: false
 #       risk: HIGH
+
+# Shell policy is user-controlled. Project config is not allowed to override `security`.
+# Deny always wins; allow prefixes never bypass HIGH/CRITICAL risk classification.
+security:
+  shell:
+    allowlist-only: false
+    allow-prefixes:
+      - rg
+      - git status
+      - git diff
+      - git log
+      - get-content
+      - get-childitem
+    deny-fragments:
+      - rm -rf
+      - git reset --hard
+      - git clean -f
+      - "format "
+      - diskpart
+      - shutdown
+      - reboot
+      - remove-item -recurse -force

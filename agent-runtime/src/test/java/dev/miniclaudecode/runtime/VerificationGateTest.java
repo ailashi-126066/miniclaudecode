@@ -2,9 +2,9 @@ package dev.miniclaudecode.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.miniclaudecode.context.ContextPlanner;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
-import dev.miniclaudecode.runtime.context.ContextPlanner;
 import dev.miniclaudecode.runtime.node.RequireVerificationNode;
 import dev.miniclaudecode.runtime.retry.RetryPolicy;
 import dev.miniclaudecode.runtime.route.ResponseRouter;
@@ -97,6 +97,8 @@ class VerificationGateTest {
             request,
             MiniClaudeState.MESSAGES,
             messages,
+            MiniClaudeState.FINAL_TEXT,
+            "Done",
             MiniClaudeState.VERIFICATION_PROMPTS,
             prompts));
   }

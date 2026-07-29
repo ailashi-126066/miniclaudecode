@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import dev.miniclaudecode.domain.model.OutputProtocolType;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -80,8 +81,16 @@ public final class ConfigLoader {
 
   private void mergeProjectConfig(ObjectNode merged, Path projectPath) {
     ObjectNode project = this.readObject(projectPath);
+    rejectProjectSecurityOverrides(project);
     rejectPlaintextProjectKeys(project, "$");
     deepMerge(merged, project);
+  }
+
+  private static void rejectProjectSecurityOverrides(ObjectNode project) {
+    if (project.has("security")) {
+      throw new SecurityException(
+          "project config must not override user-controlled security policies");
+    }
   }
 
   private static void rejectPlaintextProjectKeys(JsonNode node, String path) {
@@ -138,7 +147,8 @@ public final class ConfigLoader {
         providers.put(entry.getKey(), parseProfile(profileNode));
       }
 
-      return new AppConfig(providers, activeProvider, parseEmbedding(root));
+      return new AppConfig(
+          providers, activeProvider, parseEmbedding(root), parseCommandPolicy(root));
     } else {
       throw new IllegalArgumentException("providers must be an object");
     }
@@ -159,6 +169,31 @@ public final class ConfigLoader {
         Duration.ofSeconds(embedding.path("timeout-seconds").asLong(30L)));
   }
 
+  private static CommandPolicyConfig parseCommandPolicy(ObjectNode root) {
+    JsonNode node = root.path("security").path("shell");
+    if (!(node instanceof ObjectNode shell)) {
+      return CommandPolicyConfig.defaults();
+    }
+    return new CommandPolicyConfig(
+        textList(shell.path("allow-prefixes")),
+        textList(shell.path("deny-fragments")),
+        shell.path("allowlist-only").asBoolean(false));
+  }
+
+  private static java.util.List<String> textList(JsonNode node) {
+    if (!node.isArray()) {
+      return java.util.List.of();
+    }
+    java.util.List<String> values = new java.util.ArrayList<>();
+    node.forEach(
+        value ->
+            Optional.of(value.asText())
+                .map(String::trim)
+                .filter(text -> !text.isEmpty())
+                .ifPresent(values::add));
+    return java.util.List.copyOf(values);
+  }
+
   private static ProviderProfile parseProfile(ObjectNode node) {
     return new ProviderProfile(
         ProviderProfile.Type.parse(requiredText(node, "type")),
@@ -170,7 +205,9 @@ public final class ConfigLoader {
         node.path("max-output-tokens").asInt(8192),
         node.path("thinking").asBoolean(false),
         Duration.ofSeconds(node.path("timeout-seconds").asLong(120L)),
-        node.path("max-retries").asInt(3));
+        node.path("max-retries").asInt(3),
+        OutputProtocolType.parse(optionalText(node, "output-protocol").orElse("natural-language")),
+        node.path("max-output-repairs").asInt(1));
   }
 
   private static URI parseUri(String value) {

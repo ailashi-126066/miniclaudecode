@@ -60,7 +60,17 @@ public final class SkillScanner {
       String prefix = readPrefix(file, 65536);
       SkillScanner.Metadata metadata = metadata(file, prefix);
       return Optional.of(
-          new SkillDescriptor(metadata.name(), metadata.description(), file, root, source, size));
+          new SkillDescriptor(
+              metadata.name(),
+              metadata.description(),
+              file,
+              root,
+              source,
+              size,
+              metadata.tags(),
+              metadata.triggers(),
+              metadata.boundaries(),
+              metadata.examples()));
     } catch (IllegalArgumentException | IOException var7) {
       return Optional.empty();
     }
@@ -90,7 +100,13 @@ public final class SkillScanner {
       description = "Local instructions for " + name;
     }
 
-    return new SkillScanner.Metadata(name, unquote(description));
+    return new SkillScanner.Metadata(
+        name,
+        unquote(description),
+        metadataList(frontmatter.get("tags")),
+        metadataList(frontmatter.get("triggers")),
+        metadataList(frontmatter.get("boundaries")),
+        metadataList(frontmatter.get("examples")));
   }
 
   private static Map<String, String> frontmatter(List<String> lines) {
@@ -180,5 +196,27 @@ public final class SkillScanner {
         : stripped.substring(1, stripped.length() - 1);
   }
 
-  private static record Metadata(String name, String description) {}
+  private static List<String> metadataList(String value) {
+    if (value == null || value.isBlank()) {
+      return List.of();
+    }
+    String normalized = unquote(value).strip();
+    if (normalized.startsWith("[") && normalized.endsWith("]")) {
+      normalized = normalized.substring(1, normalized.length() - 1);
+    }
+    return Stream.of(normalized.split("\\s*[,|;]\\s*"))
+        .map(SkillScanner::unquote)
+        .map(String::trim)
+        .filter(item -> !item.isEmpty())
+        .distinct()
+        .toList();
+  }
+
+  private static record Metadata(
+      String name,
+      String description,
+      List<String> tags,
+      List<String> triggers,
+      List<String> boundaries,
+      List<String> examples) {}
 }

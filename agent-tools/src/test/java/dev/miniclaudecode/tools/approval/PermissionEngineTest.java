@@ -90,6 +90,27 @@ class PermissionEngineTest {
         .isInstanceOf(Requested.class);
   }
 
+  @Test
+  void turnApprovalDoesNotLeakIntoAnotherSessionWithTheSameTurnNumber() {
+    PermissionEngine engine = new PermissionEngine(PermissionRuleStore.NONE, clock());
+    MutationPlan plan = plan("before", "diff");
+    ToolContext firstSession = context("session-1", Map.of());
+    ApprovalRequest request = ((Requested) engine.authorize(plan, firstSession)).request();
+    ApprovalDecision decision =
+        new ApprovalDecision(request.approvalId(), Choice.ALLOW, Scope.TURN, Optional.empty(), NOW);
+
+    Assertions.assertThat(
+            engine.authorize(
+                plan,
+                context(
+                    "session-1", Map.of("approvalRequest", request, "approvalDecision", decision))))
+        .isInstanceOf(Allowed.class);
+    Assertions.assertThat(engine.authorize(plan, context("session-1", Map.of())))
+        .isInstanceOf(Allowed.class);
+    Assertions.assertThat(engine.authorize(plan, context("session-2", Map.of())))
+        .isInstanceOf(Requested.class);
+  }
+
   private static MutationPlan plan(String beforeHash, String diffHash) {
     return plan(beforeHash, diffHash, "src/App.java");
   }
@@ -107,8 +128,12 @@ class PermissionEngineTest {
   }
 
   private static ToolContext context(Map<String, Object> attributes) {
+    return context("session-1", attributes);
+  }
+
+  private static ToolContext context(String sessionId, Map<String, Object> attributes) {
     return new ToolContext(
-        new SessionId("session-1"), new TurnId(1L), Path.of("."), EventSink.NOOP, attributes);
+        new SessionId(sessionId), new TurnId(1L), Path.of("."), EventSink.NOOP, attributes);
   }
 
   private static Clock clock() {

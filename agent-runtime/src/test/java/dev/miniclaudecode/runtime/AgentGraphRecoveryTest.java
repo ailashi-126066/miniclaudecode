@@ -52,11 +52,32 @@ class AgentGraphRecoveryTest {
     assertThat(model.requests()).hasSize(2);
   }
 
+  @Test
+  void perRequestConfigurationCanDisableRetries() {
+    FakeModelClient model =
+        FakeModelClient.scripted(
+            List.of(
+                List.of(new ModelStreamEvent.Failed("http_503", "unavailable", true)),
+                List.of(
+                    new ModelStreamEvent.TextDelta("must not run"),
+                    new ModelStreamEvent.Completed("stop", Map.of()))));
+    AgentGraphFactory graph = new AgentGraphFactory(model, noTools(), new TurnLimits(4, 4));
+
+    var state = graph.run(request(Map.of("contextWindowTokens", 4096, "maxRetries", 0)));
+
+    assertThat(state.status()).isEqualTo(AgentStatus.FAILED);
+    assertThat(model.requests()).hasSize(1);
+  }
+
   private static ToolExecutor noTools() {
     return calls -> CompletableFuture.completedFuture(List.of());
   }
 
   private static ModelRequest request() {
+    return request(Map.of("contextWindowTokens", 4096));
+  }
+
+  private static ModelRequest request(Map<String, Object> attributes) {
     return new ModelRequest(
         "test",
         "fake",
@@ -64,6 +85,6 @@ class AgentGraphRecoveryTest {
         List.of(),
         false,
         256,
-        Map.of("contextWindowTokens", 4096));
+        attributes);
   }
 }

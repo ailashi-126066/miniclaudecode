@@ -1,4 +1,4 @@
-package dev.miniclaudecode.runtime.context;
+package dev.miniclaudecode.context;
 
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;

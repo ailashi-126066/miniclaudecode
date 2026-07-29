@@ -4,5 +4,5 @@ $jar = Join-Path (Split-Path -Parent $scriptRoot) "lib/mini-claude-code.jar"
 if (-not (Test-Path -LiteralPath $jar)) {
     $jar = Join-Path (Split-Path -Parent $scriptRoot) "agent-cli/target/mini-claude-code.jar"
 }
-& java --enable-native-access=ALL-UNNAMED -jar $jar @args
+& java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -jar $jar @args
 exit $LASTEXITCODE

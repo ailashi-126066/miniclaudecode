@@ -9,9 +9,9 @@
 | 章 | 主题 | 模块 | 一句话 |
 |---|---|---|---|
 | [01](01-boot-and-wiring.md) | 启动与组装 | agent-cli | 从 `java -jar` 到 REPL 提示符：picocli 命令、composition root、读循环 |
-| [02](02-domain-model.md) | 领域模型 | agent-domain | 全项目的公共词汇表：消息、工具、审批、事件、会话，零第三方依赖 |
+| [02](02-domain-model.md) | 领域与模型端口 | agent-domain / agent-model-api | 公共词汇表与厂商无关的模型调用契约 |
 | [03](03-turn-lifecycle.md) | 轮次生命周期 | agent-cli | 一次输入如何变成一次 turn：提交、流式渲染、审批暂停/恢复、取消 |
-| [04](04-agent-graph.md) | 状态图引擎 | agent-runtime | 全仓库的心脏：LangGraph4j 状态图、8 个节点、路由规则、三个有界循环 |
+| [04](04-agent-graph.md) | 状态图引擎 | agent-runtime / agent-context | 状态图、输出修复和四类有界循环 |
 | [05](05-model-providers.md) | 模型接入层 | agent-providers | 一个 `ModelClient` 抽象统一三家：回调→Flow 桥接、错误分类、脱敏 |
 | [06](06-tools-read-write.md) | 工具系统：读与写 | agent-tools | 路径安全、只读四件套、写路径的 diff 预览→审批→原子替换模板 |
 | [07](07-approval-risk-sandbox.md) | 审批·风险·沙箱 | agent-tools | 安全三层：TOCTOU 绑定的审批、命令风险分级、OS 级沙箱、SSRF 防护 |
@@ -26,20 +26,26 @@
 ```mermaid
 flowchart LR
     CLI[agent-cli] --> RT[agent-runtime]
+    CLI --> PR[agent-prompt]
     CLI --> PV[agent-providers]
     CLI --> TL[agent-tools]
     CLI --> RG[agent-rag]
     CLI --> EX[agent-extensions]
     CLI --> PS[agent-persistence]
-    RT --> DM[agent-domain]
-    PV --> DM
+    RT --> CT[agent-context]
+    RT --> MA[agent-model-api]
+    CT --> MA
+    PV --> MA
+    MA --> DM[agent-domain]
+    PR --> DM
     TL --> DM
     RG --> DM
     EX --> DM
     PS --> DM
 ```
 
-`agent-domain` 无第三方依赖，是所有模块的公共语言（第 02 章）；`agent-cli` 是唯一的 composition root（第 01 章），其余模块互不依赖。
+`agent-domain` 无第三方依赖，是稳定领域词汇；`agent-model-api`、`agent-context` 和
+`agent-prompt` 分别隔离模型、上下文和提示词。`agent-cli` 是唯一 composition root。
 
 ## 三条阅读路线
 
@@ -64,5 +70,5 @@ flowchart LR
 
 1. 跑一次 `.\mvnw.cmd clean verify`，确认环境完好。
 2. 读 01 章，对照打开 `MiniClaudeCode.java` 和 `WorkspaceComponents.java`。
-3. 读 04 章的 mermaid 图，把 8 个节点名记住。
+3. 读 04 章的 mermaid 图，把 9 个节点名记住。
 4. 跳到 12 章，在 `ResponseRouter#routeAfterModel` 打断点，真实跑一条 `run` 命令单步走一圈。

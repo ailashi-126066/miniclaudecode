@@ -25,12 +25,18 @@ public final class RecoverErrorNode implements AsyncNodeAction<MiniClaudeState> 
             state.failureType().orElse("model_error"),
             state.failureRetryable(),
             state.retryCount(),
-            Optional.empty());
+            Optional.empty(),
+            maximumRetries(state));
     return !decision.retry()
         ? CompletableFuture.completedFuture(Map.of())
         : CompletableFuture.supplyAsync(
             () -> recovered(state),
             CompletableFuture.delayedExecutor(decision.delay().toMillis(), TimeUnit.MILLISECONDS));
+  }
+
+  private static int maximumRetries(MiniClaudeState state) {
+    Object configured = state.request().attributes().get("maxRetries");
+    return configured instanceof Number number ? number.intValue() : 3;
   }
 
   private static Map<String, Object> recovered(MiniClaudeState state) {

@@ -1,5 +1,6 @@
-package dev.miniclaudecode.runtime.context;
+package dev.miniclaudecode.context;
 
+import dev.miniclaudecode.context.ContextPlanner.Plan;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.AssistantMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;
@@ -7,7 +8,6 @@ import dev.miniclaudecode.domain.message.AgentMessage.ToolMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.tool.ToolCall;
-import dev.miniclaudecode.runtime.context.ContextPlanner.Plan;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

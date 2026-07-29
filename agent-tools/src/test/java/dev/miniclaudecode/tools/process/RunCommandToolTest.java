@@ -4,6 +4,8 @@ import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalDecision.Choice;
 import dev.miniclaudecode.domain.approval.ApprovalDecision.Scope;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
+import dev.miniclaudecode.domain.approval.PermissionRule;
+import dev.miniclaudecode.domain.approval.PermissionRuleStore;
 import dev.miniclaudecode.domain.event.EventSink;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
@@ -17,6 +19,8 @@ import dev.miniclaudecode.tools.result.ToolResultStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.assertj.core.api.Assertions;
@@ -108,6 +112,87 @@ class RunCommandToolTest {
   }
 
   @Test
+  void permanentCommandApprovalIsStoredAndReused() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace"));
+    InMemoryRuleStore rules = new InMemoryRuleStore();
+    RunCommandTool tool =
+        new RunCommandTool(
+            new WorkspacePathResolver(workspace),
+            new ProcessRunner(ShellSelector.system()),
+            new ToolResultStore(
+                Files.createDirectories(this.temporaryDirectory.resolve("results-permanent"))),
+            new CommandRiskClassifier(),
+            rules,
+            java.time.Clock.systemUTC());
+    ToolCall call = call("java -version", ".");
+    ToolResult waiting =
+        tool.execute(call, context(workspace, Map.of())).toCompletableFuture().get();
+    ApprovalRequest request = (ApprovalRequest) waiting.metadata().get("approvalRequest");
+    ApprovalDecision decision =
+        new ApprovalDecision(
+            request.approvalId(),
+            Choice.ALLOW,
+            Scope.PERMANENT,
+            Optional.empty(),
+            Instant.parse("2026-07-21T00:00:00Z"));
+
+    ToolResult first =
+        tool.execute(
+                call,
+                context(
+                    workspace, Map.of("approvalRequest", request, "approvalDecision", decision)))
+            .toCompletableFuture()
+            .get();
+    ToolResult reused =
+        tool.execute(call, context(workspace, Map.of())).toCompletableFuture().get();
+
+    Assertions.assertThat(first.status()).isEqualTo(Status.COMPLETED);
+    Assertions.assertThat(reused.status()).isEqualTo(Status.COMPLETED);
+    Assertions.assertThat(rules.list()).hasSize(1);
+  }
+
+  @Test
+  void turnCommandApprovalDoesNotLeakAcrossSessions() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace"));
+    RunCommandTool tool = this.tool(workspace);
+    ToolCall call = call("java -version", ".");
+    ToolResult waiting =
+        tool.execute(call, context(workspace, "session-1", Map.of())).toCompletableFuture().get();
+    ApprovalRequest request = (ApprovalRequest) waiting.metadata().get("approvalRequest");
+    ApprovalDecision decision =
+        new ApprovalDecision(
+            request.approvalId(),
+            Choice.ALLOW,
+            Scope.TURN,
+            Optional.empty(),
+            Instant.parse("2026-07-21T00:00:00Z"));
+
+    Assertions.assertThat(
+            tool.execute(
+                    call,
+                    context(
+                        workspace,
+                        "session-1",
+                        Map.of("approvalRequest", request, "approvalDecision", decision)))
+                .toCompletableFuture()
+                .get()
+                .status())
+        .isEqualTo(Status.COMPLETED);
+    Assertions.assertThat(
+            tool.execute(call, context(workspace, "session-1", Map.of()))
+                .toCompletableFuture()
+                .get()
+                .status())
+        .isEqualTo(Status.COMPLETED);
+    Assertions.assertThat(
+            tool.execute(call, context(workspace, "session-2", Map.of()))
+                .toCompletableFuture()
+                .get()
+                .status())
+        .isEqualTo(Status.APPROVAL_REQUIRED);
+  }
+
+  @Test
   void classifiesDestructiveCommandsAsHighOrCriticalRisk() {
     CommandRiskClassifier classifier = new CommandRiskClassifier();
     Assertions.assertThat(classifier.classify("git reset --hard HEAD").name()).isEqualTo("HIGH");
@@ -134,11 +219,30 @@ class RunCommandToolTest {
   }
 
   private static ToolContext context(Path workspace, Map<String, Object> attributes) {
+    return context(workspace, "session-1", attributes);
+  }
+
+  private static ToolContext context(
+      Path workspace, String sessionId, Map<String, Object> attributes) {
     return new ToolContext(
-        new SessionId("session-1"), new TurnId(1L), workspace, EventSink.NOOP, attributes);
+        new SessionId(sessionId), new TurnId(1L), workspace, EventSink.NOOP, attributes);
   }
 
   private static String jsonEscape(String value) {
     return value.replace("\\", "\\\\").replace("\"", "\\\"");
+  }
+
+  private static final class InMemoryRuleStore implements PermissionRuleStore {
+    private final List<PermissionRule> rules = new ArrayList<>();
+
+    @Override
+    public List<PermissionRule> list() {
+      return List.copyOf(this.rules);
+    }
+
+    @Override
+    public void save(PermissionRule rule) {
+      this.rules.add(rule);
+    }
   }
 }

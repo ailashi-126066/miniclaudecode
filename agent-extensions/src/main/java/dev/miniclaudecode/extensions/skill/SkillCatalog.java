@@ -19,6 +19,7 @@ import java.util.Objects;
 public final class SkillCatalog {
   private final Map<String, SkillDescriptor> skills;
   private final int maximumLoadedBytes;
+  private final SkillRouter router = new SkillRouter();
 
   public SkillCatalog(List<SkillDescriptor> descriptors) {
     this(descriptors, 65536);
@@ -67,6 +68,10 @@ public final class SkillCatalog {
         .toList();
   }
 
+  public List<SkillRouter.RouteMatch> route(String intent, int limit) {
+    return this.router.route(intent, this.list(), limit);
+  }
+
   public SkillCatalog.LoadedSkill load(String name) throws IOException {
     SkillDescriptor descriptor = this.skills.get(requireName(name));
     if (descriptor == null) {
@@ -100,8 +105,9 @@ public final class SkillCatalog {
     } else {
       StringBuilder index =
           new StringBuilder(
-              "Available local skills (descriptions only; use skills:load_skill to load"
-                  + " instructions):\n");
+              "Available local skills (descriptions only plus routing metadata; use"
+                  + " skills:route_skill to shortlist and"
+                  + " skills:load_skill to load instructions):\n");
 
       for (SkillDescriptor descriptor : this.list()) {
         index
@@ -109,6 +115,8 @@ public final class SkillCatalog {
             .append(descriptor.name())
             .append(": ")
             .append(descriptor.description())
+            .append(
+                descriptor.tags().isEmpty() ? "" : " tags=" + String.join(",", descriptor.tags()))
             .append(" [")
             .append(descriptor.source().name().toLowerCase(Locale.ROOT))
             .append("]\n");

@@ -1,5 +1,7 @@
 package dev.miniclaudecode.cli.app;
 
+import dev.miniclaudecode.cli.Repl.TurnOutcome;
+import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -69,5 +71,14 @@ class NonInteractiveE2ETest {
             new CharSequence[] {
               "Indexed 1 files", "vectorDimensions=384", "BM25 candidates", "OrderService.java"
             });
+  }
+
+  @Test
+  void mapsTerminalAgentStatesToAutomationFriendlyExitCodes() {
+    Assertions.assertThat(DefaultCliActions.exitCode(TurnOutcome.completed())).isZero();
+    Assertions.assertThat(DefaultCliActions.exitCode(TurnOutcome.finished(AgentStatus.FAILED)))
+        .isEqualTo(2);
+    Assertions.assertThat(DefaultCliActions.exitCode(TurnOutcome.finished(AgentStatus.CANCELLED)))
+        .isEqualTo(130);
   }
 }

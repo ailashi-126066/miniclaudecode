@@ -6,10 +6,13 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.extensions.mcp.McpManager;
 import dev.miniclaudecode.extensions.mcp.McpManager.ConnectReport;
 import dev.miniclaudecode.extensions.skill.LoadSkillTool;
+import dev.miniclaudecode.extensions.skill.RouteSkillTool;
 import dev.miniclaudecode.extensions.skill.SkillCatalog;
 import dev.miniclaudecode.persistence.config.AppConfig;
 import dev.miniclaudecode.persistence.config.ConfigLoader;
 import dev.miniclaudecode.persistence.config.EmbeddingConfig;
+import dev.miniclaudecode.persistence.config.SecretRedactor;
+import dev.miniclaudecode.persistence.memory.JsonlMemoryStore;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.persistence.permission.JsonPermissionRuleStore;
 import dev.miniclaudecode.providers.ProviderFactory;
@@ -29,11 +32,14 @@ import dev.miniclaudecode.tools.fs.ListTool;
 import dev.miniclaudecode.tools.fs.ReadTool;
 import dev.miniclaudecode.tools.fs.WorkspacePathResolver;
 import dev.miniclaudecode.tools.fs.WriteTool;
+import dev.miniclaudecode.tools.process.CommandPolicy;
+import dev.miniclaudecode.tools.process.CommandRiskClassifier;
 import dev.miniclaudecode.tools.process.CommandSandbox;
 import dev.miniclaudecode.tools.process.ProcessRunner;
 import dev.miniclaudecode.tools.process.RunCommandTool;
 import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
 import dev.miniclaudecode.tools.task.TodoTool;
 import dev.miniclaudecode.tools.user.AskUserTool;
@@ -64,6 +70,7 @@ final class WorkspaceComponents implements AutoCloseable {
   private final VectorRetriever vector;
   private final HybridCodeSearcher searcher;
   private final Set<String> secrets;
+  private final JsonlMemoryStore memories;
   private final McpManager mcpManager;
   private final ConnectReport mcpReport;
   private final TodoTool todoTool;
@@ -80,6 +87,7 @@ final class WorkspaceComponents implements AutoCloseable {
       VectorRetriever vector,
       HybridCodeSearcher searcher,
       Set<String> secrets,
+      JsonlMemoryStore memories,
       McpManager mcpManager,
       ConnectReport mcpReport,
       TodoTool todoTool) {
@@ -94,6 +102,7 @@ final class WorkspaceComponents implements AutoCloseable {
     this.vector = vector;
     this.searcher = searcher;
     this.secrets = secrets;
+    this.memories = memories;
     this.mcpManager = mcpManager;
     this.mcpReport = mcpReport;
     this.todoTool = todoTool;
@@ -133,6 +142,15 @@ final class WorkspaceComponents implements AutoCloseable {
       HybridCodeSearcher searcher = new HybridCodeSearcher(bm25, vector);
       SkillCatalog skills = SkillCatalog.discover(workspace, layout.skillsRoot());
       WorkspaceComponents.McpWiring mcp = wireMcp(layout, results);
+      Set<String> secrets =
+          Stream.concat(
+                  config.providers().values().stream()
+                      .map(profile -> profile.resolvedApiKey(environment)),
+                  Stream.of(config.embedding().resolvedApiKey(environment)))
+              .flatMap(Optional::stream)
+              .collect(Collectors.toUnmodifiableSet());
+      JsonlMemoryStore memories =
+          new JsonlMemoryStore(layout.memoryFile(workspace), new SecretRedactor(), secrets);
 
       try {
         List<AgentTool> agentTools = new ArrayList<>();
@@ -148,24 +166,39 @@ final class WorkspaceComponents implements AutoCloseable {
                 CommandSandbox.Policy.parse(environment.getOrDefault("MINICLAUDE_SANDBOX", "auto")),
                 workspace);
         agentTools.add(
-            new RunCommandTool(paths, new ProcessRunner(ShellSelector.system(), sandbox), results));
+            new RunCommandTool(
+                paths,
+                new ProcessRunner(ShellSelector.system(), sandbox),
+                results,
+                new CommandRiskClassifier(),
+                new CommandPolicy(
+                    config.commandPolicy().allowPrefixes(),
+                    config.commandPolicy().denyFragments(),
+                    config.commandPolicy().allowlistOnly()),
+                permissionRules,
+                Clock.systemUTC()));
         agentTools.add(new WebFetchTool(results));
         TodoTool todoTool = new TodoTool();
         agentTools.add(todoTool);
         agentTools.add(new AskUserTool());
-        agentTools.add(new CodeSearchTool(codeIndex, searcher));
+        agentTools.add(new CodeSearchTool(codeIndex, searcher, results));
+        agentTools.add(new ReadToolResultTool(results));
+        agentTools.add(new MemorySearchTool(memories));
+        agentTools.add(new RouteSkillTool(skills));
         agentTools.add(new LoadSkillTool(skills));
+        List<AgentTool> delegatedTools =
+            agentTools.stream().filter(WorkspaceComponents::isDelegatedReadOnlyTool).toList();
+        agentTools.add(
+            new DelegatedAgentTool(
+                modelClient,
+                new DefaultToolRegistry(delegatedTools),
+                config.activeProvider(),
+                config.activeProfile(),
+                Clock.systemUTC()));
         agentTools.addAll(mcp.tools());
         // Every resolved key must land here: this set seeds the audit-log redactor, and a key
         // missing from it (the embedding key once was) gets written to session JSONL in plain
         // text whenever an error message or tool payload happens to contain it.
-        Set<String> secrets =
-            Stream.concat(
-                    config.providers().values().stream()
-                        .map(profile -> profile.resolvedApiKey(environment)),
-                    Stream.of(config.embedding().resolvedApiKey(environment)))
-                .flatMap(Optional::stream)
-                .collect(Collectors.toUnmodifiableSet());
         return new WorkspaceComponents(
             workspace,
             layout,
@@ -178,6 +211,7 @@ final class WorkspaceComponents implements AutoCloseable {
             vector,
             searcher,
             secrets,
+            memories,
             mcp.manager(),
             mcp.report(),
             todoTool);
@@ -190,6 +224,20 @@ final class WorkspaceComponents implements AutoCloseable {
         throw failure;
       }
     }
+  }
+
+  private static boolean isDelegatedReadOnlyTool(AgentTool tool) {
+    return Set.of(
+            "workspace:read",
+            "workspace:list",
+            "workspace:glob",
+            "workspace:grep",
+            "workspace:code_search",
+            "context:read_result",
+            "memory:search",
+            "skills:route_skill",
+            "skills:load_skill")
+        .contains(tool.descriptor().qualifiedName());
   }
 
   /**
@@ -309,6 +357,10 @@ final class WorkspaceComponents implements AutoCloseable {
 
   Set<String> secrets() {
     return this.secrets;
+  }
+
+  JsonlMemoryStore memories() {
+    return this.memories;
   }
 
   TodoTool todoTool() {

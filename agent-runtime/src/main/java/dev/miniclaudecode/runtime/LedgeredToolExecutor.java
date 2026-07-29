@@ -34,6 +34,11 @@ public final class LedgeredToolExecutor implements ToolExecutor {
           "workspace:glob",
           "workspace:grep",
           "workspace:code_search",
+          "context:read_result",
+          "agent:delegate",
+          "memory:search",
+          "skills:route_skill",
+          "skills:load_skill",
           "task:todo");
 
   private final ToolExecutor delegate;
