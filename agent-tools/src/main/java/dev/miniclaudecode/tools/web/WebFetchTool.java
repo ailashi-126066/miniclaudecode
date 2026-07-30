@@ -237,7 +237,9 @@ public final class WebFetchTool implements AgentTool {
 
   private Optional<ToolResult> authorize(
       ToolCall call, ToolContext context, URI uri, WebFetchTool.Access access) {
-    if (access == WebFetchTool.Access.PUBLIC) {
+    boolean elevatedApproval =
+        Boolean.TRUE.equals(context.attributes().get("elevatedApprovalRequired"));
+    if (access == WebFetchTool.Access.PUBLIC && !elevatedApproval) {
       return Optional.empty();
     } else {
       Object requestValue = context.attributes().get("approvalRequest");
@@ -249,7 +251,9 @@ public final class WebFetchTool implements AgentTool {
                 call,
                 RiskLevel.HIGH,
                 uri.toString(),
-                "Private and local network access can expose internal services",
+                elevatedApproval
+                    ? "Untrusted content in this turn requires approval before network access"
+                    : "Private and local network access can expose internal services",
                 Optional.empty(),
                 Optional.empty(),
                 Instant.now(this.clock));

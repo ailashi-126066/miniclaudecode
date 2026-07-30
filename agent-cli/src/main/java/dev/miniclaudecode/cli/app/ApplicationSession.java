@@ -652,21 +652,7 @@ final class ApplicationSession implements TurnHandler {
     attributes.put("requireRagCitations", true);
     attributes.put("outputProtocol", profile.outputProtocol());
     attributes.put("maxOutputRepairs", profile.maxOutputRepairs());
-    addBudget(attributes, "budget.maxCostMicros", "MINICLAUDE_MAX_COST_MICROS");
-    addBudget(attributes, "budget.inputMicrosPerMillion", "MINICLAUDE_INPUT_MICROS_PER_MILLION");
-    addBudget(attributes, "budget.outputMicrosPerMillion", "MINICLAUDE_OUTPUT_MICROS_PER_MILLION");
     return Map.copyOf(attributes);
-  }
-
-  private static void addBudget(Map<String, Object> attributes, String key, String environmentKey) {
-    try {
-      String value = System.getenv(environmentKey);
-      if (value != null && !value.isBlank() && Long.parseLong(value) > 0) {
-        attributes.put(key, Long.parseLong(value));
-      }
-    } catch (NumberFormatException ignored) {
-      // Invalid optional budget configuration must not make a normal interactive turn unusable.
-    }
   }
 
   private void captureExplicitPreference(

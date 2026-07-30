@@ -1,6 +1,5 @@
 package dev.miniclaudecode.rag.search;
 
-import dev.miniclaudecode.tools.remote.RemoteAiGateway;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -20,43 +19,6 @@ public final class CodeAwareReranker implements Reranker {
 
   @Override
   public List<SearchResult> rerank(String query, List<SearchResult> candidates) {
-    var remote =
-        RemoteAiGateway.fromEnvironment()
-            .flatMap(
-                gateway ->
-                    gateway.complete(
-                        "Rank candidate code snippets for the query. Return only zero-based candidate indexes, comma separated.",
-                        "Query: "
-                            + query
-                            + "\nCandidates:\n"
-                            + candidates.stream()
-                                .limit(20)
-                                .map(
-                                    value ->
-                                        value.chunk().path()
-                                            + ": "
-                                            + value.chunk().symbol()
-                                            + " "
-                                            + value.chunk().content())
-                                .reduce("", (left, right) -> left + "\n" + right)));
-    if (remote.isPresent()) {
-      try {
-        List<Integer> order =
-            java.util.Arrays.stream(remote.get().split("\\s*,\\s*"))
-                .map(Integer::parseInt)
-                .filter(index -> index >= 0 && index < candidates.size())
-                .distinct()
-                .toList();
-        if (!order.isEmpty()) {
-          List<SearchResult> ranked = new ArrayList<>();
-          order.forEach(index -> ranked.add(candidates.get(index)));
-          candidates.stream().filter(value -> !ranked.contains(value)).forEach(ranked::add);
-          return List.copyOf(ranked);
-        }
-      } catch (NumberFormatException ignored) {
-        /* deterministic fallback */
-      }
-    }
     Set<String> terms = terms(query);
     if (terms.isEmpty() || candidates.isEmpty()) {
       return List.copyOf(candidates);

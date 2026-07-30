@@ -15,7 +15,6 @@ import dev.miniclaudecode.domain.runtime.CancellationToken;
 import dev.miniclaudecode.domain.runtime.CancellationToken.Registration;
 import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
-import dev.miniclaudecode.runtime.BudgetManager;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -48,11 +47,6 @@ public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
   }
 
   public CompletableFuture<Map<String, Object>> apply(MiniClaudeState state) {
-    if (BudgetManager.exhausted(state.request().attributes(), state.providerMetadata())) {
-      return CompletableFuture.completedFuture(
-          failed(
-              "configured model-cost budget is exhausted; request user authorization to continue"));
-    }
     if (state.modelSteps() >= this.limits.maxModelSteps()) {
       return CompletableFuture.completedFuture(failed("model step limit exceeded"));
     } else {
@@ -189,13 +183,6 @@ public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
           this.metadata.put("outputTokens", this.usage.outputTokens());
           this.metadata.put("cacheReadTokens", this.usage.cacheReadTokens());
           this.metadata.put("cacheWriteTokens", this.usage.cacheWriteTokens());
-          this.metadata.put(
-              BudgetManager.TOTAL_COST_MICROS,
-              BudgetManager.addUsage(
-                  this.state.request().attributes(),
-                  this.metadata,
-                  this.usage.inputTokens(),
-                  this.usage.outputTokens()));
         }
         update.put("messages", List.copyOf(messages));
         update.put("modelEvents", List.copyOf(this.events));

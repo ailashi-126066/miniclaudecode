@@ -18,8 +18,9 @@ public final class DefaultCodingPromptContributors {
             "discovery",
             200,
             context ->
-                "Inspect before editing. Use workspace:code_search for architectural discovery,"
-                    + " then read exact files.\n"
+                "Inspect before editing. When repository context is needed, use workspace:code_search"
+                    + " for architectural discovery, evaluate its evidence, then read exact files."
+                    + " Do not search when the current context already answers the question.\n"
                     + "When workspace:code_search supplies evidence, cite only its returned spans as"
                     + " 【path:start-end】 in the final answer.\n"
                     + "Use skills:route_skill before skills:load_skill when the right workflow is"

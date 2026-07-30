@@ -41,7 +41,6 @@ import dev.miniclaudecode.tools.process.ProcessRunner;
 import dev.miniclaudecode.tools.process.RunCommandTool;
 import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
-import dev.miniclaudecode.tools.remote.RemoteAiGateway;
 import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
 import dev.miniclaudecode.tools.rule.ScopedRuleHook;
@@ -131,7 +130,6 @@ final class WorkspaceComponents implements AutoCloseable {
       Optional<Path> projectConfig =
           Optional.of(workspace.resolve(".mini-claude-code/config.yaml"));
       AppConfig config = new ConfigLoader().load(layout.configFile(), projectConfig);
-      configureRemoteAiFallback(config, environment);
       ModelClient modelClient =
           fakeResponse
               .<ModelClient>map(StaticResponseModelClient::new)
@@ -274,16 +272,6 @@ final class WorkspaceComponents implements AutoCloseable {
         mcp.manager().close();
         throw failure;
       }
-    }
-  }
-
-  private static void configureRemoteAiFallback(AppConfig config, Map<String, String> environment) {
-    var profile = config.activeProfile();
-    if (profile.type() == dev.miniclaudecode.persistence.config.ProviderProfile.Type.ANTHROPIC) {
-      RemoteAiGateway.configureDefault(null, Optional.empty(), "");
-    } else {
-      RemoteAiGateway.configureDefault(
-          profile.baseUrl().orElse(null), profile.resolvedApiKey(environment), profile.model());
     }
   }
 

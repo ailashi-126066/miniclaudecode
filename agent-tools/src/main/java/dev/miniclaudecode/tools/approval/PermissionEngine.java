@@ -49,20 +49,25 @@ public final class PermissionEngine {
       PermissionEngine.MutationPlan plan, ToolContext context) {
     Objects.requireNonNull(plan, "plan must not be null");
     Objects.requireNonNull(context, "context must not be null");
-    if (Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
+    boolean elevatedApproval =
+        Boolean.TRUE.equals(context.attributes().get("elevatedApprovalRequired"));
+    if (!elevatedApproval && Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
       return new PermissionEngine.Authorization.Allowed();
     }
-    if (this.ruleStore.list().stream()
-            .anyMatch(
-                rule -> rule.matches(plan.workspace(), plan.call().qualifiedName(), plan.target()))
-        || this.fileAllowances.contains(fileKey(plan))
-        || this.turnAllowances.contains(turnKey(plan, context))) {
+    if (!elevatedApproval
+        && (this.ruleStore.list().stream()
+                .anyMatch(
+                    rule ->
+                        rule.matches(plan.workspace(), plan.call().qualifiedName(), plan.target()))
+            || this.fileAllowances.contains(fileKey(plan))
+            || this.turnAllowances.contains(turnKey(plan, context)))) {
       return new PermissionEngine.Authorization.Allowed();
     } else {
       Object requestValue = context.attributes().get("approvalRequest");
       Object decisionValue = context.attributes().get("approvalDecision");
       if (requestValue == null && decisionValue == null) {
-        return new PermissionEngine.Authorization.Requested(this.newRequest(plan));
+        return new PermissionEngine.Authorization.Requested(
+            this.newRequest(plan, elevatedApproval));
       } else {
         if (requestValue instanceof ApprovalRequest request
             && decisionValue instanceof ApprovalDecision decision) {
@@ -117,13 +122,15 @@ public final class PermissionEngine {
         + plan.target();
   }
 
-  private ApprovalRequest newRequest(PermissionEngine.MutationPlan plan) {
+  private ApprovalRequest newRequest(PermissionEngine.MutationPlan plan, boolean elevatedApproval) {
     return new ApprovalRequest(
         UUID.randomUUID(),
         plan.call(),
-        plan.riskLevel(),
+        elevatedApproval ? RiskLevel.HIGH : plan.riskLevel(),
         plan.target(),
-        plan.reason(),
+        elevatedApproval
+            ? plan.reason() + " (untrusted content in this turn requires elevated approval)"
+            : plan.reason(),
         Optional.of(plan.beforeHash()),
         Optional.of(plan.diffHash()),
         Instant.now(this.clock));

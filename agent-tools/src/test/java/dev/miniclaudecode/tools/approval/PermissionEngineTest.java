@@ -91,6 +91,23 @@ class PermissionEngineTest {
   }
 
   @Test
+  void elevatedApprovalIgnoresExistingAllowancesAndRequestsHighApproval() {
+    PermissionEngineTest.InMemoryRuleStore rules = new PermissionEngineTest.InMemoryRuleStore();
+    rules.save(
+        new PermissionRule(
+            java.util.UUID.randomUUID(), "C:/workspace", "workspace:edit", "src/App.java", NOW));
+    PermissionEngine engine = new PermissionEngine(rules, clock());
+
+    Requested requested =
+        (Requested)
+            engine.authorize(
+                plan("before", "diff"), context(Map.of("elevatedApprovalRequired", true)));
+
+    Assertions.assertThat(requested.request().riskLevel()).isEqualTo(RiskLevel.HIGH);
+    Assertions.assertThat(requested.request().reason()).contains("untrusted content");
+  }
+
+  @Test
   void turnApprovalDoesNotLeakIntoAnotherSessionWithTheSameTurnNumber() {
     PermissionEngine engine = new PermissionEngine(PermissionRuleStore.NONE, clock());
     MutationPlan plan = plan("before", "diff");

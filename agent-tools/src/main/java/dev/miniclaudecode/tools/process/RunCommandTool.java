@@ -184,13 +184,16 @@ public final class RunCommandTool implements AgentTool {
   private Optional<ToolResult> authorize(
       ToolCall call, ToolContext context, String command, RiskLevel risk) {
     String workspace = context.workspace().toString();
-    if (Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
+    boolean elevatedApproval =
+        Boolean.TRUE.equals(context.attributes().get("elevatedApprovalRequired"));
+    if (!elevatedApproval && Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
       return Optional.empty();
     }
-    if (risk != RiskLevel.LOW
-        && !this.turnAllowances.contains(turnKey(workspace, context, command))
-        && !this.ruleStore.list().stream()
-            .anyMatch(rule -> rule.matches(workspace, call.qualifiedName(), command))) {
+    if ((risk != RiskLevel.LOW || elevatedApproval)
+        && (elevatedApproval
+            || (!this.turnAllowances.contains(turnKey(workspace, context, command))
+                && !this.ruleStore.list().stream()
+                    .anyMatch(rule -> rule.matches(workspace, call.qualifiedName(), command))))) {
       Object requestValue = context.attributes().get("approvalRequest");
       Object decisionValue = context.attributes().get("approvalDecision");
       if (requestValue == null && decisionValue == null) {
@@ -200,11 +203,14 @@ public final class RunCommandTool implements AgentTool {
             new ApprovalRequest(
                 UUID.randomUUID(),
                 call,
-                risk,
+                elevatedApproval ? RiskLevel.HIGH : risk,
                 command,
                 "Shell commands can modify files or cause external side effects (sandbox: "
                     + this.processRunner.sandboxDescription()
-                    + ")",
+                    + ")"
+                    + (elevatedApproval
+                        ? "; untrusted content in this turn requires elevated approval"
+                        : ""),
                 Optional.empty(),
                 Optional.empty(),
                 Instant.now(this.clock));
@@ -214,7 +220,11 @@ public final class RunCommandTool implements AgentTool {
                 Status.APPROVAL_REQUIRED,
                 "Approval required before running command: " + command,
                 Optional.empty(),
-                Map.of("approvalRequest", request, "riskLevel", risk.name())));
+                Map.of(
+                    "approvalRequest",
+                    request,
+                    "riskLevel",
+                    (elevatedApproval ? RiskLevel.HIGH : risk).name())));
       } else {
         if (requestValue instanceof ApprovalRequest request
             && decisionValue instanceof ApprovalDecision decision) {
