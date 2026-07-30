@@ -12,6 +12,11 @@ public sealed interface SlashCommand
         SlashCommand.Thinking,
         SlashCommand.Tools,
         SlashCommand.Compact,
+        SlashCommand.Checkpoints,
+        SlashCommand.Restore,
+        SlashCommand.Recovery,
+        SlashCommand.Undo,
+        SlashCommand.Redo,
         SlashCommand.Sessions,
         SlashCommand.Resume,
         SlashCommand.Mcp,
@@ -37,6 +42,13 @@ public sealed interface SlashCommand
     @Override
     public String name() {
       return "compact";
+    }
+  }
+
+  public static record Checkpoints() implements SlashCommand {
+    @Override
+    public String name() {
+      return "checkpoints";
     }
   }
 
@@ -98,6 +110,52 @@ public sealed interface SlashCommand
     @Override
     public String name() {
       return "resume";
+    }
+  }
+
+  public static record Restore(String revision, boolean apply) implements SlashCommand {
+    public Restore(String revision) {
+      this(revision, false);
+    }
+
+    public Restore {
+      revision = SlashCommand.requireText(revision, "revision");
+    }
+
+    @Override
+    public String name() {
+      return "restore";
+    }
+  }
+
+  public static record Recovery() implements SlashCommand {
+    @Override
+    public String name() {
+      return "recovery";
+    }
+  }
+
+  public static record Undo(Optional<String> operationId) implements SlashCommand {
+    public Undo(Optional<String> operationId) {
+      operationId = SlashCommand.normalized(operationId, "operationId");
+      this.operationId = operationId;
+    }
+
+    @Override
+    public String name() {
+      return "undo";
+    }
+  }
+
+  public static record Redo(Optional<String> operationId) implements SlashCommand {
+    public Redo(Optional<String> operationId) {
+      operationId = SlashCommand.normalized(operationId, "operationId");
+      this.operationId = operationId;
+    }
+
+    @Override
+    public String name() {
+      return "redo";
     }
   }
 

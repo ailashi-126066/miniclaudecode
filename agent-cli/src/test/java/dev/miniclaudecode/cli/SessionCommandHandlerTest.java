@@ -27,8 +27,13 @@ class SessionCommandHandlerTest {
             () -> "session-1",
             () -> "(no MCP servers)",
             () -> "(no skills)",
+            () -> "checkpoint",
+            () -> "recovery",
             () -> compacted.set(true),
             ignored -> {},
+            ignored -> "restore",
+            ignored -> "undo",
+            ignored -> "redo",
             Path.of("config.yaml"));
 
     handler.execute(new SlashCommand.Provider(Optional.of("openai")));

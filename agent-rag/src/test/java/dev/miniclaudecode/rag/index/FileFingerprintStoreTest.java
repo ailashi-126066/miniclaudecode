@@ -35,7 +35,9 @@ class FileFingerprintStoreTest {
     Path file = this.temporaryDirectory.resolve("fingerprints.properties");
     Files.writeString(
         file, "good=hash1,10,1700000000000\nnosignal=hash2\nbadnumbers=hash3,ten,soon\n");
-    Files.writeString(this.temporaryDirectory.resolve("fingerprints.properties.version"), "2");
+    Files.writeString(
+        this.temporaryDirectory.resolve("fingerprints.properties.version"),
+        FileFingerprintStore.SCHEMA_VERSION);
     Map<String, FileFingerprint> loaded = new FileFingerprintStore(file).load();
     Assertions.assertThat(loaded.get("good"))
         .isEqualTo(new FileFingerprint("hash1", 10L, 1700000000000L));

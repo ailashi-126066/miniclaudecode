@@ -19,6 +19,10 @@ import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.runtime.ToolExecutor;
 import dev.miniclaudecode.tools.approval.PromptInjectionScanner;
+import dev.miniclaudecode.tools.hook.HookContext;
+import dev.miniclaudecode.tools.hook.HookDecision;
+import dev.miniclaudecode.tools.hook.HookPhase;
+import dev.miniclaudecode.tools.hook.HookRegistry;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -43,6 +47,8 @@ final class RegistryToolExecutor implements ToolExecutor {
   private final CancellationToken cancellationToken;
   private final Consumer<RenderEvent> renderer;
   private final Clock clock;
+  private final HookRegistry hooks;
+  private final Map<String, Object> fixedAttributes;
   private final PromptInjectionScanner injectionScanner = new PromptInjectionScanner();
 
   RegistryToolExecutor(
@@ -54,6 +60,53 @@ final class RegistryToolExecutor implements ToolExecutor {
       CancellationToken cancellationToken,
       Consumer<RenderEvent> renderer,
       Clock clock) {
+    this(
+        registry,
+        sessionId,
+        turnId,
+        workspace,
+        audit,
+        cancellationToken,
+        renderer,
+        clock,
+        HookRegistry.NONE,
+        Map.of());
+  }
+
+  RegistryToolExecutor(
+      DefaultToolRegistry registry,
+      SessionId sessionId,
+      TurnId turnId,
+      Path workspace,
+      EventSink audit,
+      CancellationToken cancellationToken,
+      Consumer<RenderEvent> renderer,
+      Clock clock,
+      HookRegistry hooks) {
+    this(
+        registry,
+        sessionId,
+        turnId,
+        workspace,
+        audit,
+        cancellationToken,
+        renderer,
+        clock,
+        hooks,
+        Map.of());
+  }
+
+  RegistryToolExecutor(
+      DefaultToolRegistry registry,
+      SessionId sessionId,
+      TurnId turnId,
+      Path workspace,
+      EventSink audit,
+      CancellationToken cancellationToken,
+      Consumer<RenderEvent> renderer,
+      Clock clock,
+      HookRegistry hooks,
+      Map<String, Object> fixedAttributes) {
     this.registry = Objects.requireNonNull(registry, "registry must not be null");
     this.sessionId = Objects.requireNonNull(sessionId, "sessionId must not be null");
     this.turnId = Objects.requireNonNull(turnId, "turnId must not be null");
@@ -63,6 +116,9 @@ final class RegistryToolExecutor implements ToolExecutor {
         Objects.requireNonNull(cancellationToken, "cancellationToken must not be null");
     this.renderer = Objects.requireNonNull(renderer, "renderer must not be null");
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    this.hooks = Objects.requireNonNull(hooks, "hooks must not be null");
+    this.fixedAttributes =
+        Map.copyOf(Objects.requireNonNull(fixedAttributes, "fixedAttributes must not be null"));
   }
 
   public CompletionStage<List<ToolResult>> execute(List<ToolCall> calls) {
@@ -111,16 +167,32 @@ final class RegistryToolExecutor implements ToolExecutor {
         this.auditResult(call, result);
         return CompletableFuture.completedFuture(result);
       } else {
-        this.renderer.accept(new Progress("Running " + call.qualifiedName()));
+        this.renderer.accept(new Progress(activityFor(call.qualifiedName())));
         this.emit(
             AgentEventType.TOOL_STARTED,
             Map.of("toolCallId", call.toolCallId(), "tool", call.qualifiedName()));
         Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.putAll(this.fixedAttributes);
+        attributes.put("requireVerifiedTodo", true);
         attributes.put("cancellationToken", this.cancellationToken);
         pendingApproval.ifPresent(value -> attributes.put("approvalRequest", value));
         approvalDecision.ifPresent(value -> attributes.put("approvalDecision", value));
         ToolContext context =
             new ToolContext(this.sessionId, this.turnId, this.workspace, this.audit, attributes);
+        HookDecision before =
+            this.hooks.evaluate(
+                new HookContext(HookPhase.BEFORE_TOOL, call, Optional.empty(), context));
+        if (before.kind() == HookDecision.Kind.DENY) {
+          ToolResult result =
+              new ToolResult(
+                  call.toolCallId(),
+                  Status.FAILED,
+                  "Blocked by hook: " + before.reason(),
+                  Optional.empty(),
+                  Map.of("hookBlocked", true));
+          this.auditResult(call, result);
+          return CompletableFuture.completedFuture(result);
+        }
 
         CompletionStage<ToolResult> execution;
         try {
@@ -138,6 +210,29 @@ final class RegistryToolExecutor implements ToolExecutor {
         return execution.thenApply(
             rawResult -> {
               ToolResult result = this.inspectUntrustedResult(call, rawResult);
+              if (result.status() == Status.COMPLETED
+                  && "shell:run".equals(call.qualifiedName())
+                  && call.argumentsJson()
+                      .matches(
+                          "(?is).*\\b(mvn|gradle|npm|pnpm|yarn|pytest|go\\s+test|cargo\\s+test|dotnet\\s+test|jest|vitest|ruff|eslint|spotless|checkstyle|lint|compile|build)\\b.*")) {
+                this.registry
+                    .find("task:todo")
+                    .filter(dev.miniclaudecode.tools.task.TodoTool.class::isInstance)
+                    .map(dev.miniclaudecode.tools.task.TodoTool.class::cast)
+                    .ifPresent(todo -> todo.recordSuccessfulVerification(this.sessionId));
+              }
+              HookDecision after =
+                  this.hooks.evaluate(
+                      new HookContext(HookPhase.AFTER_TOOL, call, Optional.of(result), context));
+              if (after.kind() == HookDecision.Kind.DENY) {
+                result =
+                    new ToolResult(
+                        result.toolCallId(),
+                        Status.FAILED,
+                        "Rejected by after-tool hook: " + after.reason(),
+                        result.resultReference(),
+                        result.metadata());
+              }
               this.auditResult(call, result);
               return result;
             });
@@ -253,5 +348,16 @@ final class RegistryToolExecutor implements ToolExecutor {
 
   private void emit(AgentEventType type, Map<String, Object> payload) {
     this.audit.emit(AgentEvent.create(this.sessionId, this.turnId, type, payload, this.clock));
+  }
+
+  private static String activityFor(String qualifiedToolName) {
+    return switch (qualifiedToolName) {
+      case "workspace:read" -> "Reading file…";
+      case "workspace:list", "workspace:glob" -> "Listing files…";
+      case "workspace:grep" -> "Searching files…";
+      case "workspace:code_search" -> "Searching code index…";
+      case "shell:run" -> "Running command…";
+      default -> "Running " + qualifiedToolName + "…";
+    };
   }
 }

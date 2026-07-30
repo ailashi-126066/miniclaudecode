@@ -2,12 +2,9 @@ package dev.miniclaudecode.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.miniclaudecode.context.ContextPlanner;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
-import dev.miniclaudecode.runtime.node.RequireVerificationNode;
-import dev.miniclaudecode.runtime.retry.RetryPolicy;
-import dev.miniclaudecode.runtime.route.ResponseRouter;
+import dev.miniclaudecode.runtime.node.ExecuteToolsNode;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,34 +13,46 @@ import org.junit.jupiter.api.Test;
 
 class VerificationGateTest {
 
-  private final ResponseRouter router = new ResponseRouter(new ContextPlanner(), new RetryPolicy());
-
   @Test
   void routesBackToModelWhenAChangeHasNotBeenVerified() {
     MiniClaudeState state = state(messages(changed()), 0);
 
-    assertThat(router.afterModel().apply(state).join()).isEqualTo("verify");
+    assertThat(NormalTurnLoop.requiresVerification(state)).isTrue();
+  }
 
-    Map<String, Object> update = new RequireVerificationNode().apply(state).join();
-    assertThat((List<?>) update.get(MiniClaudeState.MESSAGES))
-        .last()
-        .asString()
-        .contains("Completion gate");
+  @Test
+  void remainsRequiredAfterTheMaximumPromptCountUntilACommandActuallySucceeds() {
+    MiniClaudeState state = state(messages(changed()), 2);
+
+    assertThat(NormalTurnLoop.requiresVerification(state)).isTrue();
   }
 
   @Test
   void permitsCompletionAfterASuccessfulVerificationCommand() {
     List<AgentMessage> messages = messages(changed());
-    messages.add(new AgentMessage.ToolMessage("test-1", "shell:run", "Tests pass", false));
+    messages.add(
+        new AgentMessage.ToolMessage(
+            "test-1",
+            "shell:run",
+            ExecuteToolsNode.VERIFICATION_SUCCEEDED_PREFIX + "Tests pass",
+            false));
 
-    assertThat(router.afterModel().apply(state(messages, 0)).join()).isEqualTo("finish");
+    assertThat(NormalTurnLoop.requiresVerification(state(messages, 0))).isFalse();
   }
 
   @Test
   void leavesLibraryCallersOptedOutByDefault() {
     MiniClaudeState state = state(messages(changed()), 0, false);
 
-    assertThat(router.afterModel().apply(state).join()).isEqualTo("finish");
+    assertThat(NormalTurnLoop.requiresVerification(state)).isFalse();
+  }
+
+  @Test
+  void doesNotAcceptAnArbitrarySuccessfulShellCommandAsVerification() {
+    List<AgentMessage> messages = messages(changed());
+    messages.add(new AgentMessage.ToolMessage("shell-1", "shell:run", "hello", false));
+
+    assertThat(NormalTurnLoop.requiresVerification(state(messages, 0))).isTrue();
   }
 
   @Test
@@ -60,7 +69,7 @@ class VerificationGateTest {
         new MiniClaudeState(
             Map.of(MiniClaudeState.REQUEST, request, MiniClaudeState.MESSAGES, messages));
 
-    assertThat(router.afterModel().apply(state).join()).isEqualTo("verify");
+    assertThat(NormalTurnLoop.hasIncompleteTasks(state)).isTrue();
   }
 
   private static AgentMessage.ToolMessage changed() {

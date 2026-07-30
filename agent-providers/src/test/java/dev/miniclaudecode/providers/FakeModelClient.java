@@ -13,7 +13,6 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class FakeModelClient implements ModelClient {
-
   private final Queue<List<ModelStreamEvent>> scripts;
   private final List<ModelRequest> requests = new CopyOnWriteArrayList<>();
   private final AtomicInteger cancellationCount = new AtomicInteger();
@@ -58,7 +57,6 @@ public final class FakeModelClient implements ModelClient {
   }
 
   private static final class ScriptedSubscription implements Flow.Subscription {
-
     private final Flow.Subscriber<? super ModelStreamEvent> subscriber;
     private final List<ModelStreamEvent> script;
     private final Runnable cancellationHook;
@@ -79,9 +77,7 @@ public final class FakeModelClient implements ModelClient {
 
     @Override
     public synchronized void request(long requested) {
-      if (cancelled || terminated) {
-        return;
-      }
+      if (cancelled || terminated) return;
       if (requested <= 0) {
         terminated = true;
         subscriber.onError(new IllegalArgumentException("demand must be greater than zero"));
@@ -100,9 +96,7 @@ public final class FakeModelClient implements ModelClient {
     }
 
     private void drain() {
-      if (draining) {
-        return;
-      }
+      if (draining) return;
       draining = true;
       try {
         while (!cancelled && !terminated && demand > 0 && index < script.size()) {

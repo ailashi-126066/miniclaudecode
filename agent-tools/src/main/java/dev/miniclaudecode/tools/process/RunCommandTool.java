@@ -120,6 +120,11 @@ public final class RunCommandTool implements AgentTool {
         throw new IllegalArgumentException("workingDirectory is not a directory");
       } else {
         CommandPolicy.Decision policyDecision = this.commandPolicy.evaluate(command);
+        boolean isolated = Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"));
+        if (isolated && !isVerificationCommand(command)) {
+          throw new SecurityException(
+              "isolated worktrees may run only test, build, lint, or formatting commands");
+        }
         if (policyDecision == CommandPolicy.Decision.DENY) {
           throw new SecurityException("command blocked by shell denylist: " + command);
         }
@@ -179,6 +184,9 @@ public final class RunCommandTool implements AgentTool {
   private Optional<ToolResult> authorize(
       ToolCall call, ToolContext context, String command, RiskLevel risk) {
     String workspace = context.workspace().toString();
+    if (Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
+      return Optional.empty();
+    }
     if (risk != RiskLevel.LOW
         && !this.turnAllowances.contains(turnKey(workspace, context, command))
         && !this.ruleStore.list().stream()
@@ -252,6 +260,11 @@ public final class RunCommandTool implements AgentTool {
     } else {
       return Optional.empty();
     }
+  }
+
+  private static boolean isVerificationCommand(String command) {
+    return command.matches(
+        "(?is).*\\b(mvn|gradle|npm|pnpm|yarn|pytest|go\\s+test|cargo\\s+test|dotnet\\s+test|jest|vitest|ruff|eslint|spotless|checkstyle|lint|compile|build)\\b.*");
   }
 
   private ToolResult toToolResult(

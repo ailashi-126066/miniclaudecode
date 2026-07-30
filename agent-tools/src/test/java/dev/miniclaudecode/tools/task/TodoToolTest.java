@@ -25,7 +25,7 @@ class TodoToolTest {
   void replacesAndListsSessionScopedChecklist() throws Exception {
     TodoTool tool = new TodoTool();
     String items =
-        "{\"action\":\"replace\",\"items\":[{\"id\":\"1\",\"content\":\"inspect\",\"status\":\"done\"},{\"id\":\"2\",\"content\":\"fix\",\"status\":\"in_progress\"}]}";
+        "{\"action\":\"replace\",\"items\":[{\"id\":\"1\",\"content\":\"inspect\",\"verification\":\"read source\",\"status\":\"done\"},{\"id\":\"2\",\"content\":\"fix\",\"status\":\"in_progress\"}]}";
     ToolResult updated = this.execute(tool, "session-1", items);
     ToolResult listed = this.execute(tool, "session-1", "{\"action\":\"list\"}");
     ToolResult other = this.execute(tool, "session-2", "{\"action\":\"list\"}");
@@ -41,7 +41,7 @@ class TodoToolTest {
     List<AgentEvent> events = new ArrayList<>();
     SessionId sessionId = SessionId.of("session-1");
     String items =
-        "{\"action\":\"replace\",\"items\":[{\"id\":\"1\",\"content\":\"inspect\",\"status\":\"done\"}]}";
+        "{\"action\":\"replace\",\"items\":[{\"id\":\"1\",\"content\":\"inspect\",\"verification\":\"read source\",\"status\":\"done\"}]}";
     tool.execute(
             new ToolCall("call-1", "task:todo", items),
             new ToolContext(
@@ -51,11 +51,10 @@ class TodoToolTest {
     TodoTool restarted = new TodoTool();
     restarted.restore(sessionId, tool.items(sessionId));
     Assertions.assertThat(events)
-        .singleElement()
         .extracting(AgentEvent::type)
-        .isEqualTo(AgentEventType.TASK_UPDATED);
+        .containsExactly(AgentEventType.TASK_UPDATED);
     Assertions.assertThat(restarted.items(sessionId))
-        .containsExactly(new TodoItem[] {new TodoItem("1", "inspect", Status.DONE)});
+        .containsExactly(new TodoItem[] {new TodoItem("1", "inspect", "read source", Status.DONE)});
   }
 
   @Test

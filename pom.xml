@@ -34,6 +34,9 @@
         <langgraph4j.version>1.8.20</langgraph4j.version>
         <lucene.version>10.5.0</lucene.version>
         <javaparser.version>3.28.2</javaparser.version>
+        <pdfbox.version>3.0.8</pdfbox.version>
+        <poi.version>5.5.1</poi.version>
+        <jsoup.version>1.22.2</jsoup.version>
         <jline.version>3.30.15</jline.version>
         <picocli.version>4.7.7</picocli.version>
         <jackson.version>2.21.1</jackson.version>
@@ -101,6 +104,34 @@
                 <groupId>com.github.javaparser</groupId>
                 <artifactId>javaparser-symbol-solver-core</artifactId>
                 <version>${javaparser.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>${poi.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jsoup</groupId>
+                <artifactId>jsoup</artifactId>
+                <version>${jsoup.version}</version>
+            </dependency>
+            <!-- POI's optional compression path is still on older commons releases; pin the
+                 graph to the versions required by POI itself so dependency convergence remains a
+                 build-time guarantee. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.21.0</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-codec</groupId>
+                <artifactId>commons-codec</artifactId>
+                <version>1.20.0</version>
             </dependency>
             <dependency>
                 <groupId>org.jline</groupId>

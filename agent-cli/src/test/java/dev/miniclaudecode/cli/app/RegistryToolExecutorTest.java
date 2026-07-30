@@ -17,7 +17,10 @@ import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
+import dev.miniclaudecode.tools.hook.HookRegistry;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.rule.ScopedRuleHook;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -89,11 +92,61 @@ class RegistryToolExecutorTest {
     Assertions.assertThat(invocations).hasValue(1);
   }
 
+  @Test
+  void enforcesProjectRuleBeforeAMatchedWorkspaceMutationAndAuditsTheDenial() throws Exception {
+    Files.createDirectories(this.workspace.resolve(".miniclaudecode/rules"));
+    Files.writeString(
+        this.workspace.resolve(".miniclaudecode/rules/generated.md"),
+        "---\npaths: generated/**\naction: deny\n---\nGenerated output is immutable.\n");
+    AtomicInteger invocations = new AtomicInteger();
+    List<AgentEvent> events = new ArrayList<>();
+    AgentTool write =
+        new AgentTool() {
+          public ToolDescriptor descriptor() {
+            return new ToolDescriptor(
+                "workspace", "write", "write", "{\"type\":\"object\"}", RiskLevel.LOW);
+          }
+
+          public CompletionStage<ToolResult> execute(ToolCall call, ToolContext context) {
+            invocations.incrementAndGet();
+            return CompletableFuture.completedFuture(
+                new ToolResult(
+                    call.toolCallId(), Status.COMPLETED, "wrote", Optional.empty(), Map.of()));
+          }
+        };
+    RegistryToolExecutor executor =
+        this.executor(
+            write, events::add, new HookRegistry(List.of(ScopedRuleHook.load(this.workspace))));
+
+    ToolResult result =
+        executor
+            .execute(
+                List.of(
+                    new ToolCall(
+                        "write-1", "workspace:write", "{\"path\":\"generated/Api.java\"}")))
+            .toCompletableFuture()
+            .join()
+            .getFirst();
+
+    Assertions.assertThat(result.status()).isEqualTo(Status.FAILED);
+    Assertions.assertThat(result.summary()).contains("Blocked by hook", "generated.md");
+    Assertions.assertThat(invocations).hasValue(0);
+    Assertions.assertThat(events)
+        .filteredOn(event -> event.type() == AgentEventType.TOOL_RESULT)
+        .singleElement()
+        .extracting(event -> event.payload().get("status"))
+        .isEqualTo("FAILED");
+  }
+
   private RegistryToolExecutor executor(AgentTool tool) {
     return this.executor(tool, EventSink.NOOP);
   }
 
   private RegistryToolExecutor executor(AgentTool tool, EventSink audit) {
+    return this.executor(tool, audit, HookRegistry.NONE);
+  }
+
+  private RegistryToolExecutor executor(AgentTool tool, EventSink audit, HookRegistry hooks) {
     return new RegistryToolExecutor(
         new DefaultToolRegistry(List.of(tool)),
         SessionId.of("session"),
@@ -102,6 +155,7 @@ class RegistryToolExecutorTest {
         audit,
         new CancellationToken(),
         new ArrayList()::add,
-        Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC));
+        Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC),
+        hooks);
   }
 }

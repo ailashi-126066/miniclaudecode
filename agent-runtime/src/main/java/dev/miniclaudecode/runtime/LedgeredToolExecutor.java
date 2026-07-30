@@ -37,9 +37,23 @@ public final class LedgeredToolExecutor implements ToolExecutor {
           "context:read_result",
           "agent:delegate",
           "memory:search",
+          "session:search",
           "skills:route_skill",
           "skills:load_skill",
           "task:todo");
+
+  /**
+   * These tools have no side effects and are independent of one another, so a model batch can run
+   * them concurrently. Keep this narrower than {@link #SAFE_RETRY_TOOLS}: retry safety alone does
+   * not make a tool suitable for concurrent execution.
+   */
+  private static final Set<String> CONCURRENT_READ_ONLY_TOOLS =
+      Set.of(
+          "workspace:read",
+          "workspace:list",
+          "workspace:glob",
+          "workspace:grep",
+          "workspace:code_search");
 
   private final ToolExecutor delegate;
   private final ToolExecutionLedger ledger;
@@ -64,26 +78,67 @@ public final class LedgeredToolExecutor implements ToolExecutor {
     Objects.requireNonNull(calls, "calls must not be null");
     Objects.requireNonNull(pendingApproval, "pendingApproval must not be null");
     Objects.requireNonNull(approvalDecision, "approvalDecision must not be null");
+    List<ToolCall> orderedCalls = List.copyOf(calls);
     CompletionStage<List<ToolResult>> chain = CompletableFuture.completedFuture(new ArrayList<>());
-    for (ToolCall call : List.copyOf(calls)) {
-      chain =
-          chain.thenCompose(
-              accumulated -> {
-                // Stop the batch at the first call that needs a human decision. Without this the
-                // remaining calls run anyway, their approval requests are dropped by the graph node
-                // (which only carries one), and the whole batch is replayed after the pause.
-                if (awaitingApproval(accumulated)) {
-                  return CompletableFuture.completedFuture(accumulated);
-                }
-                return executeOne(call, pendingApproval, approvalDecision)
-                    .thenApply(
-                        result -> {
-                          accumulated.add(result);
-                          return accumulated;
-                        });
-              });
+    for (int index = 0; index < orderedCalls.size(); ) {
+      ToolCall call = orderedCalls.get(index);
+      if (isConcurrentReadOnly(call)) {
+        int end = index + 1;
+        while (end < orderedCalls.size() && isConcurrentReadOnly(orderedCalls.get(end))) {
+          end++;
+        }
+        List<ToolCall> batch = orderedCalls.subList(index, end);
+        chain =
+            chain.thenCompose(
+                accumulated -> {
+                  if (awaitingApproval(accumulated)) {
+                    return CompletableFuture.completedFuture(accumulated);
+                  }
+                  return executeReadOnlyBatch(batch, pendingApproval, approvalDecision)
+                      .thenApply(
+                          results -> {
+                            accumulated.addAll(results);
+                            return accumulated;
+                          });
+                });
+        index = end;
+      } else {
+        chain =
+            chain.thenCompose(
+                accumulated -> {
+                  // Stop at the first approval request: later calls must not run under an
+                  // approval decision that was issued only for an earlier tool call.
+                  if (awaitingApproval(accumulated)) {
+                    return CompletableFuture.completedFuture(accumulated);
+                  }
+                  return executeOne(call, pendingApproval, approvalDecision)
+                      .thenApply(
+                          result -> {
+                            accumulated.add(result);
+                            return accumulated;
+                          });
+                });
+        index++;
+      }
     }
     return chain.thenApply(List::copyOf);
+  }
+
+  private CompletionStage<List<ToolResult>> executeReadOnlyBatch(
+      List<ToolCall> calls,
+      Optional<ApprovalRequest> pendingApproval,
+      Optional<ApprovalDecision> approvalDecision) {
+    List<CompletableFuture<ToolResult>> futures =
+        calls.stream()
+            .map(call -> executeOne(call, pendingApproval, approvalDecision).toCompletableFuture())
+            .toList();
+    CompletableFuture<?>[] all = futures.toArray(CompletableFuture[]::new);
+    return CompletableFuture.allOf(all)
+        .thenApply(ignored -> futures.stream().map(CompletableFuture::join).toList());
+  }
+
+  private static boolean isConcurrentReadOnly(ToolCall call) {
+    return CONCURRENT_READ_ONLY_TOOLS.contains(call.qualifiedName());
   }
 
   private static boolean awaitingApproval(List<ToolResult> results) {
@@ -101,7 +156,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
     Optional<ApprovalRequest> pendingApproval = approvalFor(call, batchApproval);
     Optional<ApprovalDecision> approvalDecision =
         pendingApproval.isPresent() ? batchDecision : Optional.empty();
-    Optional<ToolExecutionRecord> existing = ledger.find(call.toolCallId());
+    Optional<ToolExecutionRecord> existing = findRecord(call.toolCallId());
     if (existing
         .filter(record -> record.status() == ToolExecutionRecord.Status.COMPLETED)
         .isPresent()) {
@@ -133,7 +188,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
             Optional.empty(),
             Optional.empty(),
             clock.instant());
-    ledger.save(pending);
+    saveRecord(pending);
     CompletionStage<List<ToolResult>> execution;
     try {
       execution = delegate.execute(List.of(call), pendingApproval, approvalDecision);
@@ -172,7 +227,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
               Optional.empty(),
               Optional.empty(),
               clock.instant());
-      ledger.save(
+      saveRecord(
           new ToolExecutionRecord(
               call.toolCallId(),
               call.qualifiedName(),
@@ -210,7 +265,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
 
   private void recordResult(ToolExecutionRecord pending, ToolResult result) {
     if (result.status() == ToolResult.Status.APPROVAL_REQUIRED) {
-      ledger.save(
+      saveRecord(
           new ToolExecutionRecord(
               pending.toolCallId(),
               pending.qualifiedToolName(),
@@ -226,7 +281,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
         result.status() == ToolResult.Status.COMPLETED
             ? ToolExecutionRecord.Status.COMPLETED
             : ToolExecutionRecord.Status.FAILED;
-    ledger.save(
+    saveRecord(
         new ToolExecutionRecord(
             pending.toolCallId(),
             pending.qualifiedToolName(),
@@ -239,7 +294,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
   }
 
   private void markInterrupted(ToolExecutionRecord pending, ToolCall call) {
-    ledger.save(
+    saveRecord(
         new ToolExecutionRecord(
             pending.toolCallId(),
             pending.qualifiedToolName(),
@@ -274,6 +329,14 @@ public final class LedgeredToolExecutor implements ToolExecutor {
     return value instanceof String text && !text.isBlank()
         ? Optional.of(text.trim())
         : Optional.empty();
+  }
+
+  private synchronized Optional<ToolExecutionRecord> findRecord(String toolCallId) {
+    return this.ledger.find(toolCallId);
+  }
+
+  private synchronized void saveRecord(ToolExecutionRecord record) {
+    this.ledger.save(record);
   }
 
   private static boolean isUncertain(ToolExecutionRecord.Status status) {

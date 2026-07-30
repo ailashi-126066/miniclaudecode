@@ -11,8 +11,8 @@ import dev.miniclaudecode.extensions.skill.SkillCatalog;
 import dev.miniclaudecode.persistence.config.AppConfig;
 import dev.miniclaudecode.persistence.config.ConfigLoader;
 import dev.miniclaudecode.persistence.config.EmbeddingConfig;
-import dev.miniclaudecode.persistence.config.SecretRedactor;
-import dev.miniclaudecode.persistence.memory.JsonlMemoryStore;
+import dev.miniclaudecode.persistence.memory.AceBulletStore;
+import dev.miniclaudecode.persistence.memory.UserProfileStore;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.persistence.permission.JsonPermissionRuleStore;
 import dev.miniclaudecode.providers.ProviderFactory;
@@ -32,6 +32,7 @@ import dev.miniclaudecode.tools.fs.ListTool;
 import dev.miniclaudecode.tools.fs.ReadTool;
 import dev.miniclaudecode.tools.fs.WorkspacePathResolver;
 import dev.miniclaudecode.tools.fs.WriteTool;
+import dev.miniclaudecode.tools.hook.HookRegistry;
 import dev.miniclaudecode.tools.process.CommandPolicy;
 import dev.miniclaudecode.tools.process.CommandRiskClassifier;
 import dev.miniclaudecode.tools.process.CommandSandbox;
@@ -41,6 +42,7 @@ import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
+import dev.miniclaudecode.tools.rule.ScopedRuleHook;
 import dev.miniclaudecode.tools.task.TodoTool;
 import dev.miniclaudecode.tools.user.AskUserTool;
 import dev.miniclaudecode.tools.web.WebFetchTool;
@@ -70,10 +72,12 @@ final class WorkspaceComponents implements AutoCloseable {
   private final VectorRetriever vector;
   private final HybridCodeSearcher searcher;
   private final Set<String> secrets;
-  private final JsonlMemoryStore memories;
+  private final AceBulletStore bullets;
+  private final UserProfileStore profile;
   private final McpManager mcpManager;
   private final ConnectReport mcpReport;
   private final TodoTool todoTool;
+  private final HookRegistry hooks;
 
   private WorkspaceComponents(
       Path workspace,
@@ -87,10 +91,12 @@ final class WorkspaceComponents implements AutoCloseable {
       VectorRetriever vector,
       HybridCodeSearcher searcher,
       Set<String> secrets,
-      JsonlMemoryStore memories,
+      AceBulletStore bullets,
+      UserProfileStore profile,
       McpManager mcpManager,
       ConnectReport mcpReport,
-      TodoTool todoTool) {
+      TodoTool todoTool,
+      HookRegistry hooks) {
     this.workspace = workspace;
     this.layout = layout;
     this.config = config;
@@ -102,10 +108,12 @@ final class WorkspaceComponents implements AutoCloseable {
     this.vector = vector;
     this.searcher = searcher;
     this.secrets = secrets;
-    this.memories = memories;
+    this.bullets = bullets;
+    this.profile = profile;
     this.mcpManager = mcpManager;
     this.mcpReport = mcpReport;
     this.todoTool = todoTool;
+    this.hooks = hooks;
   }
 
   static WorkspaceComponents create(
@@ -149,8 +157,9 @@ final class WorkspaceComponents implements AutoCloseable {
                   Stream.of(config.embedding().resolvedApiKey(environment)))
               .flatMap(Optional::stream)
               .collect(Collectors.toUnmodifiableSet());
-      JsonlMemoryStore memories =
-          new JsonlMemoryStore(layout.memoryFile(workspace), new SecretRedactor(), secrets);
+      AceBulletStore bullets = new AceBulletStore(workspace);
+      UserProfileStore profile = new UserProfileStore(layout.profileFile());
+      HookRegistry hooks = new HookRegistry(List.of(ScopedRuleHook.load(workspace)));
 
       try {
         List<AgentTool> agentTools = new ArrayList<>();
@@ -183,18 +192,54 @@ final class WorkspaceComponents implements AutoCloseable {
         agentTools.add(new AskUserTool());
         agentTools.add(new CodeSearchTool(codeIndex, searcher, results));
         agentTools.add(new ReadToolResultTool(results));
-        agentTools.add(new MemorySearchTool(memories));
+        agentTools.add(new MemorySearchTool(bullets));
+        agentTools.add(new SessionSearchTool(workspace, layout, secrets));
         agentTools.add(new RouteSkillTool(skills));
         agentTools.add(new LoadSkillTool(skills));
         List<AgentTool> delegatedTools =
             agentTools.stream().filter(WorkspaceComponents::isDelegatedReadOnlyTool).toList();
+        java.util.function.Function<Path, DefaultToolRegistry> isolatedTools =
+            isolated -> {
+              WorkspacePathResolver isolatedPaths = new WorkspacePathResolver(isolated);
+              return new DefaultToolRegistry(
+                  List.of(
+                      new ReadTool(isolatedPaths, results),
+                      new ListTool(isolatedPaths, results),
+                      new GlobTool(isolatedPaths, results),
+                      new GrepTool(isolatedPaths, results),
+                      new WriteTool(isolatedPaths, permissions),
+                      new EditTool(isolatedPaths, permissions),
+                      new ApplyPatchTool(isolatedPaths, permissions),
+                      new RunCommandTool(
+                          isolatedPaths,
+                          new ProcessRunner(
+                              ShellSelector.system(),
+                              CommandSandbox.detect(
+                                  CommandSandbox.Policy.parse(
+                                      environment.getOrDefault("MINICLAUDE_SANDBOX", "auto")),
+                                  isolated)),
+                          results,
+                          new CommandRiskClassifier(),
+                          new CommandPolicy(
+                              config.commandPolicy().allowPrefixes(),
+                              config.commandPolicy().denyFragments(),
+                              config.commandPolicy().allowlistOnly()),
+                          permissionRules,
+                          Clock.systemUTC())));
+            };
+        IsolatedWorktreeService worktrees =
+            new IsolatedWorktreeService(
+                workspace, layout.sessionWorkspaceRoot(workspace).resolve("worktrees"));
+        agentTools.add(new WorktreeControlTool(worktrees));
         agentTools.add(
             new DelegatedAgentTool(
                 modelClient,
                 new DefaultToolRegistry(delegatedTools),
                 config.activeProvider(),
                 config.activeProfile(),
-                Clock.systemUTC()));
+                Clock.systemUTC(),
+                isolatedTools,
+                worktrees));
         agentTools.addAll(mcp.tools());
         // Every resolved key must land here: this set seeds the audit-log redactor, and a key
         // missing from it (the embedding key once was) gets written to session JSONL in plain
@@ -211,10 +256,12 @@ final class WorkspaceComponents implements AutoCloseable {
             vector,
             searcher,
             secrets,
-            memories,
+            bullets,
+            profile,
             mcp.manager(),
             mcp.report(),
-            todoTool);
+            todoTool,
+            hooks);
       } catch (RuntimeException failure) {
         // Everything below wireMcp runs after connectAll has already spawned stdio child
         // processes. Nothing owns the manager until the WorkspaceComponents instance exists, so a
@@ -235,6 +282,7 @@ final class WorkspaceComponents implements AutoCloseable {
             "workspace:code_search",
             "context:read_result",
             "memory:search",
+            "session:search",
             "skills:route_skill",
             "skills:load_skill")
         .contains(tool.descriptor().qualifiedName());
@@ -359,12 +407,20 @@ final class WorkspaceComponents implements AutoCloseable {
     return this.secrets;
   }
 
-  JsonlMemoryStore memories() {
-    return this.memories;
+  AceBulletStore bullets() {
+    return this.bullets;
+  }
+
+  UserProfileStore profile() {
+    return this.profile;
   }
 
   TodoTool todoTool() {
     return this.todoTool;
+  }
+
+  HookRegistry hooks() {
+    return this.hooks;
   }
 
   String mcpStatus() {

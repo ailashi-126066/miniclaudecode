@@ -49,6 +49,9 @@ public final class PermissionEngine {
       PermissionEngine.MutationPlan plan, ToolContext context) {
     Objects.requireNonNull(plan, "plan must not be null");
     Objects.requireNonNull(context, "context must not be null");
+    if (Boolean.TRUE.equals(context.attributes().get("isolatedWorktree"))) {
+      return new PermissionEngine.Authorization.Allowed();
+    }
     if (this.ruleStore.list().stream()
             .anyMatch(
                 rule -> rule.matches(plan.workspace(), plan.call().qualifiedName(), plan.target()))

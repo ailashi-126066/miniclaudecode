@@ -4,14 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Flow;
 
-/**
- * Recording subscriber for the synchronous provider publishers. Requests unbounded demand on
- * subscription so every queued event is delivered on the subscribing thread before {@code
- * subscribe} returns; with {@code cancelOnSubscribe} it cancels inside {@code onSubscribe} instead,
- * which is how tests prove the provider is never invoked for an already-cancelled consumer.
- */
+/** Recording subscriber for synchronous provider publishers used in tests. */
 public final class FlowTestSubscriber<T> implements Flow.Subscriber<T> {
-
   private final boolean cancelOnSubscribe;
   private final List<T> events = new ArrayList<>();
   private Throwable error;

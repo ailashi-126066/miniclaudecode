@@ -22,7 +22,7 @@ public final class FileFingerprintStore {
    * discarding version-1 data also replaces the stale whole-class chunks those indexes still hold
    * instead of letting them linger until each file happens to change.
    */
-  static final String SCHEMA_VERSION = "2";
+  static final String SCHEMA_VERSION = "3";
 
   private final Path file;
   private final Path versionFile;

@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public final class TestStreamingChatModel implements StreamingChatModel {
-
   private final Consumer<StreamingChatResponseHandler> script;
   private final AtomicInteger callCount = new AtomicInteger();
   private volatile ChatRequest request;

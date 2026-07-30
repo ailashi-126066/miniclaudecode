@@ -20,6 +20,8 @@ public final class DefaultCodingPromptContributors {
             context ->
                 "Inspect before editing. Use workspace:code_search for architectural discovery,"
                     + " then read exact files.\n"
+                    + "When workspace:code_search supplies evidence, cite only its returned spans as"
+                    + " 【path:start-end】 in the final answer.\n"
                     + "Use skills:route_skill before skills:load_skill when the right workflow is"
                     + " unclear. Search memory:search for reusable prior paths and repairs."),
         PromptContributor.of(
@@ -49,6 +51,22 @@ public final class DefaultCodingPromptContributors {
                     + " verified.\n"
                     + "For multi-step work, maintain task:todo with exactly one in_progress item"
                     + " and finish all items before reporting completion."),
+        PromptContributor.of(
+            "engineering-report",
+            625,
+            context ->
+                "Your final answer must distinguish completed work from claims: list changed"
+                    + " files, commands actually run, their observed results, and any remaining"
+                    + " unverified scope. Never describe a passing narrow test as whole-project"
+                    + " verification."),
+        PromptContributor.of(
+            "durable-facts",
+            650,
+            context ->
+                "Keep durable project facts in the appropriate CLAUDE.md only when they are"
+                    + " verified and broadly useful. Propose that file edit through the normal"
+                    + " diff-and-approval flow; never silently promote a transient failure into"
+                    + " project instructions."),
         PromptContributor.of("output-protocol", 700, PromptBuildContext::outputProtocolInstruction),
         PromptContributor.of("workspace", 800, context -> "Workspace: " + context.workspace()),
         PromptContributor.of("skills", 900, PromptBuildContext::skillIndex));

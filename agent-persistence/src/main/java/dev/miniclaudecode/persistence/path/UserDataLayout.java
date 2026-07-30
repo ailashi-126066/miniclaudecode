@@ -60,8 +60,12 @@ public final class UserDataLayout {
     return this.root.resolve("indexes");
   }
 
-  public Path memoryFile(Path workspace) {
-    return this.sessionWorkspaceRoot(workspace).resolve("memory.jsonl");
+  public Path profileFile() {
+    return this.root.resolve("profile.md");
+  }
+
+  public Path globalMiniclaudeFile() {
+    return this.root.resolve("global").resolve("miniclaude.md");
   }
 
   public Path skillsRoot() {

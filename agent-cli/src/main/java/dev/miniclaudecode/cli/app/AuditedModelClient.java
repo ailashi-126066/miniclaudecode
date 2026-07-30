@@ -61,6 +61,8 @@ final class AuditedModelClient implements ModelClient {
   }
 
   public Publisher<ModelStreamEvent> stream(ModelRequest request) {
+    this.renderer.accept(
+        new dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress("Calling model..."));
     return subscriber ->
         this.delegate.stream(request)
             .subscribe(new AuditedModelClient.Observer(subscriber, request.thinkingEnabled()));

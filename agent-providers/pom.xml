@@ -55,21 +55,6 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <configuration>
-                            <compileSourceRoots>
-                                <compileSourceRoot>${project.basedir}/src/test/java</compileSourceRoot>
-                                <compileSourceRoot>${project.basedir}/src/testFixtures/java</compileSourceRoot>
-                            </compileSourceRoots>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.4.1</version>
                 <executions>

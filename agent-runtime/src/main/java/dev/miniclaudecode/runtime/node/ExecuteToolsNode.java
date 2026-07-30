@@ -18,10 +18,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> {
+  public static final String VERIFICATION_SUCCEEDED_PREFIX = "[verification-command-succeeded] ";
+  private static final Pattern VERIFICATION_COMMAND =
+      Pattern.compile(
+          "(?i)\\b(mvn|gradle|npm|pnpm|yarn|pytest|go\\s+test|cargo\\s+test|dotnet\\s+test|jest|vitest|ruff|eslint|spotless|checkstyle|lint|compile|build)\\b");
   private final ToolExecutor toolExecutor;
   private final TurnLimits limits;
 
@@ -122,9 +127,12 @@ public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> 
     for (ToolResult resultx : results) {
       ToolCall call = callsById.get(resultx.toolCallId());
       String qualifiedName = call == null ? "unknown" : call.qualifiedName();
+      String summary = resultx.summary();
+      if (call != null && resultx.status() == Status.COMPLETED && isVerificationCommand(call)) {
+        summary = VERIFICATION_SUCCEEDED_PREFIX + summary;
+      }
       messages.add(
-          new ToolMessage(
-              resultx.toolCallId(), qualifiedName, resultx.summary(), resultx.isError()));
+          new ToolMessage(resultx.toolCallId(), qualifiedName, summary, resultx.isError()));
     }
 
     Map<String, Object> update = new LinkedHashMap<>();
@@ -147,6 +155,11 @@ public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> 
         message,
         "trace",
         StateSchema.traceEntry("execute_tools"));
+  }
+
+  private static boolean isVerificationCommand(ToolCall call) {
+    return "shell:run".equals(call.qualifiedName())
+        && VERIFICATION_COMMAND.matcher(call.argumentsJson()).find();
   }
 
   private static String safeMessage(Throwable error) {

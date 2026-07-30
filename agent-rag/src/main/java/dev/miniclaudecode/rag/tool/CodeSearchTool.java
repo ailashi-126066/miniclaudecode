@@ -65,6 +65,7 @@ public final class CodeSearchTool implements AgentTool {
           this.searcher.search(
               query,
               new HybridCodeSearcher.SearchOptions(topK, tokenBudget, Math.max(40, topK * 4)));
+      response = this.index.hydrateParentContext(response, tokenBudget);
       String output = render(response);
       Map<String, Object> metadata =
           Map.of(
@@ -75,7 +76,9 @@ public final class CodeSearchTool implements AgentTool {
               "bm25Candidates",
               response.bm25Hits().size(),
               "vectorCandidates",
-              response.vectorHits().size());
+              response.vectorHits().size(),
+              "queryVariants",
+              response.queryVariants());
       ToolResult result =
           this.resultStore
               .map(store -> ToolResults.completed(call, output, metadata, store, 4_096))
@@ -103,11 +106,13 @@ public final class CodeSearchTool implements AgentTool {
 
       for (SearchResult result : response.results()) {
         output
+            .append('【')
             .append(result.chunk().path())
             .append(':')
             .append(result.chunk().startLine())
             .append('-')
             .append(result.chunk().endLine())
+            .append('】')
             .append(" ")
             .append(result.chunk().symbol())
             .append(" [")

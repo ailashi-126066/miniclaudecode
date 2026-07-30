@@ -110,8 +110,13 @@ public final class DefaultCliActions implements CliActions {
               session::sessions,
               components::mcpStatus,
               () -> skills(components),
+              session::checkpoints,
+              session::recovery,
               session::compact,
               session::switchTo,
+              session::restoreCheckpoint,
+              session::undo,
+              session::redo,
               this.layout.configFile());
       commands.set(commandHandler);
 
@@ -197,8 +202,11 @@ public final class DefaultCliActions implements CliActions {
       if (trimmed.equalsIgnoreCase("stats")) {
         IndexStats stats = components.codeIndex().stats();
         this.output.printf(
-            "files=%d chunks=%d vectorDimensions=%d%n",
-            stats.files(), stats.chunks(), stats.vectorDimensions());
+            "files=%d chunks=%d vectorDimensions=%d%nworkspaceVersion:%n%s%n",
+            stats.files(),
+            stats.chunks(),
+            stats.vectorDimensions(),
+            components.codeIndex().workspaceVersion());
         return 0;
       }
 

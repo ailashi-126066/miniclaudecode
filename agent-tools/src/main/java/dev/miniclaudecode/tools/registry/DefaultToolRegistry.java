@@ -64,6 +64,10 @@ public final class DefaultToolRegistry {
     }
   }
 
+  public java.util.Optional<AgentTool> find(String qualifiedName) {
+    return java.util.Optional.ofNullable(this.toolsByQualifiedName.get(qualifiedName));
+  }
+
   public List<ToolDescriptor> descriptors() {
     return this.toolsByQualifiedName.values().stream()
         .<ToolDescriptor>map(AgentTool::descriptor)

@@ -7,7 +7,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
 import dev.miniclaudecode.domain.tool.ToolResult;
-import dev.miniclaudecode.persistence.memory.JsonlMemoryStore;
+import dev.miniclaudecode.persistence.memory.AceBulletStore;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,13 +20,13 @@ final class MemorySearchTool implements AgentTool {
       new ToolDescriptor(
           "memory",
           "search",
-          "Retrieve compact cross-session path, repair, outcome, and explicit preference memories",
+          "Retrieve project ACE lessons",
           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10}},\"required\":[\"query\"]}",
           RiskLevel.LOW);
-  private final JsonlMemoryStore store;
+  private final AceBulletStore bullets;
 
-  MemorySearchTool(JsonlMemoryStore store) {
-    this.store = Objects.requireNonNull(store, "store must not be null");
+  MemorySearchTool(AceBulletStore bullets) {
+    this.bullets = Objects.requireNonNull(bullets, "bullets must not be null");
   }
 
   @Override
@@ -40,22 +40,24 @@ final class MemorySearchTool implements AgentTool {
       JsonNode arguments = JSON.readTree(call.argumentsJson());
       String query = arguments.path("query").asText("").trim();
       int limit = arguments.path("limit").isMissingNode() ? 5 : arguments.path("limit").asInt();
-      var hits = this.store.search(query, limit);
       StringBuilder output = new StringBuilder();
-      hits.forEach(
-          hit ->
+      var aceBullets = this.bullets.search(query, limit);
+      aceBullets.forEach(
+          bullet ->
               output
-                  .append(hit.memory().id(), 0, Math.min(12, hit.memory().id().length()))
-                  .append(" [")
-                  .append(hit.memory().category().name().toLowerCase(java.util.Locale.ROOT))
-                  .append("] score=")
-                  .append(String.format(java.util.Locale.ROOT, "%.2f", hit.score()))
-                  .append('\n')
-                  .append("objective: ")
-                  .append(hit.memory().objective())
-                  .append('\n')
-                  .append("outcome: ")
-                  .append(hit.memory().summary())
+                  .append(bullet.id(), 0, Math.min(12, bullet.id().length()))
+                  .append(" [ace-bullet x")
+                  .append(bullet.occurrences())
+                  .append(", confidence=")
+                  .append(String.format(java.util.Locale.ROOT, "%.2f", bullet.confidence()))
+                  .append("]\ntrigger: ")
+                  .append(bullet.trigger())
+                  .append("\nlesson: ")
+                  .append(bullet.lesson())
+                  .append(
+                      bullet.applicablePaths().isEmpty()
+                          ? ""
+                          : "\npaths: " + String.join(", ", bullet.applicablePaths()))
                   .append("\n\n"));
       return CompletableFuture.completedFuture(
           new ToolResult(
@@ -63,7 +65,7 @@ final class MemorySearchTool implements AgentTool {
               ToolResult.Status.COMPLETED,
               output.isEmpty() ? "No reusable memory matched." : output.toString().stripTrailing(),
               Optional.empty(),
-              Map.of("matches", hits.size())));
+              Map.of("matches", aceBullets.size())));
     } catch (RuntimeException | java.io.IOException error) {
       return CompletableFuture.completedFuture(
           new ToolResult(

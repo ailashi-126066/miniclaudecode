@@ -32,6 +32,11 @@ public final class SlashCommandParser {
       case "thinking" -> parseThinking(tokens);
       case "tools" -> noArguments(tokens, new SlashCommand.Tools());
       case "compact" -> noArguments(tokens, new SlashCommand.Compact());
+      case "checkpoints" -> noArguments(tokens, new SlashCommand.Checkpoints());
+      case "restore" -> parseRestore(tokens);
+      case "recovery" -> noArguments(tokens, new SlashCommand.Recovery());
+      case "undo" -> new SlashCommand.Undo(optionalArgument(tokens, "undo"));
+      case "redo" -> new SlashCommand.Redo(optionalArgument(tokens, "redo"));
       case "sessions" -> noArguments(tokens, new SlashCommand.Sessions());
       case "resume" -> new SlashCommand.Resume(requiredArgument(tokens, "resume"));
       case "mcp" -> noArguments(tokens, new SlashCommand.Mcp());
@@ -62,6 +67,16 @@ public final class SlashCommandParser {
       return new SlashCommand.Config(true);
     }
     throw new IllegalArgumentException("usage: /config [setup]");
+  }
+
+  private static SlashCommand parseRestore(String[] tokens) {
+    if (tokens.length == 2) {
+      return new SlashCommand.Restore(tokens[1]);
+    }
+    if (tokens.length == 3 && tokens[2].equalsIgnoreCase("apply")) {
+      return new SlashCommand.Restore(tokens[1], true);
+    }
+    throw new IllegalArgumentException("usage: /restore <checkpoint> [apply]");
   }
 
   private static <T extends SlashCommand> T noArguments(String[] tokens, T command) {

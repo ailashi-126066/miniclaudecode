@@ -6,6 +6,8 @@ import dev.miniclaudecode.rag.chunk.CodeChunk;
 import dev.miniclaudecode.rag.chunk.DocumentChunker;
 import dev.miniclaudecode.rag.chunk.FallbackChunker;
 import dev.miniclaudecode.rag.embedding.EmbeddingIdentity;
+import dev.miniclaudecode.rag.search.HybridCodeSearcher;
+import dev.miniclaudecode.rag.search.SearchResult;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -35,6 +37,8 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.Bits;
@@ -54,6 +58,9 @@ public final class LuceneCodeIndex {
   public static final String FIELD_START_LINE = "start_line";
   public static final String FIELD_END_LINE = "end_line";
   public static final String FIELD_CONTENT = "content";
+  public static final String FIELD_PARENT_CHUNK_ID = "parent_chunk_id";
+  public static final String FIELD_CHUNK_ROLE = "chunk_role";
+  public static final String FIELD_CHILD_INDEX = "child_index";
   public static final String FIELD_SEARCH_TEXT = "search_text";
   public static final String FIELD_PATH_TEXT = "path_text";
   public static final String FIELD_SYMBOL_TEXT = "symbol_text";
@@ -64,6 +71,7 @@ public final class LuceneCodeIndex {
   private final WorkspaceScanner scanner;
   private final DocumentChunker chunker;
   private final FileFingerprintStore fingerprintStore;
+  private final WorkspaceVersion workspaceVersion;
 
   public LuceneCodeIndex(Path indexRoot, EmbeddingModel embeddingModel) {
     this(indexRoot, embeddingModel, new WorkspaceScanner(), new FallbackChunker());
@@ -80,6 +88,7 @@ public final class LuceneCodeIndex {
     this.chunker = Objects.requireNonNull(chunker, "chunker must not be null");
     this.fingerprintStore =
         new FileFingerprintStore(this.indexRoot.resolve("fingerprints.properties"));
+    this.workspaceVersion = new WorkspaceVersion(this.indexRoot);
   }
 
   public LuceneCodeIndex.UpdateReport synchronize(Path workspace) throws IOException {
@@ -97,7 +106,9 @@ public final class LuceneCodeIndex {
                   StandardOpenOption.CREATE,
                   StandardOpenOption.WRITE);
           FileLock ignored = lockChannel.lock()) {
-        return this.synchronizeLocked(workspace);
+        UpdateReport report = this.synchronizeLocked(workspace);
+        this.workspaceVersion.save(workspace);
+        return report;
       }
     } finally {
       processLock.unlock();
@@ -275,12 +286,57 @@ public final class LuceneCodeIndex {
     }
   }
 
+  /** Replaces matched child snippets with their bounded parent section before model rendering. */
+  public HybridCodeSearcher.SearchResponse hydrateParentContext(
+      HybridCodeSearcher.SearchResponse response, int tokenBudget) throws IOException {
+    Objects.requireNonNull(response, "response must not be null");
+    Path lucene = this.indexRoot.resolve("lucene");
+    if (!Files.isDirectory(lucene) || response.results().isEmpty()) {
+      return response;
+    }
+    try (Directory directory = FSDirectory.open(lucene)) {
+      if (!DirectoryReader.indexExists(directory)) {
+        return response;
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        IndexSearcher searcher = new IndexSearcher(reader);
+        Map<String, CodeChunk> parents = new HashMap<>();
+        Map<String, SearchResult> hydrated = new java.util.LinkedHashMap<>();
+        for (SearchResult result : response.results()) {
+          CodeChunk child = result.chunk();
+          if (child.parentChunkId().isBlank()) {
+            hydrated.putIfAbsent(child.id(), result);
+            continue;
+          }
+          CodeChunk parent = parents.get(child.parentChunkId());
+          if (parent == null) {
+            org.apache.lucene.search.TopDocs found =
+                searcher.search(new TermQuery(new Term(FIELD_CHUNK_ID, child.parentChunkId())), 1);
+            if (found.scoreDocs.length == 1) {
+              parent = fromDocument(reader.storedFields().document(found.scoreDocs[0].doc));
+              parents.put(parent.id(), parent);
+            }
+          }
+          CodeChunk context = parent == null ? child : parent;
+          hydrated.putIfAbsent(
+              context.id(),
+              new SearchResult(context, result.fusedScore(), result.ranks(), result.rawScores()));
+        }
+        return response.withContext(List.copyOf(hydrated.values()), tokenBudget);
+      }
+    }
+  }
+
   public LuceneCodeIndex.IndexStats stats() throws IOException {
     List<CodeChunk> values = this.chunks();
     return new LuceneCodeIndex.IndexStats(
         values.stream().map(CodeChunk::path).distinct().count(),
         (long) values.size(),
         this.embeddingModel.dimension());
+  }
+
+  public String workspaceVersion() throws IOException {
+    return this.workspaceVersion.read();
   }
 
   public Path luceneDirectory() {
@@ -291,34 +347,43 @@ public final class LuceneCodeIndex {
     List<Document> documents = new ArrayList<>(chunks.size());
 
     for (CodeChunk chunk : chunks) {
-      float[] vector =
-          (float[])
-              ((Embedding) this.embeddingModel.embed(chunk.embeddingText()).content())
-                  .vector()
-                  .clone();
-      if (vector.length == 0) {
-        throw new IllegalStateException("embedding model returned an empty vector");
-      }
-
-      normalize(vector);
       Document document = new Document();
-      document.add(new StringField("document_type", "chunk", Store.YES));
+      document.add(
+          new StringField(
+              "document_type",
+              chunk.role() == CodeChunk.Role.PARENT ? "parent" : "chunk",
+              Store.YES));
       document.add(new StringField("chunk_id", chunk.id(), Store.YES));
+      document.add(new StringField("parent_chunk_id", chunk.parentChunkId(), Store.YES));
+      document.add(new StringField("chunk_role", chunk.role().name(), Store.YES));
+      document.add(new StoredField("child_index", chunk.childIndex()));
       document.add(new StringField("path", chunk.path(), Store.YES));
       document.add(new StringField("language", chunk.language(), Store.YES));
       document.add(new StringField("kind", chunk.kind().name(), Store.YES));
       document.add(new StringField("package", chunk.packageName(), Store.YES));
       document.add(new StringField("owner", chunk.owner(), Store.YES));
       document.add(new TextField("symbol", chunk.symbol(), Store.YES));
-      document.add(new TextField("path_text", chunk.path(), Store.NO));
-      document.add(new TextField("symbol_text", chunk.symbol(), Store.NO));
       document.add(new IntPoint("start_line", new int[] {chunk.startLine()}));
       document.add(new StoredField("start_line", chunk.startLine()));
       document.add(new IntPoint("end_line", new int[] {chunk.endLine()}));
       document.add(new StoredField("end_line", chunk.endLine()));
       document.add(new StoredField("content", chunk.content()));
-      document.add(new TextField("search_text", chunk.lexicalText(), Store.NO));
-      document.add(new KnnFloatVectorField("vector", vector, VectorSimilarityFunction.DOT_PRODUCT));
+      if (chunk.role() != CodeChunk.Role.PARENT) {
+        document.add(new TextField("path_text", chunk.path(), Store.NO));
+        document.add(new TextField("symbol_text", chunk.symbol(), Store.NO));
+        float[] vector =
+            (float[])
+                ((Embedding) this.embeddingModel.embed(chunk.embeddingText()).content())
+                    .vector()
+                    .clone();
+        if (vector.length == 0) {
+          throw new IllegalStateException("embedding model returned an empty vector");
+        }
+        normalize(vector);
+        document.add(new TextField("search_text", chunk.lexicalText(), Store.NO));
+        document.add(
+            new KnnFloatVectorField("vector", vector, VectorSimilarityFunction.DOT_PRODUCT));
+      }
       documents.add(document);
     }
 
@@ -336,7 +401,10 @@ public final class LuceneCodeIndex {
         document.get("symbol"),
         document.getField("start_line").numericValue().intValue(),
         document.getField("end_line").numericValue().intValue(),
-        document.get("content"));
+        document.get("content"),
+        document.get("parent_chunk_id"),
+        CodeChunk.Role.valueOf(document.get("chunk_role")),
+        document.getField("child_index").numericValue().intValue());
   }
 
   public static CodeChunk storedChunk(Document document) {

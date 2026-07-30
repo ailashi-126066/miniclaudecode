@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -157,6 +158,36 @@ class LedgeredToolExecutorTest {
 
     assertThat(result.status()).isEqualTo(ToolResult.Status.COMPLETED);
     assertThat(executions).hasValue(2);
+  }
+
+  @Test
+  void runsContiguousReadOnlyCallsConcurrentlyWhileKeepingResultOrder() {
+    CompletableFuture<Void> bothStarted = new CompletableFuture<>();
+    AtomicInteger started = new AtomicInteger();
+    ToolExecutor delegate =
+        calls ->
+            CompletableFuture.supplyAsync(
+                () -> {
+                  if (started.incrementAndGet() == 2) {
+                    bothStarted.complete(null);
+                  }
+                  try {
+                    bothStarted.get(1, TimeUnit.SECONDS);
+                  } catch (Exception error) {
+                    throw new IllegalStateException("read-only calls did not overlap", error);
+                  }
+                  return List.of(completed(calls.getFirst()));
+                });
+    ToolCall first = new ToolCall("read-1", "workspace:read", "{}");
+    ToolCall second = new ToolCall("read-2", "workspace:grep", "{}");
+
+    List<ToolResult> results =
+        new LedgeredToolExecutor(delegate, new InMemoryLedger(), CLOCK)
+            .execute(List.of(first, second))
+            .toCompletableFuture()
+            .join();
+
+    assertThat(results).extracting(ToolResult::toolCallId).containsExactly("read-1", "read-2");
   }
 
   private static ToolCall call(String name) {

@@ -6,6 +6,9 @@ import dev.langchain4j.model.output.Response;
 import dev.miniclaudecode.rag.FakeEmbeddingModel;
 import dev.miniclaudecode.rag.chunk.CodeChunk;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex.UpdateReport;
+import dev.miniclaudecode.rag.search.Bm25Retriever;
+import dev.miniclaudecode.rag.search.HybridCodeSearcher;
+import dev.miniclaudecode.rag.search.VectorRetriever;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.assertj.core.api.AbstractListAssert;
@@ -16,6 +19,35 @@ import org.junit.jupiter.api.io.TempDir;
 
 class LuceneCodeIndexTest {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void indexesChildrenButHydratesTheirBoundedParentContext() throws Exception {
+    Path workspace =
+        Files.createDirectory(this.temporaryDirectory.resolve("workspace-parent-child"));
+    String prose = "The billing service validates the payment before sending a receipt. ";
+    Files.writeString(workspace.resolve("billing.md"), "# Billing\n" + prose.repeat(100));
+    FakeEmbeddingModel embeddings = new FakeEmbeddingModel();
+    LuceneCodeIndex index =
+        new LuceneCodeIndex(this.temporaryDirectory.resolve("parent-child-index"), embeddings);
+    index.synchronize(workspace);
+    HybridCodeSearcher searcher =
+        new HybridCodeSearcher(
+            new Bm25Retriever(index.luceneDirectory()),
+            new VectorRetriever(index.luceneDirectory(), embeddings));
+
+    HybridCodeSearcher.SearchResponse childHits = searcher.search("billing payment receipt");
+    HybridCodeSearcher.SearchResponse context = index.hydrateParentContext(childHits, 2_000);
+
+    Assertions.assertThat(childHits.results())
+        .allSatisfy(
+            result -> Assertions.assertThat(result.chunk().role()).isEqualTo(CodeChunk.Role.CHILD));
+    Assertions.assertThat(context.results())
+        .allSatisfy(
+            result ->
+                Assertions.assertThat(result.chunk().role()).isEqualTo(CodeChunk.Role.PARENT));
+    Assertions.assertThat(context.results().getFirst().chunk().content())
+        .contains("billing service", "receipt");
+  }
 
   @Test
   void incrementallyUpdatesChangedFilesAndSynchronizesDeletes() throws Exception {
@@ -46,6 +78,25 @@ class LuceneCodeIndexTest {
     Assertions.assertThat(index.chunks())
         .extracting(CodeChunk::symbol)
         .contains(new String[] {"second()"});
+  }
+
+  @Test
+  void recordsWorkspaceAndGitHeadProvenanceForEveryIndexBuild() throws Exception {
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("workspace-version"));
+    Files.writeString(workspace.resolve("App.java"), "class App {}\n");
+    Files.createDirectories(workspace.resolve(".git"));
+    Files.writeString(workspace.resolve(".git/HEAD"), "ref: refs/heads/main\n");
+    LuceneCodeIndex index =
+        new LuceneCodeIndex(
+            this.temporaryDirectory.resolve("version-index"), new FakeEmbeddingModel());
+
+    index.synchronize(workspace);
+
+    Assertions.assertThat(index.workspaceVersion())
+        .contains(
+            "workspace=" + workspace.toAbsolutePath(),
+            "head=ref=refs/heads/main commit=unknown",
+            "indexedAt=");
   }
 
   @Test

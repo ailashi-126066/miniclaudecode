@@ -58,4 +58,12 @@ class HybridCodeSearcherTest {
     Assertions.assertThat(response.results()).hasSizeLessThanOrEqualTo(2);
     Assertions.assertThat(response.estimatedTokens()).isLessThanOrEqualTo(200);
   }
+
+  @Test
+  void expandsCamelCaseIdentifiersWithoutDroppingTheOriginalQuestion() {
+    CodeQueryRewriter.QueryPlan plan =
+        new CodeQueryRewriter().rewrite("where is cancelOrder used?");
+    Assertions.assertThat(plan.variants())
+        .containsExactly("where is cancelOrder used?", "where is cancel order used");
+  }
 }

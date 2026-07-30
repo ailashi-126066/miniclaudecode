@@ -1,5 +1,7 @@
 package dev.miniclaudecode.rag.index;
 
+import dev.miniclaudecode.rag.parse.DocumentTextExtractor;
+import dev.miniclaudecode.rag.parse.MultiFormatDocumentExtractor;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -27,19 +29,26 @@ public final class WorkspaceScanner {
       Set.of(".git", ".idea", ".gradle", ".mvn", "target", "build", "out", "node_modules");
   private static final Set<String> BINARY_EXTENSIONS =
       Set.of(
-          "class", "jar", "war", "zip", "gz", "png", "jpg", "jpeg", "gif", "ico", "pdf", "exe",
-          "dll", "so", "dylib", "woff", "woff2", "ttf", "mp3", "mp4");
+          "class", "jar", "war", "zip", "gz", "png", "jpg", "jpeg", "gif", "ico", "exe", "dll",
+          "so", "dylib", "woff", "woff2", "ttf", "mp3", "mp4");
   private final long maximumFileBytes;
+  private final DocumentTextExtractor documentExtractor;
 
   public WorkspaceScanner() {
     this(2097152L);
   }
 
   public WorkspaceScanner(long maximumFileBytes) {
+    this(maximumFileBytes, new MultiFormatDocumentExtractor());
+  }
+
+  public WorkspaceScanner(long maximumFileBytes, DocumentTextExtractor documentExtractor) {
     if (maximumFileBytes < 1L) {
       throw new IllegalArgumentException("maximumFileBytes must be positive");
     } else {
       this.maximumFileBytes = maximumFileBytes;
+      this.documentExtractor =
+          Objects.requireNonNull(documentExtractor, "documentExtractor must not be null");
     }
   }
 
@@ -78,7 +87,8 @@ public final class WorkspaceScanner {
             if (attributes.isRegularFile()
                 && !attributes.isSymbolicLink()
                 && attributes.size() <= WorkspaceScanner.this.maximumFileBytes
-                && !WorkspaceScanner.knownBinary(file)) {
+                && (!WorkspaceScanner.knownBinary(file)
+                    || WorkspaceScanner.this.documentExtractor.supports(file))) {
               String path = WorkspaceScanner.portable(root.relativize(file));
               long size = attributes.size();
               long modified = attributes.lastModifiedTime().toMillis();
@@ -92,7 +102,8 @@ public final class WorkspaceScanner {
                         path, Optional.empty(), previous.contentHash(), size, modified));
               } else {
                 byte[] bytes = Files.readAllBytes(file);
-                WorkspaceScanner.decode(bytes)
+                WorkspaceScanner.this
+                    .decode(file, bytes)
                     .ifPresent(
                         content ->
                             files.add(
@@ -132,6 +143,12 @@ public final class WorkspaceScanner {
     } catch (CharacterCodingException var3) {
       return Optional.empty();
     }
+  }
+
+  private Optional<String> decode(Path path, byte[] bytes) throws IOException {
+    return this.documentExtractor.supports(path)
+        ? this.documentExtractor.extract(path, bytes)
+        : decode(bytes);
   }
 
   private static boolean knownBinary(Path path) {

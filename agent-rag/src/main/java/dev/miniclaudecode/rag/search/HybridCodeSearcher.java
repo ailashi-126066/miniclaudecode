@@ -3,7 +3,10 @@ package dev.miniclaudecode.rag.search;
 import dev.miniclaudecode.rag.chunk.CodeChunk;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public final class HybridCodeSearcher {
@@ -11,24 +14,42 @@ public final class HybridCodeSearcher {
   private final VectorRetriever vector;
   private final RrfFusion fusion;
   private final Reranker reranker;
+  private final CodeQueryRewriter queryRewriter;
 
   public HybridCodeSearcher(Bm25Retriever bm25, VectorRetriever vector) {
-    this(bm25, vector, new RrfFusion(), Reranker.IDENTITY);
+    this(bm25, vector, new RrfFusion(), new CodeAwareReranker(), new CodeQueryRewriter());
   }
 
   public HybridCodeSearcher(
       Bm25Retriever bm25, VectorRetriever vector, RrfFusion fusion, Reranker reranker) {
+    this(bm25, vector, fusion, reranker, new CodeQueryRewriter());
+  }
+
+  public HybridCodeSearcher(
+      Bm25Retriever bm25,
+      VectorRetriever vector,
+      RrfFusion fusion,
+      Reranker reranker,
+      CodeQueryRewriter queryRewriter) {
     this.bm25 = Objects.requireNonNull(bm25, "bm25 must not be null");
     this.vector = Objects.requireNonNull(vector, "vector must not be null");
     this.fusion = Objects.requireNonNull(fusion, "fusion must not be null");
     this.reranker = Objects.requireNonNull(reranker, "reranker must not be null");
+    this.queryRewriter = Objects.requireNonNull(queryRewriter, "queryRewriter must not be null");
   }
 
   public HybridCodeSearcher.SearchResponse search(
       String query, HybridCodeSearcher.SearchOptions options) throws IOException {
     Objects.requireNonNull(options, "options must not be null");
-    List<RetrievalHit> bm25Hits = this.bm25.search(query, options.candidateLimit());
-    List<RetrievalHit> vectorHits = this.vector.search(query, options.candidateLimit());
+    CodeQueryRewriter.QueryPlan plan = this.queryRewriter.rewrite(query);
+    List<RetrievalHit> bm25Hits = new ArrayList<>();
+    List<RetrievalHit> vectorHits = new ArrayList<>();
+    for (String variant : plan.variants()) {
+      bm25Hits.addAll(this.bm25.search(variant, options.candidateLimit()));
+      vectorHits.addAll(this.vector.search(variant, options.candidateLimit()));
+    }
+    bm25Hits = bestPerChunk(bm25Hits);
+    vectorHits = bestPerChunk(vectorHits);
     List<SearchResult> fused = this.reranker.rerank(query, this.fusion.fuse(bm25Hits, vectorHits));
     HybridCodeSearcher.BudgetedSelection selected =
         withinBudget(fused, options.topK(), options.tokenBudget());
@@ -37,8 +58,37 @@ public final class HybridCodeSearcher {
         selected.results(),
         bm25Hits,
         vectorHits,
+        plan.variants(),
         estimatedTokens(selected.results()),
         selected.droppedForBudget());
+  }
+
+  private static List<RetrievalHit> bestPerChunk(List<RetrievalHit> hits) {
+    Map<String, RetrievalHit> best = new LinkedHashMap<>();
+    for (RetrievalHit hit : hits) {
+      best.merge(
+          hit.chunk().id(),
+          hit,
+          (left, right) ->
+              Comparator.comparingInt(RetrievalHit::rank)
+                          .thenComparing(Comparator.comparingDouble(RetrievalHit::score).reversed())
+                          .compare(left, right)
+                      <= 0
+                  ? left
+                  : right);
+    }
+    List<RetrievalHit> ordered =
+        best.values().stream()
+            .sorted(
+                Comparator.comparingInt(RetrievalHit::rank)
+                    .thenComparing(Comparator.comparingDouble(RetrievalHit::score).reversed()))
+            .toList();
+    List<RetrievalHit> reranked = new ArrayList<>(ordered.size());
+    for (int index = 0; index < ordered.size(); index++) {
+      RetrievalHit hit = ordered.get(index);
+      reranked.add(new RetrievalHit(hit.chunk(), hit.score(), index + 1, hit.route()));
+    }
+    return List.copyOf(reranked);
   }
 
   public HybridCodeSearcher.SearchResponse search(String query) throws IOException {
@@ -108,6 +158,7 @@ public final class HybridCodeSearcher {
       List<SearchResult> results,
       List<RetrievalHit> bm25Hits,
       List<RetrievalHit> vectorHits,
+      List<String> queryVariants,
       int estimatedTokens,
       int droppedForBudget) {
     public SearchResponse(
@@ -115,16 +166,19 @@ public final class HybridCodeSearcher {
         List<SearchResult> results,
         List<RetrievalHit> bm25Hits,
         List<RetrievalHit> vectorHits,
+        List<String> queryVariants,
         int estimatedTokens,
         int droppedForBudget) {
       query = Objects.requireNonNullElse(query, "");
       results = List.copyOf(results);
       bm25Hits = List.copyOf(bm25Hits);
       vectorHits = List.copyOf(vectorHits);
+      queryVariants = List.copyOf(queryVariants);
       this.query = query;
       this.results = results;
       this.bm25Hits = bm25Hits;
       this.vectorHits = vectorHits;
+      this.queryVariants = queryVariants;
       this.estimatedTokens = estimatedTokens;
       this.droppedForBudget = droppedForBudget;
     }
@@ -134,6 +188,9 @@ public final class HybridCodeSearcher {
       output
           .append("query: ")
           .append(this.query)
+          .append('\n')
+          .append("query variants: ")
+          .append(String.join(" | ", this.queryVariants))
           .append('\n')
           .append("BM25 candidates: ")
           .append(this.bm25Hits.size())
@@ -160,6 +217,24 @@ public final class HybridCodeSearcher {
       }
 
       return output.toString().stripTrailing();
+    }
+
+    /**
+     * Re-applies context packing after a child match is expanded to its parent document section.
+     */
+    public HybridCodeSearcher.SearchResponse withContext(
+        List<SearchResult> contextResults, int tokenBudget) {
+      HybridCodeSearcher.BudgetedSelection selected =
+          HybridCodeSearcher.withinBudget(
+              contextResults, Math.max(1, this.results.size()), tokenBudget);
+      return new HybridCodeSearcher.SearchResponse(
+          this.query,
+          selected.results(),
+          this.bm25Hits,
+          this.vectorHits,
+          this.queryVariants,
+          HybridCodeSearcher.estimatedTokens(selected.results()),
+          this.droppedForBudget + selected.droppedForBudget());
     }
   }
 }
