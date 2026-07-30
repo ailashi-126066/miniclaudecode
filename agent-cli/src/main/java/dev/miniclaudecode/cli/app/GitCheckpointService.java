@@ -128,7 +128,11 @@ final class GitCheckpointService {
     if (!realIndex.isAbsolute()) {
       realIndex = this.workspace.resolve(realIndex).normalize();
     }
-    Path temporary = Files.createTempFile(realIndex.getParent(), "miniclaudecode-index-", ".tmp");
+    Path indexDirectory = realIndex.getParent();
+    if (indexDirectory == null) {
+      indexDirectory = this.workspace;
+    }
+    Path temporary = Files.createTempFile(indexDirectory, "miniclaudecode-index-", ".tmp");
     if (Files.exists(realIndex)) {
       Files.copy(realIndex, temporary, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     } else {

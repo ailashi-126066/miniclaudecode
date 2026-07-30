@@ -160,7 +160,7 @@ public final class ConfigLoader {
       return EmbeddingConfig.fastDefault();
     }
     return new EmbeddingConfig(
-        EmbeddingConfig.Provider.parse(optionalText(embedding, "provider").orElse("fast")),
+        EmbeddingConfig.Provider.parse(optionalText(embedding, "provider").orElse("auto")),
         optionalText(embedding, "base-url").map(ConfigLoader::parseUri),
         optionalText(embedding, "api-key"),
         optionalText(embedding, "api-key-env"),

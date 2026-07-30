@@ -17,6 +17,7 @@ import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.persistence.permission.JsonPermissionRuleStore;
 import dev.miniclaudecode.providers.ProviderFactory;
 import dev.miniclaudecode.rag.embedding.LocalCodeEmbeddingModel;
+import dev.miniclaudecode.rag.embedding.OnnxLocalEmbeddingModel;
 import dev.miniclaudecode.rag.embedding.RemoteEmbeddingModel;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.Bm25Retriever;
@@ -40,6 +41,7 @@ import dev.miniclaudecode.tools.process.ProcessRunner;
 import dev.miniclaudecode.tools.process.RunCommandTool;
 import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.remote.RemoteAiGateway;
 import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
 import dev.miniclaudecode.tools.rule.ScopedRuleHook;
@@ -129,6 +131,7 @@ final class WorkspaceComponents implements AutoCloseable {
       Optional<Path> projectConfig =
           Optional.of(workspace.resolve(".mini-claude-code/config.yaml"));
       AppConfig config = new ConfigLoader().load(layout.configFile(), projectConfig);
+      configureRemoteAiFallback(config, environment);
       ModelClient modelClient =
           fakeResponse
               .<ModelClient>map(StaticResponseModelClient::new)
@@ -239,7 +242,8 @@ final class WorkspaceComponents implements AutoCloseable {
                 config.activeProfile(),
                 Clock.systemUTC(),
                 isolatedTools,
-                worktrees));
+                worktrees,
+                hooks));
         agentTools.addAll(mcp.tools());
         // Every resolved key must land here: this set seeds the audit-log redactor, and a key
         // missing from it (the embedding key once was) gets written to session JSONL in plain
@@ -273,6 +277,16 @@ final class WorkspaceComponents implements AutoCloseable {
     }
   }
 
+  private static void configureRemoteAiFallback(AppConfig config, Map<String, String> environment) {
+    var profile = config.activeProfile();
+    if (profile.type() == dev.miniclaudecode.persistence.config.ProviderProfile.Type.ANTHROPIC) {
+      RemoteAiGateway.configureDefault(null, Optional.empty(), "");
+    } else {
+      RemoteAiGateway.configureDefault(
+          profile.baseUrl().orElse(null), profile.resolvedApiKey(environment), profile.model());
+    }
+  }
+
   private static boolean isDelegatedReadOnlyTool(AgentTool tool) {
     return Set.of(
             "workspace:read",
@@ -297,6 +311,16 @@ final class WorkspaceComponents implements AutoCloseable {
   private static EmbeddingModel embeddingModel(
       EmbeddingConfig embedding, Map<String, String> environment) {
     return switch (embedding.provider()) {
+      case AUTO ->
+          embedding.baseUrl().isPresent()
+              ? new RemoteEmbeddingModel(
+                  embedding.baseUrl().orElseThrow(),
+                  embedding.resolvedApiKey(environment),
+                  embedding.model(),
+                  embedding.dimensions(),
+                  embedding.timeout())
+              : tryOnnxOrFallback(embedding.dimensions());
+      case ONNX -> new OnnxLocalEmbeddingModel();
       case FAST -> new LocalCodeEmbeddingModel(embedding.dimensions());
       case REMOTE ->
           new RemoteEmbeddingModel(
@@ -310,6 +334,17 @@ final class WorkspaceComponents implements AutoCloseable {
               embedding.dimensions(),
               embedding.timeout());
     };
+  }
+
+  private static EmbeddingModel tryOnnxOrFallback(int dimensions) {
+    try {
+      if (dimensions == OnnxLocalEmbeddingModel.DIMENSIONS) {
+        return new OnnxLocalEmbeddingModel();
+      }
+    } catch (Exception | LinkageError ignored) {
+      // Fallback if ONNX is not available or fails to initialize
+    }
+    return new LocalCodeEmbeddingModel(dimensions);
   }
 
   /**

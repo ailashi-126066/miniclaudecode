@@ -66,7 +66,9 @@ class AgentRegressionHarnessTest {
     HarnessResult result =
         run(
             model,
-            calls -> completed(calls.getFirst(), "x".repeat(20_000)),
+            // A repeated single character is highly token-compressible. Use token-like text so
+            // this regression asserts the real tokenizer threshold rather than the old /4 proxy.
+            calls -> completed(calls.getFirst(), "x ".repeat(20_000)),
             request(Map.of("contextWindowTokens", 4096, "maxCompactions", 3)),
             progress);
 

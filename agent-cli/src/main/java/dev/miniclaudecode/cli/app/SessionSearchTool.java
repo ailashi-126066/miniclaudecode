@@ -129,8 +129,8 @@ final class SessionSearchTool implements AgentTool {
   }
 
   private static Optional<Match> match(SessionId session, AgentEvent event) {
-    Object text =
-        event.payload().get(event.type() == AgentEventType.USER_MESSAGE ? "text" : "text");
+    // USER_MESSAGE and TURN_FINAL both carry their content under the "text" payload key.
+    Object text = event.payload().get("text");
     if (!(text instanceof String value) || value.isBlank()) {
       return Optional.empty();
     }

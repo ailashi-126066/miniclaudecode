@@ -67,7 +67,7 @@ class ConfigLoaderTest {
     Assertions.assertThat(config.providers()).containsKey(config.activeProvider());
     Assertions.assertThat(config.activeProfile().maxOutputTokens()).isPositive();
     Assertions.assertThat(config.activeProfile().timeout().toSeconds()).isPositive();
-    Assertions.assertThat(config.embedding().provider()).isEqualTo(EmbeddingConfig.Provider.FAST);
+    Assertions.assertThat(config.embedding().provider()).isEqualTo(EmbeddingConfig.Provider.AUTO);
     Assertions.assertThat(config.embedding().dimensions()).isEqualTo(384);
   }
 

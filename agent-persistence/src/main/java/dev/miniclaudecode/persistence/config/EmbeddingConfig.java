@@ -10,11 +10,12 @@ import java.util.Optional;
 /**
  * Configuration for the code-index embedding provider.
  *
- * <p>{@code FAST} is the default: the offline hashing model — zero dependencies, zero downloads,
- * reproducible, good enough for demos and CI. {@code REMOTE} calls an OpenAI-compatible {@code
- * /v1/embeddings} endpoint for real neural embeddings; it must declare the vector {@code
- * dimensions} up front because the Lucene vector field needs the dimension before the first request
- * is ever made.
+ * <p>{@code ONNX} is the recommended local option: a bundled MiniLM-L6-v2 ONNX model that produces
+ * real semantic embeddings offline. {@code FAST} is the lightweight fallback: an offline hashing
+ * model — zero dependencies, reproducible, but no semantic understanding. {@code REMOTE} calls an
+ * OpenAI-compatible {@code /v1/embeddings} endpoint for production-grade embeddings; it must
+ * declare the vector {@code dimensions} up front because the Lucene vector field needs the
+ * dimension before the first request is ever made.
  */
 public record EmbeddingConfig(
     EmbeddingConfig.Provider provider,
@@ -47,11 +48,15 @@ public record EmbeddingConfig(
         throw new IllegalArgumentException("remote embedding provider requires model");
       }
     }
+    if (provider == Provider.AUTO && baseUrl.isPresent() && model.isBlank()) {
+      throw new IllegalArgumentException(
+          "auto embedding provider requires model when base-url is set");
+    }
   }
 
   public static EmbeddingConfig fastDefault() {
     return new EmbeddingConfig(
-        Provider.FAST,
+        Provider.AUTO,
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -88,6 +93,8 @@ public record EmbeddingConfig(
   }
 
   public enum Provider {
+    AUTO,
+    ONNX,
     FAST,
     REMOTE;
 
@@ -96,6 +103,8 @@ public record EmbeddingConfig(
         throw new IllegalArgumentException("embedding provider must not be blank");
       }
       return switch (value.trim().toLowerCase(Locale.ROOT)) {
+        case "auto" -> AUTO;
+        case "onnx" -> ONNX;
         case "fast" -> FAST;
         case "remote" -> REMOTE;
         default -> throw new IllegalArgumentException("unsupported embedding provider: " + value);

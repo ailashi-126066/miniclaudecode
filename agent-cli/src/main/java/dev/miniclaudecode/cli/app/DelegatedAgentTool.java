@@ -19,6 +19,7 @@ import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.runtime.AgentGraphFactory;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
+import dev.miniclaudecode.tools.hook.HookRegistry;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import java.io.IOException;
 import java.time.Clock;
@@ -62,14 +63,16 @@ final class DelegatedAgentTool implements AgentTool {
   private final Clock clock;
   private final Function<java.nio.file.Path, DefaultToolRegistry> isolatedTools;
   private final IsolatedWorktreeService worktrees;
+  private final HookRegistry parentHooks;
 
   DelegatedAgentTool(
       ModelClient modelClient,
       DefaultToolRegistry readOnlyTools,
       String provider,
       ProviderProfile profile,
-      Clock clock) {
-    this(modelClient, readOnlyTools, provider, profile, clock, null, null);
+      Clock clock,
+      HookRegistry parentHooks) {
+    this(modelClient, readOnlyTools, provider, profile, clock, null, null, parentHooks);
   }
 
   DelegatedAgentTool(
@@ -79,7 +82,8 @@ final class DelegatedAgentTool implements AgentTool {
       ProviderProfile profile,
       Clock clock,
       Function<java.nio.file.Path, DefaultToolRegistry> isolatedTools,
-      IsolatedWorktreeService worktrees) {
+      IsolatedWorktreeService worktrees,
+      HookRegistry parentHooks) {
     this.modelClient = Objects.requireNonNull(modelClient);
     this.readOnlyTools = Objects.requireNonNull(readOnlyTools);
     this.provider = Objects.requireNonNull(provider);
@@ -87,6 +91,7 @@ final class DelegatedAgentTool implements AgentTool {
     this.clock = Objects.requireNonNull(clock);
     this.isolatedTools = isolatedTools;
     this.worktrees = worktrees;
+    this.parentHooks = Objects.requireNonNull(parentHooks);
   }
 
   @Override
@@ -137,10 +142,23 @@ final class DelegatedAgentTool implements AgentTool {
     if (cancellation.isCancellationRequested()) {
       return new DelegatedResult(task, AgentStatus.CANCELLED, "cancelled", 0, 0);
     }
-    Consumer<RenderEvent> silentRenderer = event -> {};
+    List<String> operationLog = new ArrayList<>();
+    Consumer<RenderEvent> loggingRenderer =
+        event -> {
+          String eventText = eventText(event);
+          if (!eventText.isBlank()) {
+            synchronized (operationLog) {
+              if (operationLog.size() < 50) {
+                operationLog.add(
+                    eventText.length() > 200 ? eventText.substring(0, 200) + "..." : eventText);
+              }
+            }
+          }
+        };
     IsolatedWorktreeService.Worktree worktree = null;
     DefaultToolRegistry tools = this.readOnlyTools;
     Map<String, Object> fixedAttributes = Map.of();
+    HookRegistry hooks = HookRegistry.NONE;
     if ("implement".equals(task.role())) {
       if (this.isolatedTools == null || this.worktrees == null) {
         return new DelegatedResult(
@@ -149,6 +167,7 @@ final class DelegatedAgentTool implements AgentTool {
       worktree = this.worktrees.create(task.task());
       tools = this.isolatedTools.apply(worktree.path());
       fixedAttributes = Map.of("isolatedWorktree", true);
+      hooks = this.parentHooks;
     }
     RegistryToolExecutor executor =
         new RegistryToolExecutor(
@@ -158,9 +177,9 @@ final class DelegatedAgentTool implements AgentTool {
             parent.workspace(),
             parent.eventSink(),
             cancellation,
-            silentRenderer,
+            loggingRenderer,
             this.clock,
-            dev.miniclaudecode.tools.hook.HookRegistry.NONE,
+            hooks,
             fixedAttributes);
     ModelRequest request =
         new ModelRequest(
@@ -222,6 +241,19 @@ final class DelegatedAgentTool implements AgentTool {
           0,
           0);
     }
+  }
+
+  private static String eventText(RenderEvent event) {
+    if (event == null) {
+      return "";
+    }
+    return switch (event) {
+      case RenderEvent.Thinking value -> value.text();
+      case RenderEvent.Progress value -> value.text();
+      case RenderEvent.Text value -> value.text();
+      case RenderEvent.Error value -> value.text();
+      case RenderEvent.Completed ignored -> "";
+    };
   }
 
   private static ToolResult completed(ToolCall call, List<DelegatedResult> results) {

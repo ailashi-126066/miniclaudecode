@@ -41,6 +41,7 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
   private final CallModelNode callModel;
   private final CompactContextNode compact =
       new CompactContextNode(new ContextPipeline(List.of(new DeterministicContextReducer())));
+  private final SemanticContextCompactor semanticCompactor;
   private final RecoverErrorNode recover = new RecoverErrorNode(this.retryPolicy);
   private final ExecuteToolsNode executeTools;
   private final RequireVerificationNode requireVerification = new RequireVerificationNode();
@@ -55,6 +56,7 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
       dev.miniclaudecode.domain.runtime.CancellationToken cancellationToken,
       TurnProgressListener progressListener) {
     this.callModel = new CallModelNode(model, limits, cancellationToken);
+    this.semanticCompactor = new SemanticContextCompactor(model);
     this.executeTools = new ExecuteToolsNode(tools, limits);
     this.progressListener = progressListener;
   }
@@ -81,7 +83,7 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
           }
           continue;
         }
-        ContextPlanner.Plan plan = this.contextPlanner.plan(state.request(), state.messages());
+        ContextPlanner.Plan plan = plan(state);
         if (plan.compact() && canCompact(state)) {
           state = compact(state, changes, plan, "preflight_threshold");
           continue;
@@ -97,12 +99,7 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
           if (this.contextPlanner.isContextOverflow(
                   state.failureType().orElse(""), state.error().orElse(""))
               && canCompact(state)) {
-            state =
-                compact(
-                    state,
-                    changes,
-                    this.contextPlanner.plan(state.request(), state.messages()),
-                    "provider_overflow");
+            state = compact(state, changes, plan(state), "provider_overflow");
             continue;
           }
           RetryPolicy.Decision retry =
@@ -208,8 +205,18 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
       Map<String, Object> changes,
       ContextPlanner.Plan before,
       String reason) {
-    MiniClaudeState compacted = apply(state, this.compact.apply(state).join(), changes);
-    ContextPlanner.Plan after = this.contextPlanner.plan(compacted.request(), compacted.messages());
+    MiniClaudeState compacted =
+        apply(
+            state,
+            Map.of(
+                "messages",
+                this.semanticCompactor.compact(state.request(), state.messages()).join(),
+                "compactionCount",
+                state.compactionCount() + 1,
+                "trace",
+                dev.miniclaudecode.runtime.state.StateSchema.traceEntry("compact_context")),
+            changes);
+    ContextPlanner.Plan after = plan(compacted);
     notify(
         new TurnProgressListener.Progress(
             "compaction",
@@ -230,7 +237,7 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
   }
 
   private void notifyStage(String phase, MiniClaudeState state) {
-    notifyStage(phase, state, this.contextPlanner.plan(state.request(), state.messages()));
+    notifyStage(phase, state, plan(state));
   }
 
   private void notifyStage(String phase, MiniClaudeState state, ContextPlanner.Plan plan) {
@@ -252,6 +259,12 @@ final class NormalTurnLoop implements AsyncNodeAction<MiniClaudeState> {
     } catch (RuntimeException ignored) {
       // Progress persistence and rendering must never change the model/tool safety semantics.
     }
+  }
+
+  private ContextPlanner.Plan plan(MiniClaudeState state) {
+    Object value = state.providerMetadata().get("inputTokens");
+    long providerTokens = value instanceof Number number ? number.longValue() : 0L;
+    return this.contextPlanner.plan(state.request(), state.messages(), providerTokens);
   }
 
   static boolean requiresVerification(MiniClaudeState state) {

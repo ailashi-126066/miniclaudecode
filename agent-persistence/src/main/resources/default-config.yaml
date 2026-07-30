@@ -14,9 +14,9 @@ providers:
 
 rag:
   embedding:
-    # fast = offline hashing model (no downloads, reproducible). Switch to `remote` for an
+    # auto uses a remote semantic model when base-url is configured, otherwise offline hashing.
     # OpenAI-compatible /v1/embeddings endpoint; see examples/config.example.yaml.
-    provider: fast
+    provider: auto
     dimensions: 384
 
 security:

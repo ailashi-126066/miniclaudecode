@@ -8,20 +8,48 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
- * Converts a failed turn into a concise candidate lesson; curation happens in {@link
- * AceBulletStore}.
+ * Converts a completed, recovered, or failed turn into a concise candidate lesson; curation happens
+ * in {@link AceBulletStore}.
  */
 public final class ReflexionExtractor {
   private final Clock clock;
+  private final Function<String, Optional<String>> lessonGenerator;
+
+  private static final String FALLBACK_FAILURE_LESSON =
+      "Before retrying, inspect the reported failure and verify the smallest corrective step; do not claim completion without a passing verification.";
+  private static final String FALLBACK_SUCCESS_LESSON =
+      "The change was completed only after a recorded verification command succeeded; reuse the smallest relevant verification step for similar work.";
 
   public ReflexionExtractor(Clock clock) {
+    this(clock, context -> Optional.empty());
+  }
+
+  /**
+   * @param lessonGenerator accepts a compact context string, returns an LLM-generated lesson or
+   *     empty to fall back to the hardcoded default. Implementations should handle errors
+   *     internally and return empty on failure.
+   */
+  public ReflexionExtractor(Clock clock, Function<String, Optional<String>> lessonGenerator) {
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    this.lessonGenerator =
+        Objects.requireNonNull(lessonGenerator, "lessonGenerator must not be null");
   }
 
   public Optional<AceBullet> extract(
       List<AgentMessage> messages, AgentStatus status, String terminalError) {
+    boolean verifiedChange =
+        status == AgentStatus.COMPLETED
+            && messages.stream()
+                .filter(ToolMessage.class::isInstance)
+                .map(ToolMessage.class::cast)
+                .anyMatch(
+                    message ->
+                        "shell:run".equals(message.qualifiedToolName())
+                            && !message.error()
+                            && message.text().startsWith("[verification-command-succeeded]"));
     if (status != AgentStatus.FAILED && status != AgentStatus.CANCELLED) {
       boolean recoveredToolFailure =
           status == AgentStatus.COMPLETED
@@ -29,7 +57,7 @@ public final class ReflexionExtractor {
                   .filter(ToolMessage.class::isInstance)
                   .map(ToolMessage.class::cast)
                   .anyMatch(ToolMessage::error);
-      if (!recoveredToolFailure) {
+      if (!recoveredToolFailure && !verifiedChange) {
         return Optional.empty();
       }
     }
@@ -52,18 +80,48 @@ public final class ReflexionExtractor {
     if (cause.isBlank()) {
       cause = "turn ended before a verified completion";
     }
-    String lesson =
-        "Before retrying, inspect the reported failure and verify the smallest corrective step; do not claim completion without a passing verification.";
+
+    // Build context for LLM lesson generation
+    String context = buildContext(objective, status, cause, failures, verifiedChange);
+    String fallback =
+        status == AgentStatus.COMPLETED && verifiedChange
+            ? FALLBACK_SUCCESS_LESSON
+            : FALLBACK_FAILURE_LESSON;
+    String lesson = this.lessonGenerator.apply(context).orElse(fallback);
+
     return Optional.of(
         new AceBullet(
             null,
             compact(objective, 300),
             lesson,
             List.of(
-                (status == AgentStatus.COMPLETED ? "recovered failure: " : "failure: ") + cause),
+                (status == AgentStatus.COMPLETED && failures.isEmpty()
+                        ? "verified completion: "
+                        : status == AgentStatus.COMPLETED ? "recovered failure: " : "failure: ")
+                    + cause),
             1,
             this.clock.instant(),
             this.clock.instant()));
+  }
+
+  private static String buildContext(
+      String objective,
+      AgentStatus status,
+      String cause,
+      List<String> failures,
+      boolean verifiedChange) {
+    StringBuilder context = new StringBuilder();
+    context.append("Objective: ").append(objective).append("\n");
+    context.append("Status: ").append(status).append("\n");
+    if (verifiedChange) {
+      context.append("Outcome: verification command succeeded\n");
+    }
+    if (!failures.isEmpty()) {
+      context.append("Failures:\n");
+      failures.forEach(failure -> context.append("- ").append(failure).append("\n"));
+    }
+    context.append("Root cause: ").append(cause).append("\n");
+    return context.toString();
   }
 
   private static String compact(String value, int maximum) {

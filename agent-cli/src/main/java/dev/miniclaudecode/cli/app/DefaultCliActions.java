@@ -303,8 +303,9 @@ public final class DefaultCliActions implements CliActions {
       case Thinking thinking:
         this.output.println("thinking> " + thinking.text());
         break;
-      case Progress progress:
-        this.error.println("... " + progress.text());
+      case Progress ignored:
+        // Progress events are interactive spinner UX only. In non-interactive/automation mode
+        // they are neither output nor an error, so they must not leak to stderr.
         break;
       case Text text:
         this.output.print(text.text());

@@ -180,4 +180,22 @@ class LayeredMemoryStoreTest {
 
     assertThat(candidate.evidence()).contains("recovered failure: shell:run: tests failed");
   }
+
+  @Test
+  void verifiedSuccessfulChangeAlsoProducesACandidate() {
+    ReflexionExtractor reflexion = new ReflexionExtractor(Clock.systemUTC());
+
+    AceBullet candidate =
+        reflexion
+            .extract(
+                java.util.List.of(
+                    new UserMessage("Improve the build"),
+                    new ToolMessage(
+                        "verify", "shell:run", "[verification-command-succeeded] mvn test", false)),
+                AgentStatus.COMPLETED,
+                "")
+            .orElseThrow();
+
+    assertThat(candidate.lesson()).contains("verification command succeeded");
+  }
 }

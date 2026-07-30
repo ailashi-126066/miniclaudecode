@@ -1,5 +1,8 @@
 package dev.miniclaudecode.context;
 
+import com.knuddels.jtokkit.Encodings;
+import com.knuddels.jtokkit.api.Encoding;
+import com.knuddels.jtokkit.api.EncodingType;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.AssistantMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
@@ -9,6 +12,9 @@ import java.util.Objects;
 
 public final class ContextPlanner {
   private static final int DEFAULT_CONTEXT_WINDOW = 128000;
+  private static final int MESSAGE_OVERHEAD_TOKENS = 4;
+  private static final Encoding TOKENIZER =
+      Encodings.newDefaultEncodingRegistry().getEncoding(EncodingType.CL100K_BASE);
   private final double compactionThreshold;
 
   public ContextPlanner() {
@@ -24,11 +30,25 @@ public final class ContextPlanner {
   }
 
   public ContextPlanner.Plan plan(ModelRequest request, List<AgentMessage> messages) {
+    return plan(request, messages, 0);
+  }
+
+  /**
+   * Plans against an optional provider-reported input-token value. Provider usage is authoritative
+   * for the request it describes, so it is used as a lower bound while the local tokenizer counts
+   * messages added since that response.
+   */
+  public ContextPlanner.Plan plan(
+      ModelRequest request, List<AgentMessage> messages, long providerReportedInputTokens) {
     Objects.requireNonNull(request, "request must not be null");
     Objects.requireNonNull(messages, "messages must not be null");
     int contextWindow = contextWindow(request);
     int inputBudget = Math.max(1, contextWindow - request.maxOutputTokens());
     int estimatedTokens = this.estimateTokens(messages);
+    if (providerReportedInputTokens > 0) {
+      estimatedTokens =
+          (int) Math.min(Integer.MAX_VALUE, Math.max(estimatedTokens, providerReportedInputTokens));
+    }
     return new ContextPlanner.Plan(
         estimatedTokens,
         inputBudget,
@@ -46,20 +66,17 @@ public final class ContextPlanner {
   }
 
   public int estimateTokens(List<AgentMessage> messages) {
-    long characters =
-        messages.stream()
-            .mapToLong(
-                message ->
-                    (long)
-                        (message.text().length()
-                            + (message instanceof AssistantMessage assistant
-                                ? assistant.toolCalls().stream()
-                                    .mapToInt(call -> call.argumentsJson().length() + 16)
-                                    .sum()
-                                : 0)
-                            + 12))
-            .sum();
-    return (int) Math.min(2147483647L, Math.max(1L, (characters + 3L) / 4L));
+    long tokens = 0L;
+    for (AgentMessage message : messages) {
+      tokens += MESSAGE_OVERHEAD_TOKENS + TOKENIZER.countTokens(message.text());
+      if (message instanceof AssistantMessage assistant) {
+        for (var call : assistant.toolCalls()) {
+          tokens += MESSAGE_OVERHEAD_TOKENS + TOKENIZER.countTokens(call.qualifiedName());
+          tokens += TOKENIZER.countTokens(call.argumentsJson());
+        }
+      }
+    }
+    return (int) Math.min(Integer.MAX_VALUE, Math.max(1L, tokens));
   }
 
   private static int contextWindow(ModelRequest request) {

@@ -22,9 +22,25 @@ class ContextPlannerTest {
     ModelRequest request =
         new ModelRequest(
             "test", "fake", List.of(), List.of(), false, 20, Map.of("contextWindowTokens", 100));
-    Plan plan = planner.plan(request, List.of(new UserMessage("x".repeat(300))));
+    Plan plan = planner.plan(request, List.of(new UserMessage("x ".repeat(300))));
     Assertions.assertThat(plan.inputBudgetTokens()).isEqualTo(80);
     Assertions.assertThat(plan.compact()).isTrue();
+  }
+
+  @Test
+  void honorsProviderReportedUsageWhenItExceedsLocalEstimate() {
+    ModelRequest request =
+        new ModelRequest(
+            "test", "fake", List.of(), List.of(), false, 20, Map.of("contextWindowTokens", 100));
+
+    Plan plan = planner().plan(request, List.of(new UserMessage("short")), 90);
+
+    Assertions.assertThat(plan.estimatedInputTokens()).isEqualTo(90);
+    Assertions.assertThat(plan.compact()).isTrue();
+  }
+
+  private static ContextPlanner planner() {
+    return new ContextPlanner(0.8);
   }
 
   @Test
