@@ -1,9 +1,11 @@
 package dev.miniclaudecode.rag.embedding;
 
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
 import dev.langchain4j.model.output.Response;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -14,7 +16,8 @@ import java.util.Objects;
  * the JAR (via {@code langchain4j-embeddings-all-minilm-l6-v2}), so it works offline without any
  * external service. Output dimension is fixed at 384 to match the upstream model.
  */
-public final class OnnxLocalEmbeddingModel implements EmbeddingModel, EmbeddingIdentity {
+public final class OnnxLocalEmbeddingModel
+    implements EmbeddingModel, EmbeddingIdentity, BatchEmbeddingModel {
   public static final int DIMENSIONS = 384;
   private final AllMiniLmL6V2EmbeddingModel delegate;
 
@@ -25,6 +28,11 @@ public final class OnnxLocalEmbeddingModel implements EmbeddingModel, EmbeddingI
   @Override
   public Response<Embedding> embed(String text) {
     return this.delegate.embed(Objects.requireNonNullElse(text, ""));
+  }
+
+  @Override
+  public Response<List<Embedding>> embedAll(List<TextSegment> segments) {
+    return this.delegate.embedAll(List.copyOf(segments));
   }
 
   @Override

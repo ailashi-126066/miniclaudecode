@@ -47,11 +47,17 @@ public final class LangChainDocumentChunker implements DocumentChunker {
   public List<CodeChunk> chunk(String path, String content) {
     Objects.requireNonNull(path, "path must not be null");
     Objects.requireNonNull(content, "content must not be null");
-    if (content.isBlank()) {
+    if (content.trim().isEmpty()) {
       return List.of();
     }
     List<CodeChunk> chunks = new ArrayList<>();
     for (Region region : regions(content)) {
+      // A malformed or adjacent structural marker can leave an empty region even when the whole
+      // file is non-blank. LangChain4j rejects an empty Document, while an empty region has no
+      // searchable content and should simply contribute no chunks.
+      if (region.content().trim().isEmpty()) {
+        continue;
+      }
       List<TextSegment> parentSegments =
           this.parentSplitter.split(Document.from(region.content(), Metadata.from(PATH, path)));
       int parentSearchFrom = 0;

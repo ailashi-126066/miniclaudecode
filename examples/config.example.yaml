@@ -47,7 +47,19 @@ providers:
 #     api-key-env: OPENAI_API_KEY
 #     model: text-embedding-3-small
 #     dimensions: 1536
-#     timeout-seconds: 30
+  #     timeout-seconds: 30
+  #
+  # Alibaba Cloud Model Studio / DashScope compatible mode. The Workspace ID and region are
+  # account-specific; keep the key only in the named environment variable. text-embedding-v4
+  # defaults to 1024 dimensions and accepts up to 10 inputs per request.
+  # rag:
+  #   embedding:
+  #     provider: remote
+  #     base-url: https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+  #     api-key-env: DASHSCOPE_API_KEY
+  #     model: text-embedding-v4
+  #     dimensions: 1024
+  #     timeout-seconds: 60
 
 # MCP is loaded only from this user config file, never from project config.
 # mcp:

@@ -1,10 +1,12 @@
 package dev.miniclaudecode.rag.index;
 
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.miniclaudecode.rag.chunk.CodeChunk;
 import dev.miniclaudecode.rag.chunk.DocumentChunker;
 import dev.miniclaudecode.rag.chunk.FallbackChunker;
+import dev.miniclaudecode.rag.embedding.BatchEmbeddingModel;
 import dev.miniclaudecode.rag.embedding.EmbeddingIdentity;
 import dev.miniclaudecode.rag.search.HybridCodeSearcher;
 import dev.miniclaudecode.rag.search.SearchResult;
@@ -345,6 +347,14 @@ public final class LuceneCodeIndex {
 
   private List<Document> documents(List<CodeChunk> chunks) {
     List<Document> documents = new ArrayList<>(chunks.size());
+    List<CodeChunk> vectorChunks =
+        chunks.stream().filter(chunk -> chunk.role() != CodeChunk.Role.PARENT).toList();
+    List<Embedding> embeddings =
+        vectorChunks.isEmpty() ? List.of() : this.embeddingsFor(vectorChunks);
+    if (embeddings.size() != vectorChunks.size()) {
+      throw new IllegalStateException("embedding model returned an unexpected number of vectors");
+    }
+    int vectorIndex = 0;
 
     for (CodeChunk chunk : chunks) {
       Document document = new Document();
@@ -371,11 +381,7 @@ public final class LuceneCodeIndex {
       if (chunk.role() != CodeChunk.Role.PARENT) {
         document.add(new TextField("path_text", chunk.path(), Store.NO));
         document.add(new TextField("symbol_text", chunk.symbol(), Store.NO));
-        float[] vector =
-            (float[])
-                ((Embedding) this.embeddingModel.embed(chunk.embeddingText()).content())
-                    .vector()
-                    .clone();
+        float[] vector = embeddings.get(vectorIndex++).vector().clone();
         if (vector.length == 0) {
           throw new IllegalStateException("embedding model returned an empty vector");
         }
@@ -388,6 +394,17 @@ public final class LuceneCodeIndex {
     }
 
     return documents;
+  }
+
+  private List<Embedding> embeddingsFor(List<CodeChunk> chunks) {
+    List<TextSegment> segments =
+        chunks.stream().map(chunk -> TextSegment.from(chunk.embeddingText())).toList();
+    if (this.embeddingModel instanceof BatchEmbeddingModel batchModel) {
+      return batchModel.embedAll(segments).content();
+    }
+    return chunks.stream()
+        .map(chunk -> this.embeddingModel.embed(chunk.embeddingText()).content())
+        .toList();
   }
 
   private static CodeChunk fromDocument(Document document) {

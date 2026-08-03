@@ -1,6 +1,7 @@
 package dev.miniclaudecode.rag.embedding;
 
 import com.sun.net.httpserver.HttpServer;
+import dev.langchain4j.data.segment.TextSegment;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -53,7 +54,7 @@ class RemoteEmbeddingModelTest {
   @Test
   void postsInputWithBearerAuthAndParsesTheVector() {
     this.responseBody =
-        "{\"data\":[{\"embedding\":[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,"
+        "{\"data\":[{\"index\":0,\"embedding\":[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,"
             + "0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,"
             + "0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,"
             + "0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8]}]}";
@@ -68,7 +69,7 @@ class RemoteEmbeddingModelTest {
 
   @Test
   void rejectsAVectorWhoseDimensionDiffersFromTheConfiguredOne() {
-    this.responseBody = "{\"data\":[{\"embedding\":[0.1,0.2,0.3]}]}";
+    this.responseBody = "{\"data\":[{\"index\":0,\"embedding\":[0.1,0.2,0.3]}]}";
     Assertions.assertThatThrownBy(() -> this.model(32).embed("text"))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("dimension mismatch")
@@ -93,5 +94,22 @@ class RemoteEmbeddingModelTest {
         .isEqualTo("remote/127.0.0.1:" + port + "/test-embed/32");
     Assertions.assertThat(new LocalCodeEmbeddingModel(64).embeddingIdentity())
         .isEqualTo("local-hash/64");
+  }
+
+  @Test
+  void batchesInputsAndRestoresTheirResponseOrder() {
+    this.responseBody =
+        "{\"data\":[{\"index\":1,\"embedding\":[0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,"
+            + "0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2]},"
+            + "{\"index\":0,\"embedding\":[0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1]}]}";
+
+    var embeddings =
+        this.model(32)
+            .embedAll(java.util.List.of(TextSegment.from("first"), TextSegment.from("second")));
+
+    Assertions.assertThat(embeddings.content()).hasSize(2);
+    Assertions.assertThat(embeddings.content().getFirst().vector()[0]).isEqualTo(0.1F);
+    Assertions.assertThat(embeddings.content().get(1).vector()[0]).isEqualTo(0.2F);
+    Assertions.assertThat(this.requestBody.get()).contains("\"dimensions\":32", "first", "second");
   }
 }

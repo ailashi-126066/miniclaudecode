@@ -28,4 +28,11 @@ class LangChainDocumentChunkerTest {
         .filteredOn(chunk -> chunk.role() == CodeChunk.Role.CHILD)
         .allSatisfy(child -> Assertions.assertThat(child.parentChunkId()).isNotBlank());
   }
+
+  @Test
+  void ignoresControlOnlyContentThatLangChainTreatsAsBlank() {
+    var chunks = new LangChainDocumentChunker().chunk("guide.md", "\u0001");
+
+    Assertions.assertThat(chunks).isEmpty();
+  }
 }

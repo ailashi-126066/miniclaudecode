@@ -3,6 +3,7 @@ package dev.miniclaudecode.rag.embedding;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import java.io.IOException;
@@ -27,11 +28,13 @@ import java.util.Optional;
  * request) and every response is validated against it, because a silently different dimension would
  * poison the index rather than fail one call.
  *
- * <p>Embeds one text per request: the index embeds chunks one at a time, so a batch API would not
- * be exercised. If indexing throughput over a remote endpoint ever matters, batch at the caller.
+ * <p>Uses at most ten inputs per request, which is accepted by DashScope compatible mode and keeps
+ * index creation from turning every chunk into a separate HTTP round trip.
  */
-public final class RemoteEmbeddingModel implements EmbeddingModel, EmbeddingIdentity {
+public final class RemoteEmbeddingModel
+    implements EmbeddingModel, EmbeddingIdentity, BatchEmbeddingModel {
   private static final ObjectMapper JSON = new ObjectMapper();
+  private static final int DEFAULT_MAX_BATCH_SIZE = 10;
 
   private final HttpClient client;
   private final URI endpoint;
@@ -67,10 +70,34 @@ public final class RemoteEmbeddingModel implements EmbeddingModel, EmbeddingIden
 
   @Override
   public Response<Embedding> embed(String text) {
+    return Response.from(this.embeddings(List.of(Objects.requireNonNullElse(text, ""))).getFirst());
+  }
+
+  @Override
+  public Response<List<Embedding>> embedAll(List<TextSegment> segments) {
+    Objects.requireNonNull(segments, "segments must not be null");
+    if (segments.isEmpty()) {
+      throw new IllegalArgumentException("segments must not be empty");
+    }
+    return Response.from(
+        this.embeddings(segments.stream().map(segment -> segment.text()).toList()));
+  }
+
+  private List<Embedding> embeddings(List<String> inputs) {
+    List<Embedding> embeddings = new java.util.ArrayList<>(inputs.size());
+    for (int start = 0; start < inputs.size(); start += DEFAULT_MAX_BATCH_SIZE) {
+      embeddings.addAll(
+          this.request(
+              inputs.subList(start, Math.min(inputs.size(), start + DEFAULT_MAX_BATCH_SIZE))));
+    }
+    return List.copyOf(embeddings);
+  }
+
+  private List<Embedding> request(List<String> inputs) {
     try {
       String body =
           JSON.writeValueAsString(
-              Map.of("model", this.model, "input", List.of(text == null ? "" : text)));
+              Map.of("model", this.model, "input", inputs, "dimensions", this.dimensions));
       HttpRequest.Builder request =
           HttpRequest.newBuilder(this.endpoint)
               .timeout(this.timeout)
@@ -88,7 +115,7 @@ public final class RemoteEmbeddingModel implements EmbeddingModel, EmbeddingIden
                 + ": "
                 + truncate(response.body()));
       }
-      return Response.from(Embedding.from(parseVector(response.body())));
+      return parseVectors(response.body(), inputs.size());
     } catch (IOException exception) {
       throw new UncheckedIOException(
           "embedding request failed: " + this.endpoint.getHost(), exception);
@@ -98,30 +125,42 @@ public final class RemoteEmbeddingModel implements EmbeddingModel, EmbeddingIden
     }
   }
 
-  private float[] parseVector(String responseBody) throws IOException {
+  private List<Embedding> parseVectors(String responseBody, int expectedVectors)
+      throws IOException {
     JsonNode data = JSON.readTree(responseBody).path("data");
-    if (!data.isArray() || data.isEmpty()) {
+    if (!data.isArray() || data.size() != expectedVectors) {
       throw new IllegalStateException("embedding response has no data entries");
     }
-    JsonNode values = data.get(0).path("embedding");
-    if (!values.isArray()) {
-      throw new IllegalStateException("embedding response is missing the embedding array");
+    Embedding[] result = new Embedding[expectedVectors];
+    for (JsonNode entry : data) {
+      int index = entry.path("index").asInt(-1);
+      if (index < 0 || index >= expectedVectors || result[index] != null) {
+        throw new IllegalStateException("embedding response has invalid data indexes");
+      }
+      JsonNode values = entry.path("embedding");
+      if (!values.isArray()) {
+        throw new IllegalStateException("embedding response is missing the embedding array");
+      }
+      float[] vector = new float[values.size()];
+      for (int vectorIndex = 0; vectorIndex < vector.length; vectorIndex++) {
+        vector[vectorIndex] = (float) values.get(vectorIndex).asDouble();
+      }
+      if (vector.length != this.dimensions) {
+        throw new IllegalStateException(
+            "embedding dimension mismatch: rag.embedding.dimensions is "
+                + this.dimensions
+                + " but "
+                + this.model
+                + " returned "
+                + vector.length
+                + "; fix the configured dimensions");
+      }
+      result[index] = Embedding.from(vector);
     }
-    float[] vector = new float[values.size()];
-    for (int index = 0; index < vector.length; index++) {
-      vector[index] = (float) values.get(index).asDouble();
+    if (java.util.Arrays.stream(result).anyMatch(Objects::isNull)) {
+      throw new IllegalStateException("embedding response is missing data entries");
     }
-    if (vector.length != this.dimensions) {
-      throw new IllegalStateException(
-          "embedding dimension mismatch: rag.embedding.dimensions is "
-              + this.dimensions
-              + " but "
-              + this.model
-              + " returned "
-              + vector.length
-              + "; fix the configured dimensions");
-    }
-    return vector;
+    return List.of(result);
   }
 
   @Override
