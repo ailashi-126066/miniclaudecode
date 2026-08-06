@@ -8,6 +8,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.Map;
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,6 +28,28 @@ class WorkspaceScannerTest {
     Assertions.assertThat(new WorkspaceScanner().scan(workspace))
         .extracting(ScannedFile::path)
         .containsExactly(new String[] {"src/App.java"});
+  }
+
+  @Test
+  void honorsGitIgnoreAndStillIncludesTrackedAndNewSourceFiles() throws Exception {
+    Assumptions.assumeTrue(gitAvailable());
+    Path workspace = Files.createDirectory(this.temporaryDirectory.resolve("git-workspace"));
+    git(workspace, "init");
+    Files.createDirectories(workspace.resolve("src"));
+    Files.createDirectories(workspace.resolve("datasets/raw"));
+    Files.createDirectories(workspace.resolve("benchmarks/rag"));
+    Files.writeString(workspace.resolve(".gitignore"), "datasets/\n*.log\n");
+    Files.writeString(workspace.resolve("src/Tracked.java"), "class Tracked {}\n");
+    git(workspace, "add", ".gitignore", "src/Tracked.java");
+    Files.writeString(workspace.resolve("src/NewFile.java"), "class NewFile {}\n");
+    Files.writeString(workspace.resolve("datasets/raw/Benchmark.java"), "class Benchmark {}\n");
+    Files.writeString(workspace.resolve("debug.log"), "not source\n");
+    Files.writeString(workspace.resolve("benchmarks/rag/Evaluation.java"), "class Evaluation {}\n");
+    git(workspace, "add", "benchmarks/rag/Evaluation.java");
+
+    Assertions.assertThat(new WorkspaceScanner().scan(workspace))
+        .extracting(ScannedFile::path)
+        .containsExactly(".gitignore", "src/NewFile.java", "src/Tracked.java");
   }
 
   @Test
@@ -84,5 +107,26 @@ class WorkspaceScannerTest {
     Assertions.assertThat(upgraded.fingerprint()).isEqualTo(fresh.fingerprint());
     Assertions.assertThat(upgraded.content()).isPresent();
     Assertions.assertThat(upgraded.sizeBytes()).isEqualTo(fresh.sizeBytes());
+  }
+
+  private static boolean gitAvailable() {
+    try {
+      return new ProcessBuilder("git", "--version").start().waitFor() == 0;
+    } catch (java.io.IOException | InterruptedException error) {
+      return false;
+    }
+  }
+
+  private static void git(Path workspace, String... arguments) throws Exception {
+    String[] command = new String[arguments.length + 3];
+    command[0] = "git";
+    command[1] = "-C";
+    command[2] = workspace.toString();
+    System.arraycopy(arguments, 0, command, 3, arguments.length);
+    Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+    String output =
+        new String(
+            process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    Assertions.assertThat(process.waitFor()).as(output).isZero();
   }
 }

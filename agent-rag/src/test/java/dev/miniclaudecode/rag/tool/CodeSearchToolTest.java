@@ -53,7 +53,7 @@ class CodeSearchToolTest {
             new CharSequence[] {
               "AccountService.java", "deactivateAccount()", "BM25 rank=", "vector rank="
             });
-    ((MapAssert) Assertions.assertThat(result.metadata()).containsEntry("results", 3))
+    ((MapAssert) Assertions.assertThat(result.metadata()).containsEntry("results", 1))
         .containsKeys(new String[] {"estimatedTokens", "bm25Candidates", "vectorCandidates"});
   }
 

@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,11 +33,29 @@ class RagEvaluatorTest {
     EvaluationMetrics metrics = (EvaluationMetrics) report.strategies().get("hybrid");
     Assertions.assertThat(metrics.recallAt5()).isEqualTo(1.0);
     Assertions.assertThat(metrics.recallAt10()).isEqualTo(1.0);
+    Assertions.assertThat(metrics.canonicalHitAt5()).isEqualTo(1.0);
+    Assertions.assertThat(metrics.canonicalHitAt10()).isEqualTo(1.0);
     Assertions.assertThat(metrics.meanReciprocalRank()).isEqualTo(0.75);
     Assertions.assertThat(metrics.p50LatencyMillis()).isGreaterThanOrEqualTo(0L);
     Assertions.assertThat(metrics.p95LatencyMillis())
         .isGreaterThanOrEqualTo(metrics.p50LatencyMillis());
     Assertions.assertThat(metrics.cases()).isEqualTo(2);
+  }
+
+  @Test
+  void separatesMultiRelevantRecallFromCanonicalMethodHitRate() throws Exception {
+    RagEvaluator evaluator = new RagEvaluator();
+    EvaluationReport report =
+        evaluator.evaluate(
+            List.of(new RagEvaluator.EvaluationCase("restore", Set.of("method", "type"), "method")),
+            Map.of("hybrid", query -> List.of(result("type"), result("other"))));
+
+    EvaluationMetrics metrics = report.strategies().get("hybrid");
+    Assertions.assertThat(metrics.recallAt5()).isEqualTo(1.0);
+    Assertions.assertThat(metrics.recallAt10()).isEqualTo(1.0);
+    Assertions.assertThat(metrics.canonicalHitAt5()).isZero();
+    Assertions.assertThat(metrics.canonicalHitAt10()).isZero();
+    Assertions.assertThat(metrics.meanReciprocalRank()).isEqualTo(1.0);
   }
 
   private static SearchResult result(String id) {

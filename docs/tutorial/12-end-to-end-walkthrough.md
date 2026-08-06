@@ -29,8 +29,8 @@
 
 1. `Repl.java#run` — `readInput()` 经 JLine `reader.readLine` 拿到整行；不是斜杠命令，走 `executeTurn(input)`。
 2. `Repl.java#executeTurn` — 为本次 turn `new CancellationToken()` 并存入 `activeTurn`（Ctrl+C 的 SIGINT handler 从这里取 token 调 `cancel()`），然后调 `turnHandler.start(prompt, token, renderer::submit)`。
-3. `ApplicationSession.java#start` — synchronized 块内：确认没有活跃 turn，分配 `TurnId` 与图线程 id `<sessionId>-turn-<n>`，`emit` 一条 `USER_MESSAGE` 审计事件，把 `UserMessage` 追加到会话消息副本，用私有方法 `request(...)` 组出 `ModelRequest`（携带全部工具 descriptor 和 `requireVerification`/`requireTaskCompletion` 属性）。
-4. `ApplicationSession.java#createRunner` — 组装四层洋葱：`AuditedModelClient` 包住 `components.modelClient()`（即 `RoutingModelClient`，参见 05-model-providers.md）；`LedgeredToolExecutor` 包住 `RegistryToolExecutor`；加 `TurnLimits(24, 64)` 与 `FileCheckpointSaver`，交给 `AgentGraphFactory`，再套 `AgentThreadRunner`。
+3. `ApplicationSession.java#start` — synchronized 块内：确认没有活跃 turn，分配 `TurnId` 与图线程 id `<sessionId>-turn-<n>`，经 `SessionAuditService` 写 `USER_MESSAGE`，由 `MemoryCoordinator` 构建本轮记忆上下文，再让 `TurnCoordinator.request(...)` 组出 `ModelRequest`（携带全部工具 descriptor 和 `requireVerification`/`requireTaskCompletion` 属性）。
+4. `TurnCoordinator.java#createRunner` — 组装四层洋葱：`AuditedModelClient` 包住 `components.modelClient()`（即 `RoutingModelClient`，参见 05-model-providers.md）；`LedgeredToolExecutor` 包住 `RegistryToolExecutor`；加 `TurnLimits(24, 64)` 与 `FileCheckpointSaver`，交给 `AgentGraphFactory`，再套 `AgentThreadRunner`。
 5. `ApplicationSession.java#start`（续）— `CompletableFuture.supplyAsync(() -> runner.start(graphThread, request))` 把图抛到后台线程；REPL 线程回到 `Repl.java#await`，用 `StreamingRenderer#renderUntil` 每 20ms 泵一次渲染队列直到 future 完成。
 
 ### 阶段 B：图的第一圈——模型要求调工具（agent-runtime、agent-providers）

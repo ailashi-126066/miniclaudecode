@@ -13,6 +13,7 @@ final class GitCheckpointService {
   private static final String REF = "refs/miniclaudecode/checkpoints";
 
   private final Path workspace;
+  private String restoredCheckpoint;
 
   GitCheckpointService(Path workspace) {
     this.workspace =
@@ -21,31 +22,18 @@ final class GitCheckpointService {
             .normalize();
   }
 
-  String create(long turn) {
+  synchronized String create(long turn) {
     if (!isRepository()) {
       return "Git checkpoint skipped (workspace is not a Git worktree).";
     }
     try {
-      Path temporaryIndex = temporaryIndex();
-      try {
-        git(temporaryIndex, "add", "-A");
-        String tree = git(temporaryIndex, "write-tree").strip();
-        String parent = optionalGit("rev-parse", "--verify", "-q", REF);
-        List<String> commit = new ArrayList<>(List.of("commit-tree", tree));
-        if (parent != null) {
-          commit.add("-p");
-          commit.add(parent);
-        }
-        commit.add("-m");
-        commit.add("MiniClaudeCode checkpoint before turn " + turn);
-        String checkpoint = git(temporaryIndex, commit.toArray(String[]::new)).strip();
-        git(temporaryIndex, "update-ref", REF, checkpoint);
-        return "Git checkpoint "
-            + checkpoint.substring(0, Math.min(12, checkpoint.length()))
-            + " saved.";
-      } finally {
-        Files.deleteIfExists(temporaryIndex);
-      }
+      String parent =
+          this.restoredCheckpoint != null
+              ? this.restoredCheckpoint
+              : optionalGit("rev-parse", "--verify", "-q", REF);
+      String checkpoint = snapshot("MiniClaudeCode checkpoint before turn " + turn, parent);
+      this.restoredCheckpoint = null;
+      return "Git checkpoint " + shortRevision(checkpoint) + " saved.";
     } catch (InterruptedException error) {
       Thread.currentThread().interrupt();
       return "Git checkpoint skipped: " + message(error);
@@ -56,7 +44,7 @@ final class GitCheckpointService {
     }
   }
 
-  String list() {
+  synchronized String list() {
     if (!isRepository()) {
       return "(workspace is not a Git worktree)";
     }
@@ -66,16 +54,16 @@ final class GitCheckpointService {
         : checkpoints.strip();
   }
 
-  String previewRestore(String revision) {
-    requireCheckpoint(revision);
+  synchronized String previewRestore(String revision) {
+    String checkpoint = requireCheckpoint(revision);
     try {
       Path temporaryIndex = temporaryIndex();
       try {
-        git(temporaryIndex, "read-tree", revision);
+        git(temporaryIndex, "read-tree", checkpoint);
         git(temporaryIndex, "add", "-A");
         String currentTree = git(temporaryIndex, "write-tree").strip();
         String changed =
-            git(temporaryIndex, "diff-tree", "-r", "--name-status", revision, currentTree);
+            git(temporaryIndex, "diff-tree", "-r", "--name-status", checkpoint, currentTree);
         return changed.isBlank()
             ? "Restore preview: workspace already matches " + revision
             : "Restore preview for "
@@ -84,7 +72,7 @@ final class GitCheckpointService {
                 + changed.strip()
                 + "\nRun /restore "
                 + revision
-                + " apply to restore snapshot files. Files absent from the snapshot are left untouched.";
+                + " apply to restore the checkpoint.";
       } finally {
         Files.deleteIfExists(temporaryIndex);
       }
@@ -95,16 +83,66 @@ final class GitCheckpointService {
     }
   }
 
-  String restore(String revision) {
-    requireCheckpoint(revision);
+  synchronized String restore(String revision) {
+    String checkpoint = requireCheckpoint(revision);
     try {
-      git(null, "restore", "--source=" + revision, "--worktree", "--", ".");
-      return "Restored snapshot files from "
-          + revision
-          + ". Files absent from the snapshot were left untouched.";
-    } catch (InterruptedException error) {
+      restoreFiles(checkpoint);
+      this.restoredCheckpoint = checkpoint;
+      return "Restored Git checkpoint " + shortRevision(checkpoint) + ".";
+    } catch (IOException | InterruptedException error) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("failed to restore checkpoint", error);
+    }
+  }
+
+  synchronized String undo() {
+    if (!isRepository()) {
+      return "Cannot undo: workspace is not a Git worktree.";
+    }
+    String target;
+    try {
+      if (this.restoredCheckpoint == null) {
+        target = optionalGit("rev-parse", "--verify", "-q", REF);
+        if (target == null) {
+          return "No Git checkpoint is available to undo.";
+        }
+        snapshot("MiniClaudeCode checkpoint before undo", target);
+      } else {
+        target = optionalGit("rev-parse", "--verify", "-q", this.restoredCheckpoint + "^");
+        if (target == null) {
+          return "No earlier Git checkpoint is available to undo.";
+        }
+      }
+      restoreFiles(target);
+      this.restoredCheckpoint = target;
+      return "Undid workspace to Git checkpoint " + shortRevision(target) + ".";
+    } catch (IOException | InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("failed to undo Git checkpoint", error);
+    }
+  }
+
+  synchronized String redo() {
+    if (!isRepository()) {
+      return "Cannot redo: workspace is not a Git worktree.";
+    }
+    if (this.restoredCheckpoint == null) {
+      return "No undone Git checkpoint is available to redo.";
+    }
+    String descendants =
+        optionalGit(
+            "rev-list", "--first-parent", "--reverse", this.restoredCheckpoint + ".." + REF);
+    if (descendants == null || descendants.isBlank()) {
+      return "No newer Git checkpoint is available to redo.";
+    }
+    String target = descendants.lines().findFirst().orElseThrow();
+    try {
+      restoreFiles(target);
+      this.restoredCheckpoint = target;
+      return "Redid workspace to Git checkpoint " + shortRevision(target) + ".";
+    } catch (IOException | InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("failed to redo Git checkpoint", error);
     }
   }
 
@@ -112,13 +150,47 @@ final class GitCheckpointService {
     return "true".equals(optionalGit("rev-parse", "--is-inside-work-tree"));
   }
 
-  private void requireCheckpoint(String revision) {
+  private String requireCheckpoint(String revision) {
     if (revision == null || revision.isBlank()) {
       throw new IllegalArgumentException("checkpoint revision must not be blank");
     }
     String resolved = optionalGit("rev-parse", "--verify", revision + "^{commit}");
-    if (resolved == null) {
+    String head = optionalGit("rev-parse", "--verify", "-q", REF);
+    if (resolved == null
+        || head == null
+        || optionalGit("merge-base", "--is-ancestor", resolved, head) == null) {
       throw new IllegalArgumentException("unknown Git checkpoint: " + revision);
+    }
+    return resolved;
+  }
+
+  private String snapshot(String message, String parent) throws IOException, InterruptedException {
+    Path temporaryIndex = temporaryIndex();
+    try {
+      git(temporaryIndex, "add", "-A");
+      String tree = git(temporaryIndex, "write-tree").strip();
+      List<String> commit = new ArrayList<>(List.of("commit-tree", tree));
+      if (parent != null) {
+        commit.add("-p");
+        commit.add(parent);
+      }
+      commit.add("-m");
+      commit.add(message);
+      String checkpoint = git(temporaryIndex, commit.toArray(String[]::new)).strip();
+      git(temporaryIndex, "update-ref", REF, checkpoint);
+      return checkpoint;
+    } finally {
+      Files.deleteIfExists(temporaryIndex);
+    }
+  }
+
+  private void restoreFiles(String checkpoint) throws IOException, InterruptedException {
+    Path temporaryIndex = temporaryIndex();
+    try {
+      git(temporaryIndex, "add", "-A");
+      git(temporaryIndex, "read-tree", "--reset", "-u", checkpoint);
+    } finally {
+      Files.deleteIfExists(temporaryIndex);
     }
   }
 
@@ -183,5 +255,9 @@ final class GitCheckpointService {
 
   private static String message(Throwable error) {
     return Objects.requireNonNullElse(error.getMessage(), error.getClass().getSimpleName());
+  }
+
+  private static String shortRevision(String revision) {
+    return revision.substring(0, Math.min(12, revision.length()));
   }
 }

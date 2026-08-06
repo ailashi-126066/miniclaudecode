@@ -76,7 +76,7 @@ commands.set(commandHandler);
 
 ## WorkspaceComponents：composition root
 
-`WorkspaceComponents` 是整个应用唯一的手写依赖注入点：包私有、`AutoCloseable`，静态工厂 `create` 按依赖顺序构造所有组件，字段只读持有。四个 CLI 动作（`interactive`/`run`/`index`/`rag`）各自创建并关闭一份。
+`WorkspaceComponents` 是轻量的 composition facade：包私有、`AutoCloseable`，字段只读持有。静态工厂 `create` 只负责编排四个 wiring factory——`ModelWiringFactory`、`RagWiringFactory`、`ExtensionWiringFactory`、`ToolWiringFactory`——不再亲自构造几十个实现。四个 CLI 动作（`interactive`/`run`/`index`/`rag`）各自创建并关闭一份。
 
 `create(requestedWorkspace, layout, environment, fakeResponse)` 的构造顺序，也就是依赖方向：
 
@@ -84,8 +84,8 @@ commands.set(commandHandler);
 2. `ConfigLoader().load(...)` 合并用户级 `layout.configFile()` 与项目级 `.mini-claude-code/config.yaml` 得到 `AppConfig`（参见 08-persistence-and-config.md）；
 3. `ModelClient`：`fakeResponse` 存在则 `StaticResponseModelClient`，否则 `RoutingModelClient(config.providers(), environment, new ProviderFactory())`（参见 05-model-providers.md）；
 4. `ToolResultStore`（按 `layout.workspaceHash(workspace)` 分目录）、`WorkspacePathResolver`、`JsonPermissionRuleStore` + `PermissionEngine`（参见 07-approval-risk-sandbox.md）；
-5. `embeddingModel(...)` 依配置选 `LocalCodeEmbeddingModel`（`FAST`，离线哈希）或 `RemoteEmbeddingModel`（`REMOTE`，OpenAI 兼容端点）；据此建 `LuceneCodeIndex`、`Bm25Retriever`、`VectorRetriever`、`HybridCodeSearcher`（参见 09/10 两章）；
-6. `SkillCatalog.discover(workspace, layout.skillsRoot())` 与 `wireMcp(layout, results)`（参见 11-mcp-and-skills.md）；
+5. `RagWiringFactory` 依配置选择 `AUTO` / `ONNX` / `FAST` / `REMOTE`，据此构造 `LuceneCodeIndex`、`Bm25Retriever`、`VectorRetriever`、`HybridCodeSearcher`（参见 09/10 两章）；
+6. `ExtensionWiringFactory` 发现 `SkillCatalog` 并隔离 MCP 连接故障（参见 11-mcp-and-skills.md）；
 7. 组装工具清单：`ReadTool`/`ListTool`/`GlobTool`/`GrepTool`（只读）、`WriteTool`/`EditTool`/`ApplyPatchTool`（走 `PermissionEngine`）、`RunCommandTool`（内含 `CommandSandbox.detect` 选 OS 沙箱 + `ProcessRunner`）、`WebFetchTool`、`TodoTool`、`AskUserTool`、`CodeSearchTool`、`LoadSkillTool`，再追加全部 MCP 工具，装进 `DefaultToolRegistry`（参见 06-tools-read-write.md）；
 8. 汇总 `secrets` 集合：所有 provider 与 embedding 配置解析出的 API key，供审计日志脱敏（源码注释强调漏一个 key 就会明文落盘）。
 
@@ -107,7 +107,7 @@ flowchart TD
     CS --> REG
 ```
 
-两个静态辅助各有一条硬约束：`wireMcp` 保证任何 MCP 故障都不能阻止 agent 启动——异常时先关掉半成品 `McpManager`（避免孤儿 stdio 子进程），再降级为零 MCP 工具并把原因塞进 `ConnectReport.failures()`，让 `/mcp` 能看到；`create` 的 try/catch 同理，`wireMcp` 之后任何构造失败都会先 `mcp.manager().close()` 再抛出。实例方法多为访问器（`workspace()`、`config()`、`tools()`、`searcher()` 等）；`mcpStatus()` 把连接状态、被内建工具遮蔽的 `shadowedTools` 和失败原因拼成 `/mcp` 输出；`providerModels()` 把配置转成 provider → 模型列表的 map；`close()` 只需关 `mcpManager`。
+`ExtensionWiringFactory` 保证任何 MCP 故障都不能阻止 agent 启动——异常时先关掉半成品 `McpManager`（避免孤儿 stdio 子进程），再降级为零 MCP 工具并把原因塞进 `ConnectReport.failures()`，让 `/mcp` 能看到；`WorkspaceComponents.create` 的 try/catch 同理，扩展接线之后任何工具构造失败都会先 `extensions.close()` 再抛出。实例方法多为访问器（`workspace()`、`config()`、`tools()`、`searcher()` 等）；`mcpStatus()` 汇总连接、遮蔽和失败原因；`close()` 关闭 `mcpManager`。
 
 ## Repl：读循环与分发
 

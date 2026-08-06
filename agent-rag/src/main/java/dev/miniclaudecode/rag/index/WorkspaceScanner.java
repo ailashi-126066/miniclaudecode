@@ -9,6 +9,8 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -26,7 +28,17 @@ import java.util.Set;
 
 public final class WorkspaceScanner {
   private static final Set<String> IGNORED_DIRECTORIES =
-      Set.of(".git", ".idea", ".gradle", ".mvn", "target", "build", "out", "node_modules");
+      Set.of(
+          ".git",
+          ".idea",
+          ".gradle",
+          ".mvn",
+          ".mini-claude-code",
+          "benchmarks",
+          "target",
+          "build",
+          "out",
+          "node_modules");
   private static final Set<String> BINARY_EXTENSIONS =
       Set.of(
           "class", "jar", "war", "zip", "gz", "png", "jpg", "jpeg", "gif", "ico", "exe", "dll",
@@ -71,6 +83,22 @@ public final class WorkspaceScanner {
     Objects.requireNonNull(known, "known must not be null");
     final Path root = workspace.toRealPath();
     final List<WorkspaceScanner.ScannedFile> files = new ArrayList<>();
+    Optional<List<Path>> gitCandidates = gitCandidates(root);
+    if (gitCandidates.isPresent()) {
+      for (Path file : gitCandidates.orElseThrow()) {
+        try {
+          BasicFileAttributes attributes =
+              Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+          this.addIfEligible(root, file, attributes, known, files);
+        } catch (NoSuchFileException ignored) {
+          // A tracked file can disappear between `git ls-files` and the metadata read. Omitting it
+          // lets the index synchronization treat it as a normal deletion.
+        }
+      }
+      files.sort(Comparator.comparing(WorkspaceScanner.ScannedFile::path));
+      return List.copyOf(files);
+    }
+
     Files.walkFileTree(
         root,
         new SimpleFileVisitor<Path>() {
@@ -84,43 +112,102 @@ public final class WorkspaceScanner {
 
           public FileVisitResult visitFile(Path file, BasicFileAttributes attributes)
               throws IOException {
-            if (attributes.isRegularFile()
-                && !attributes.isSymbolicLink()
-                && attributes.size() <= WorkspaceScanner.this.maximumFileBytes
-                && (!WorkspaceScanner.knownBinary(file)
-                    || WorkspaceScanner.this.documentExtractor.supports(file))) {
-              String path = WorkspaceScanner.portable(root.relativize(file));
-              long size = attributes.size();
-              long modified = attributes.lastModifiedTime().toMillis();
-              FileFingerprintStore.FileFingerprint previous = known.get(path);
-              if (previous != null
-                  && previous.hasCheapSignal()
-                  && previous.sizeBytes() == size
-                  && previous.modifiedMillis() == modified) {
-                files.add(
-                    new WorkspaceScanner.ScannedFile(
-                        path, Optional.empty(), previous.contentHash(), size, modified));
-              } else {
-                byte[] bytes = Files.readAllBytes(file);
-                WorkspaceScanner.this
-                    .decode(file, bytes)
-                    .ifPresent(
-                        content ->
-                            files.add(
-                                new WorkspaceScanner.ScannedFile(
-                                    path,
-                                    Optional.of(content),
-                                    WorkspaceScanner.sha256(bytes),
-                                    size,
-                                    modified)));
-              }
-            }
-
+            WorkspaceScanner.this.addIfEligible(root, file, attributes, known, files);
             return FileVisitResult.CONTINUE;
           }
         });
     files.sort(Comparator.comparing(WorkspaceScanner.ScannedFile::path));
     return List.copyOf(files);
+  }
+
+  private void addIfEligible(
+      Path root,
+      Path file,
+      BasicFileAttributes attributes,
+      Map<String, FileFingerprintStore.FileFingerprint> known,
+      List<WorkspaceScanner.ScannedFile> files)
+      throws IOException {
+    if (!attributes.isRegularFile()
+        || attributes.isSymbolicLink()
+        || attributes.size() > this.maximumFileBytes
+        || (knownBinary(file) && !this.documentExtractor.supports(file))) {
+      return;
+    }
+    String path = portable(root.relativize(file));
+    long size = attributes.size();
+    long modified = attributes.lastModifiedTime().toMillis();
+    FileFingerprintStore.FileFingerprint previous = known.get(path);
+    if (previous != null
+        && previous.hasCheapSignal()
+        && previous.sizeBytes() == size
+        && previous.modifiedMillis() == modified) {
+      files.add(
+          new WorkspaceScanner.ScannedFile(
+              path, Optional.empty(), previous.contentHash(), size, modified));
+      return;
+    }
+    byte[] bytes = Files.readAllBytes(file);
+    this.decode(file, bytes)
+        .ifPresent(
+            content ->
+                files.add(
+                    new WorkspaceScanner.ScannedFile(
+                        path, Optional.of(content), sha256(bytes), size, modified)));
+  }
+
+  /**
+   * Uses Git as the source of truth for repository boundaries. This honors root and nested {@code
+   * .gitignore} files, {@code .git/info/exclude}, and the user's standard excludes without losing
+   * untracked source files that an agent has just created.
+   */
+  private static Optional<List<Path>> gitCandidates(Path root) throws IOException {
+    Process process;
+    try {
+      process =
+          new ProcessBuilder(
+                  "git",
+                  "-C",
+                  root.toString(),
+                  "ls-files",
+                  "-z",
+                  "--cached",
+                  "--others",
+                  "--exclude-standard")
+              .redirectError(ProcessBuilder.Redirect.DISCARD)
+              .start();
+    } catch (IOException unavailable) {
+      return Optional.empty();
+    }
+    byte[] output = process.getInputStream().readAllBytes();
+    try {
+      if (process.waitFor() != 0) {
+        return Optional.empty();
+      }
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IOException("interrupted while listing Git workspace files", interrupted);
+    }
+    List<Path> files = new ArrayList<>();
+    for (String relative : new String(output, StandardCharsets.UTF_8).split("\\x00")) {
+      if (!relative.isEmpty()) {
+        Path candidate = root.resolve(relative).normalize();
+        if (candidate.startsWith(root) && !isInIgnoredDirectory(root, candidate)) {
+          files.add(candidate);
+        }
+      }
+    }
+    return Optional.of(List.copyOf(files));
+  }
+
+  private static boolean isInIgnoredDirectory(Path root, Path file) {
+    Path relative = root.relativize(file);
+    for (int index = 0; index < relative.getNameCount() - 1; index++) {
+      if (IGNORED_DIRECTORIES.contains(
+          relative.getName(index).toString().toLowerCase(Locale.ROOT))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static Optional<String> decode(byte[] bytes) {

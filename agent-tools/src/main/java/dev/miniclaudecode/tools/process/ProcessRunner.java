@@ -28,7 +28,7 @@ public final class ProcessRunner {
   private static final Duration STREAM_DRAIN_TIMEOUT = Duration.ofSeconds(2L);
   private final ShellSelector shellSelector;
   private final CommandSandbox sandbox;
-  private final Consumer<Process> startedHook;
+  private final Consumer<Process> processObserver;
 
   public ProcessRunner(ShellSelector shellSelector) {
     this(shellSelector, CommandSandbox.none(), process -> {});
@@ -38,15 +38,16 @@ public final class ProcessRunner {
     this(shellSelector, sandbox, process -> {});
   }
 
-  ProcessRunner(ShellSelector shellSelector, Consumer<Process> startedHook) {
-    this(shellSelector, CommandSandbox.none(), startedHook);
+  ProcessRunner(ShellSelector shellSelector, Consumer<Process> processObserver) {
+    this(shellSelector, CommandSandbox.none(), processObserver);
   }
 
   ProcessRunner(
-      ShellSelector shellSelector, CommandSandbox sandbox, Consumer<Process> startedHook) {
+      ShellSelector shellSelector, CommandSandbox sandbox, Consumer<Process> processObserver) {
     this.shellSelector = Objects.requireNonNull(shellSelector, "shellSelector must not be null");
     this.sandbox = Objects.requireNonNull(sandbox, "sandbox must not be null");
-    this.startedHook = Objects.requireNonNull(startedHook, "startedHook must not be null");
+    this.processObserver =
+        Objects.requireNonNull(processObserver, "processObserver must not be null");
   }
 
   public String sandboxDescription() {
@@ -72,7 +73,7 @@ public final class ProcessRunner {
         builder.redirectErrorStream(request.mergeErrorStream());
         process = builder.start();
         process.getOutputStream().close();
-        this.startedHook.accept(process);
+        this.processObserver.accept(process);
       } catch (IOException var20) {
         throw new IllegalStateException("failed to start command", var20);
       }

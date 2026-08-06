@@ -28,12 +28,11 @@ class SessionCommandHandlerTest {
             () -> "(no MCP servers)",
             () -> "(no skills)",
             () -> "checkpoint",
-            () -> "recovery",
             () -> compacted.set(true),
             ignored -> {},
             ignored -> "restore",
-            ignored -> "undo",
-            ignored -> "redo",
+            () -> "undo",
+            () -> "redo",
             Path.of("config.yaml"));
 
     handler.execute(new SlashCommand.Provider(Optional.of("openai")));
@@ -47,5 +46,6 @@ class SessionCommandHandlerTest {
     assertThat(status).contains("Thinking: off", "Session: session-1").doesNotContain("api-key");
     assertThat(usage).contains("Prompt cache hit: 75.0%");
     assertThat(compacted).isTrue();
+    assertThat(handler.execute(new SlashCommand.Recovery())).isEqualTo("checkpoint");
   }
 }

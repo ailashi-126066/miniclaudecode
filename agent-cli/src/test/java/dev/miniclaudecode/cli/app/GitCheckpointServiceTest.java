@@ -24,6 +24,8 @@ class GitCheckpointServiceTest {
 
     String created = checkpoints.create(1);
     Files.writeString(file, "after", StandardCharsets.UTF_8);
+    Path createdByAgent = workspace.resolve("created-by-agent.txt");
+    Files.writeString(createdByAgent, "new", StandardCharsets.UTF_8);
 
     assertThat(created).startsWith("Git checkpoint ");
     assertThat(checkpoints.list()).contains("checkpoint before turn 1");
@@ -33,6 +35,32 @@ class GitCheckpointServiceTest {
     checkpoints.restore("refs/miniclaudecode/checkpoints");
 
     assertThat(Files.readString(file)).isEqualTo("before");
+    assertThat(createdByAgent).doesNotExist();
+  }
+
+  @Test
+  void navigatesCheckpointHistoryWithUndoAndRedo() throws Exception {
+    Assumptions.assumeTrue(gitAvailable());
+    git("init");
+    Path file = workspace.resolve("example.txt");
+    GitCheckpointService checkpoints = new GitCheckpointService(workspace);
+
+    Files.writeString(file, "before turn 1", StandardCharsets.UTF_8);
+    checkpoints.create(1);
+    Files.writeString(file, "after turn 1", StandardCharsets.UTF_8);
+    checkpoints.create(2);
+    Files.writeString(file, "after turn 2", StandardCharsets.UTF_8);
+
+    assertThat(checkpoints.undo()).contains("Undid workspace");
+    assertThat(Files.readString(file)).isEqualTo("after turn 1");
+    assertThat(checkpoints.undo()).contains("Undid workspace");
+    assertThat(Files.readString(file)).isEqualTo("before turn 1");
+
+    assertThat(checkpoints.redo()).contains("Redid workspace");
+    assertThat(Files.readString(file)).isEqualTo("after turn 1");
+    assertThat(checkpoints.redo()).contains("Redid workspace");
+    assertThat(Files.readString(file)).isEqualTo("after turn 2");
+    assertThat(checkpoints.redo()).contains("No newer Git checkpoint");
   }
 
   private boolean gitAvailable() {

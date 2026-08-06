@@ -84,7 +84,7 @@ deny 始终优先，不能用一次审批绕过。命中 allow 前缀的命令�
 ```yaml
 rag:
   embedding:
-    provider: fast        # fast（默认）或 remote
+    provider: auto        # auto（默认）、onnx、fast 或 remote
     dimensions: 384
     # remote 需要以下字段：
     # base-url: https://api.openai.com/v1
@@ -94,7 +94,9 @@ rag:
     # timeout-seconds: 30
 ```
 
-- `fast`（默认）：离线哈希嵌入。零依赖、零下载、可复现，适合演示与 CI；语义质量有限（本质上是 BM25 的补充信号）。
+- `auto`（默认）：配置 `base-url` 时使用 `remote`；否则先加载内置 ONNX 语义模型，只有 ONNX 初始化失败时才降级到 `fast`。
+- `onnx`：强制使用内置 MiniLM-L6-v2 ONNX 语义模型；初始化失败会直接报错，不静默降级。
+- `fast`：显式选择离线哈希嵌入。零下载、可复现，适合受限环境与 CI；语义质量有限（本质上是 BM25 的补充信号）。
 - `remote`：任意 OpenAI-compatible `/v1/embeddings` 端点（OpenAI、DeepSeek、llama.cpp server、LM Studio 等）。`dimensions` 必须与模型实际返回一致——每次响应都会校验，不一致会给出明确报错而不是污染索引。
 
 索引会持久化 embedding 身份（provider/端点/模型/维度）。切换任何一项都会触发一次全量重建：不同模型的向量不可比较，Lucene 也拒绝同一字段混合维度。重建前会先探测新后端可用性——端点不可达时旧索引（含 BM25 部分）保持原样可用。

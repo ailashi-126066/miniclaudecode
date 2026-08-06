@@ -71,12 +71,15 @@ public final class RagBenchmarkRunner {
     }
   }
 
-  public record DatasetManifest(String version, String description) {
+  public record DatasetManifest(
+      String version, String description, Map<String, Integer> splits, List<String> notes) {
     public DatasetManifest {
       if (version == null || version.isBlank()) {
         throw new IllegalArgumentException("dataset version must not be blank");
       }
       description = Objects.requireNonNullElse(description, "");
+      splits = splits == null ? Map.of() : Map.copyOf(splits);
+      notes = notes == null ? List.of() : List.copyOf(notes);
     }
   }
 

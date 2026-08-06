@@ -50,7 +50,9 @@ public final class HybridCodeSearcher {
     }
     bm25Hits = bestPerChunk(bm25Hits);
     vectorHits = bestPerChunk(vectorHits);
-    List<SearchResult> fused = this.reranker.rerank(query, this.fusion.fuse(bm25Hits, vectorHits));
+    List<SearchResult> fused =
+        deduplicateByFile(
+            query, this.reranker.rerank(query, this.fusion.fuse(bm25Hits, vectorHits)));
     HybridCodeSearcher.BudgetedSelection selected =
         withinBudget(fused, options.topK(), options.tokenBudget());
     return new HybridCodeSearcher.SearchResponse(
@@ -89,6 +91,21 @@ public final class HybridCodeSearcher {
       reranked.add(new RetrievalHit(hit.chunk(), hit.score(), index + 1, hit.route()));
     }
     return List.copyOf(reranked);
+  }
+
+  private static List<SearchResult> deduplicateByFile(String query, List<SearchResult> candidates) {
+    Map<String, SearchResult> selected = new LinkedHashMap<>();
+    for (SearchResult candidate : candidates) {
+      selected.merge(
+          candidate.chunk().path(),
+          candidate,
+          (current, alternative) ->
+              !CodeAwareReranker.isExactSymbolMatch(query, current)
+                      && CodeAwareReranker.isExactSymbolMatch(query, alternative)
+                  ? alternative
+                  : current);
+    }
+    return List.copyOf(selected.values());
   }
 
   public HybridCodeSearcher.SearchResponse search(String query) throws IOException {

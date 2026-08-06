@@ -9,6 +9,19 @@ import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.runtime.CancellationToken;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.runtime.node.AwaitApprovalNode;
+import dev.miniclaudecode.runtime.node.CallModelNode;
+import dev.miniclaudecode.runtime.node.ExecuteToolsNode;
+import dev.miniclaudecode.runtime.node.FailCompletionNode;
+import dev.miniclaudecode.runtime.node.FinishNode;
+import dev.miniclaudecode.runtime.node.PrepareContextNode;
+import dev.miniclaudecode.runtime.node.RecoverErrorNode;
+import dev.miniclaudecode.runtime.node.RepairOutputNode;
+import dev.miniclaudecode.runtime.node.RequireVerificationNode;
+import dev.miniclaudecode.runtime.output.EngineeringReportValidator;
+import dev.miniclaudecode.runtime.output.OutputProtocolRegistry;
+import dev.miniclaudecode.runtime.output.RagCitationValidator;
+import dev.miniclaudecode.runtime.retry.RetryPolicy;
+import dev.miniclaudecode.runtime.route.ResponseRouter;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
 import java.util.Map;
@@ -19,12 +32,23 @@ import org.bsc.langgraph4j.GraphInput;
 import org.bsc.langgraph4j.GraphStateException;
 import org.bsc.langgraph4j.RunnableConfig;
 import org.bsc.langgraph4j.StateGraph;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.bsc.langgraph4j.checkpoint.BaseCheckpointSaver;
 
 public final class AgentGraphFactory {
 
-  public static final String NORMAL_LOOP = "normal_loop";
+  public static final String PREPARE_CONTEXT = "prepare_context";
+  public static final String CALL_MODEL = "call_model";
+  public static final String EXECUTE_TOOLS = "execute_tools";
   public static final String AWAIT_APPROVAL = "await_approval";
+  public static final String COMPACT_CONTEXT = "compact_context";
+  public static final String RECOVER_ERROR = "recover_error";
+  public static final String REQUIRE_VERIFICATION = "require_verification";
+  public static final String REPAIR_OUTPUT = "repair_output";
+  public static final String REPAIR_CITATIONS = "repair_citations";
+  public static final String REPAIR_REPORT = "repair_report";
+  public static final String FAIL_COMPLETION = "fail_completion";
+  public static final String FINISH = "finish";
 
   private final CompiledGraph<MiniClaudeState> graph;
 
@@ -107,31 +131,96 @@ public final class AgentGraphFactory {
       BaseCheckpointSaver checkpointSaver,
       CancellationToken cancellationToken,
       TurnProgressListener progressListener) {
+    dev.miniclaudecode.context.ContextPlanner contextPlanner =
+        new dev.miniclaudecode.context.ContextPlanner();
+    RetryPolicy retryPolicy = new RetryPolicy();
+    OutputProtocolRegistry outputProtocols = new OutputProtocolRegistry();
+    RagCitationValidator citations = new RagCitationValidator();
+    EngineeringReportValidator reports = new EngineeringReportValidator();
+    ResponseRouter router =
+        new ResponseRouter(contextPlanner, retryPolicy, outputProtocols, citations, reports);
+    RepairOutputNode repairOutput = new RepairOutputNode(outputProtocols);
+    AsyncNodeAction<MiniClaudeState> repairCitations =
+        state ->
+            repairOutput.apply(
+                state,
+                citations
+                    .evaluate(state.request(), state.messages(), state.finalText())
+                    .repairInstruction());
+    AsyncNodeAction<MiniClaudeState> repairReport =
+        state ->
+            repairOutput.apply(
+                state, reports.evaluate(state.messages(), state.finalText()).repairInstruction());
     try {
       StateGraph<MiniClaudeState> stateGraph =
           new StateGraph<>(StateSchema.channels(), MiniClaudeState::new);
       stateGraph
+          .addNode(PREPARE_CONTEXT, new PrepareContextNode())
           .addNode(
-              NORMAL_LOOP,
-              new NormalTurnLoop(
-                  modelClient, toolExecutor, limits, cancellationToken, progressListener))
+              CALL_MODEL,
+              new ProgressReportingNode(
+                  new CallModelNode(modelClient, limits, cancellationToken),
+                  "before_model",
+                  "after_model",
+                  progressListener))
+          .addNode(
+              EXECUTE_TOOLS,
+              new ProgressReportingNode(
+                  new ExecuteToolsNode(toolExecutor, limits),
+                  "before_tools",
+                  "after_tools",
+                  progressListener))
           .addNode(AWAIT_APPROVAL, new AwaitApprovalNode())
-          .addEdge(START, NORMAL_LOOP)
+          .addNode(COMPACT_CONTEXT, new SemanticCompactContextNode(modelClient, progressListener))
+          .addNode(RECOVER_ERROR, new RecoverErrorNode(retryPolicy))
+          .addNode(REQUIRE_VERIFICATION, new RequireVerificationNode())
+          .addNode(REPAIR_OUTPUT, repairOutput)
+          .addNode(REPAIR_CITATIONS, repairCitations)
+          .addNode(REPAIR_REPORT, repairReport)
+          .addNode(FAIL_COMPLETION, new FailCompletionNode())
+          .addNode(FINISH, new FinishNode(outputProtocols))
+          .addEdge(START, PREPARE_CONTEXT)
           .addConditionalEdges(
-              NORMAL_LOOP,
-              state ->
-                  java.util.concurrent.CompletableFuture.completedFuture(
-                      state.status()
-                              == dev.miniclaudecode.domain.session.AgentStatus.WAITING_APPROVAL
-                          ? "approval"
-                          : "finish"),
-              Map.of("approval", AWAIT_APPROVAL, "finish", END))
-          .addEdge(AWAIT_APPROVAL, NORMAL_LOOP);
+              PREPARE_CONTEXT,
+              router.afterPrepare(),
+              Map.of("model", CALL_MODEL, "compact", COMPACT_CONTEXT))
+          .addEdge(COMPACT_CONTEXT, CALL_MODEL)
+          .addEdge(RECOVER_ERROR, CALL_MODEL)
+          .addConditionalEdges(
+              CALL_MODEL,
+              router.afterModel(),
+              Map.ofEntries(
+                  Map.entry("tools", EXECUTE_TOOLS),
+                  Map.entry("compact", COMPACT_CONTEXT),
+                  Map.entry("retry", RECOVER_ERROR),
+                  Map.entry("verify", REQUIRE_VERIFICATION),
+                  Map.entry("repair_output", REPAIR_OUTPUT),
+                  Map.entry("repair_citations", REPAIR_CITATIONS),
+                  Map.entry("repair_report", REPAIR_REPORT),
+                  Map.entry("invalid", FAIL_COMPLETION),
+                  Map.entry("finish", FINISH)))
+          .addEdge(REQUIRE_VERIFICATION, CALL_MODEL)
+          .addEdge(REPAIR_OUTPUT, CALL_MODEL)
+          .addEdge(REPAIR_CITATIONS, CALL_MODEL)
+          .addEdge(REPAIR_REPORT, CALL_MODEL)
+          .addConditionalEdges(
+              EXECUTE_TOOLS,
+              router.afterTools(),
+              Map.of(
+                  "model", CALL_MODEL,
+                  "compact", COMPACT_CONTEXT,
+                  "approval", AWAIT_APPROVAL,
+                  "finish", FINISH))
+          .addEdge(AWAIT_APPROVAL, EXECUTE_TOOLS)
+          .addEdge(FAIL_COMPLETION, FINISH)
+          .addEdge(FINISH, END);
       // Budget node executions, not logical steps: a retried model call costs two executions
       // (recover_error + call_model), and compaction and the verification gate add their own. The
       // previous single-count budget tripped langgraph4j's recursion guard — an exception rather
       // than a clean FAILED state — before the turn's own step limits were ever reached.
-      CompileConfig.Builder compileConfig = CompileConfig.builder().recursionLimit(6);
+      CompileConfig.Builder compileConfig =
+          CompileConfig.builder()
+              .recursionLimit(4 * (limits.maxModelSteps() + 1) + limits.maxToolSteps() + 24);
       if (checkpointSaver != null) {
         compileConfig.checkpointSaver(checkpointSaver).interruptAfter(AWAIT_APPROVAL);
       }

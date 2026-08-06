@@ -43,6 +43,9 @@ class HybridCodeSearcherTest {
     Assertions.assertThat(response.results())
         .extracting(result -> result.chunk().id())
         .doesNotHaveDuplicates();
+    Assertions.assertThat(response.results())
+        .extracting(result -> result.chunk().path())
+        .doesNotHaveDuplicates();
     Assertions.assertThat(response.bm25Hits()).isNotEmpty();
     Assertions.assertThat(response.vectorHits()).isNotEmpty();
     Assertions.assertThat(response.explain())
@@ -50,6 +53,25 @@ class HybridCodeSearcherTest {
             new CharSequence[] {
               "BM25 candidates", "vector candidates", "RRF=", "OrderService.java"
             });
+  }
+
+  @Test
+  void returnsAtMostOneChunkPerFile() throws Exception {
+    SearchResponse response =
+        this.searcher.search("order service audit cancel", new SearchOptions(8, 5_000, 20));
+
+    Assertions.assertThat(response.results())
+        .extracting(result -> result.chunk().path())
+        .doesNotHaveDuplicates();
+  }
+
+  @Test
+  void keepsTheExactMethodWhenDeduplicatingAQualifiedSymbolLookup() throws Exception {
+    SearchResponse response =
+        this.searcher.search("OrderService.cancelOrder()", new SearchOptions(8, 5_000, 20));
+
+    Assertions.assertThat(response.results().getFirst().chunk().symbol())
+        .isEqualTo("cancelOrder()");
   }
 
   @Test

@@ -135,24 +135,14 @@ public sealed interface SlashCommand
     }
   }
 
-  public static record Undo(Optional<String> operationId) implements SlashCommand {
-    public Undo(Optional<String> operationId) {
-      operationId = SlashCommand.normalized(operationId, "operationId");
-      this.operationId = operationId;
-    }
-
+  public static record Undo() implements SlashCommand {
     @Override
     public String name() {
       return "undo";
     }
   }
 
-  public static record Redo(Optional<String> operationId) implements SlashCommand {
-    public Redo(Optional<String> operationId) {
-      operationId = SlashCommand.normalized(operationId, "operationId");
-      this.operationId = operationId;
-    }
-
+  public static record Redo() implements SlashCommand {
     @Override
     public String name() {
       return "redo";

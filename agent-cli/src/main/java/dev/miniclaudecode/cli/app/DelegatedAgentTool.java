@@ -19,7 +19,6 @@ import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.runtime.AgentGraphFactory;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
-import dev.miniclaudecode.tools.hook.HookRegistry;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import java.io.IOException;
 import java.time.Clock;
@@ -63,16 +62,14 @@ final class DelegatedAgentTool implements AgentTool {
   private final Clock clock;
   private final Function<java.nio.file.Path, DefaultToolRegistry> isolatedTools;
   private final IsolatedWorktreeService worktrees;
-  private final HookRegistry parentHooks;
 
   DelegatedAgentTool(
       ModelClient modelClient,
       DefaultToolRegistry readOnlyTools,
       String provider,
       ProviderProfile profile,
-      Clock clock,
-      HookRegistry parentHooks) {
-    this(modelClient, readOnlyTools, provider, profile, clock, null, null, parentHooks);
+      Clock clock) {
+    this(modelClient, readOnlyTools, provider, profile, clock, null, null);
   }
 
   DelegatedAgentTool(
@@ -82,8 +79,7 @@ final class DelegatedAgentTool implements AgentTool {
       ProviderProfile profile,
       Clock clock,
       Function<java.nio.file.Path, DefaultToolRegistry> isolatedTools,
-      IsolatedWorktreeService worktrees,
-      HookRegistry parentHooks) {
+      IsolatedWorktreeService worktrees) {
     this.modelClient = Objects.requireNonNull(modelClient);
     this.readOnlyTools = Objects.requireNonNull(readOnlyTools);
     this.provider = Objects.requireNonNull(provider);
@@ -91,7 +87,6 @@ final class DelegatedAgentTool implements AgentTool {
     this.clock = Objects.requireNonNull(clock);
     this.isolatedTools = isolatedTools;
     this.worktrees = worktrees;
-    this.parentHooks = Objects.requireNonNull(parentHooks);
   }
 
   @Override
@@ -158,7 +153,6 @@ final class DelegatedAgentTool implements AgentTool {
     IsolatedWorktreeService.Worktree worktree = null;
     DefaultToolRegistry tools = this.readOnlyTools;
     Map<String, Object> fixedAttributes = Map.of();
-    HookRegistry hooks = HookRegistry.NONE;
     if ("implement".equals(task.role())) {
       if (this.isolatedTools == null || this.worktrees == null) {
         return new DelegatedResult(
@@ -167,7 +161,6 @@ final class DelegatedAgentTool implements AgentTool {
       worktree = this.worktrees.create(task.task());
       tools = this.isolatedTools.apply(worktree.path());
       fixedAttributes = Map.of("isolatedWorktree", true);
-      hooks = this.parentHooks;
     }
     RegistryToolExecutor executor =
         new RegistryToolExecutor(
@@ -179,7 +172,6 @@ final class DelegatedAgentTool implements AgentTool {
             cancellation,
             loggingRenderer,
             this.clock,
-            hooks,
             fixedAttributes);
     ModelRequest request =
         new ModelRequest(

@@ -35,8 +35,8 @@ public final class SlashCommandParser {
       case "checkpoints" -> noArguments(tokens, new SlashCommand.Checkpoints());
       case "restore" -> parseRestore(tokens);
       case "recovery" -> noArguments(tokens, new SlashCommand.Recovery());
-      case "undo" -> new SlashCommand.Undo(optionalArgument(tokens, "undo"));
-      case "redo" -> new SlashCommand.Redo(optionalArgument(tokens, "redo"));
+      case "undo" -> noArguments(tokens, new SlashCommand.Undo());
+      case "redo" -> noArguments(tokens, new SlashCommand.Redo());
       case "sessions" -> noArguments(tokens, new SlashCommand.Sessions());
       case "resume" -> new SlashCommand.Resume(requiredArgument(tokens, "resume"));
       case "mcp" -> noArguments(tokens, new SlashCommand.Mcp());

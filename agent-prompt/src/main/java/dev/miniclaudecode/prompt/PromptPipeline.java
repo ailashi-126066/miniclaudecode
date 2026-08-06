@@ -20,11 +20,25 @@ public final class PromptPipeline {
   public String build(PromptBuildContext context) {
     Objects.requireNonNull(context, "context must not be null");
     return this.contributors.stream()
-        .map(contributor -> contributor.contribute(context))
+        .map(contributor -> safelyContribute(contributor, context))
         .flatMap(java.util.Optional::stream)
         .distinct()
         .reduce((left, right) -> left + System.lineSeparator() + right)
         .orElse("");
+  }
+
+  /**
+   * Keeps one optional prompt plugin from preventing the remaining policy sections from loading.
+   * Contributors must still be side-effect free; isolation is only a last-resort availability
+   * boundary for user- or extension-provided sections.
+   */
+  private static java.util.Optional<String> safelyContribute(
+      PromptContributor contributor, PromptBuildContext context) {
+    try {
+      return contributor.contribute(context);
+    } catch (RuntimeException ignored) {
+      return java.util.Optional.empty();
+    }
   }
 
   public List<String> contributorIds() {

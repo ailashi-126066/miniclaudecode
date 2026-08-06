@@ -21,7 +21,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Verify
+      - name: Verify unit, CLI E2E, integration and distribution build
         shell: bash
         run: ./mvnw --batch-mode --no-transfer-progress verify
       - name: Smoke test fat JAR
@@ -29,3 +29,17 @@ jobs:
         run: |
           java -jar agent-cli/target/mini-claude-code.jar --version
           java -jar agent-cli/target/mini-claude-code.jar --help
+      - name: Smoke test distribution archives
+        shell: bash
+        run: |
+          ZIP=agent-cli/target/mini-claude-code-0.1.0-SNAPSHOT-distribution.zip
+          TAR=agent-cli/target/mini-claude-code-0.1.0-SNAPSHOT-distribution.tar.gz
+          test -s "$ZIP"
+          test -s "$TAR"
+          tar -tzf "$TAR" | grep -q '/lib/mini-claude-code.jar$'
+          mkdir -p target/distribution-smoke
+          unzip -q "$ZIP" -d target/distribution-smoke
+          DIST_JAR=$(find target/distribution-smoke -path '*/lib/mini-claude-code.jar' -print -quit)
+          test -n "$DIST_JAR"
+          java -jar "$DIST_JAR" --version
+          java -jar "$DIST_JAR" --help

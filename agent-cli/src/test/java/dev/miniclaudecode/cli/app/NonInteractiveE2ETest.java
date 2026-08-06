@@ -17,8 +17,7 @@ class NonInteractiveE2ETest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void runsTheProductionCompositionRootInAUnicodeWorkspaceWithThePackagedFakeHook()
-      throws Exception {
+  void runsTheProductionCompositionRootInAUnicodeWorkspaceWithTheFakeModel() throws Exception {
     Path workspace = this.temporaryDirectory.resolve("项目 with spaces");
     Files.createDirectories(workspace);
     Files.writeString(workspace.resolve("Example.java"), "class Example {}\n");

@@ -1,0 +1,14 @@
+{
+  "version": "miniclaudecode-v2",
+  "description": "52 hand-labelled MiniClaudeCode retrieval queries across English, Chinese, symbol lookup, and natural-language intent groups. Recall is query-level success against any acceptable chunk; canonical hit rate measures exact implementation-method lookup.",
+  "splits": {
+    "english": 13,
+    "chinese": 13,
+    "symbol": 13,
+    "natural-language": 13
+  },
+  "notes": [
+    "The top-level benchmarks directory is excluded from workspace indexing to prevent query leakage.",
+    "Chunk identifiers include source start lines and must be refreshed after structural edits."
+  ]
+}

@@ -35,11 +35,16 @@ providers:
   #   output-protocol: json
   #   max-output-repairs: 2
 
-# Code-index embeddings. `fast` (default) is the offline hashing model: zero dependencies,
-# reproducible, fine for demos and CI. `remote` calls an OpenAI-compatible /v1/embeddings
-# endpoint; `dimensions` must match what the model actually returns (the index checks and
-# fails with a clear message when it does not). Switching provider or dimensions triggers a
-# one-time full index rebuild — vectors from different models are not comparable.
+# Code-index embeddings. `auto` (default) uses remote when base-url is present; otherwise it
+# tries bundled ONNX semantic embeddings and falls back to deterministic `fast` hashing only
+# when ONNX cannot initialize. Select `onnx` or `fast` to make the local choice strict.
+# `remote` calls an OpenAI-compatible /v1/embeddings endpoint. Its dimensions must match the
+# response. Switching provider, endpoint, model, or dimensions triggers a full index rebuild.
+# rag:
+#   embedding:
+#     provider: auto
+#     dimensions: 384
+#
 # rag:
 #   embedding:
 #     provider: remote
@@ -47,18 +52,18 @@ providers:
 #     api-key-env: OPENAI_API_KEY
 #     model: text-embedding-3-small
 #     dimensions: 1536
-  #     timeout-seconds: 30
-  #
-  # Alibaba Cloud Model Studio / DashScope compatible mode. The Workspace ID and region are
-  # account-specific; keep the key only in the named environment variable. text-embedding-v4
-  # defaults to 1024 dimensions and accepts up to 10 inputs per request.
-  # rag:
-  #   embedding:
-  #     provider: remote
-  #     base-url: https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
-  #     api-key-env: DASHSCOPE_API_KEY
-  #     model: text-embedding-v4
-  #     dimensions: 1024
+#     timeout-seconds: 30
+#
+# Alibaba Cloud Model Studio / DashScope compatible mode. The Workspace ID and region are
+# account-specific; keep the key only in the named environment variable. text-embedding-v4
+# defaults to 1024 dimensions and accepts up to 10 inputs per request.
+# rag:
+#   embedding:
+#     provider: remote
+#     base-url: https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+#     api-key-env: DASHSCOPE_API_KEY
+#     model: text-embedding-v4
+#     dimensions: 1024
   #     timeout-seconds: 60
 
 # MCP is loaded only from this user config file, never from project config.

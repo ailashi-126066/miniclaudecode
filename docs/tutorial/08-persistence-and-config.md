@@ -81,7 +81,7 @@ target.set((String) entry.getKey(), value.deepCopy());
 | --- | --- | --- |
 | `resolvedApiKey` | `environment`：环境变量 map（注入而非读 `System.getenv`，便于测试） | 先查 `apiKeyEnv` 指向的环境变量，非空则优先；否则退回配置内的 `apiKey`。模型接入层用它拿真实密钥（参见 05-model-providers.md） |
 
-`EmbeddingConfig` 结构与之平行，服务 RAG 的向量化（参见 09-rag-indexing.md）：`provider` 为 `FAST`（离线哈希模型，零依赖）或 `REMOTE`（OpenAI 兼容 `/v1/embeddings`）；`dimensions ≥ 32` 且必须在建索引前声明，因为 Lucene 向量字段需要先知道维度；`REMOTE` 额外强制 `base-url` 与 `model` 存在。`fastDefault()` 给出 384 维、30s 超时的默认值；`resolvedApiKey` 与 `ProviderProfile` 同款。
+`EmbeddingConfig` 结构与之平行，服务 RAG 的向量化（参见 09-rag-indexing.md）：`AUTO` 是默认值，本地先尝试 `ONNX`，初始化失败才回退 `FAST`；存在 `base-url` 时走 `REMOTE`。也可显式选择 `ONNX`（语义模型、失败即报错）、`FAST`（离线哈希）或 `REMOTE`（OpenAI 兼容 `/v1/embeddings`）。`dimensions ≥ 32` 且必须在建索引前声明；`REMOTE` 额外强制 `base-url` 与 `model` 存在。历史命名的 `fastDefault()` 现在返回 384 维 `AUTO` 配置；`resolvedApiKey` 与 `ProviderProfile` 同款。
 
 ### UserConfigWriter 与 ConfigurationWizard
 
@@ -189,7 +189,7 @@ sequenceDiagram
     Note over S: 若有悬挂审批，后续 resume() 经<br/>FileCheckpointSaver 接回图断点
 ```
 
-调用链：`/resume <id>` → `SessionCommandHandler`（agent-cli/.../cli/SessionCommandHandler.java，经 `session::switchTo` 方法引用接线）→ `ApplicationSession.switchTo()` → `JsonlEventStore.read()` → `EventJsonCodec.decode()` → `restoreTasks()` / `restorePendingApproval()`。
+调用链：`/resume <id>` → `SessionCommandHandler`（agent-cli/.../cli/SessionCommandHandler.java，经 `session::switchTo` 方法引用接线）→ `ApplicationSession.switchTo()` → `SessionAuditService.read()` → `SessionRestorationService.restore()`（消息、任务、审批和进度一次性重建）。
 
 ## 下一章
 

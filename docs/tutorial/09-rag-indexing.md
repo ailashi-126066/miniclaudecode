@@ -26,7 +26,7 @@
 |---|---|---|
 | 构造器 | `maximumFileBytes`：单文件字节上限（无参构造默认 2097152，即 2 MiB），必须为正 | 超过上限的文件在遍历时直接跳过，不读入内存。 |
 | `scan` | `workspace`：工作区根目录 | 便捷重载，等价于用空的已知指纹 Map 调用双参版本，即全量读取。 |
-| `scan` | `workspace`：工作区根目录；`known`：路径 → 已知 `FileFingerprint` 的 Map，来自上次同步 | 用 `Files.walkFileTree` 遍历；`preVisitDirectory` 对 `IGNORED_DIRECTORIES`（`.git`、`target`、`node_modules` 等 8 个，忽略大小写）返回 `SKIP_SUBTREE`；`visitFile` 只收常规文件、非符号链接、不超大小、扩展名不在 `BINARY_EXTENSIONS`（`class`/`jar`/`png` 等 20 个）中的文件。结果按路径排序返回不可变列表，路径统一为 `/` 分隔的相对路径（`portable`）。 |
+| `scan` | `workspace`：工作区根目录；`known`：路径 → 已知 `FileFingerprint` 的 Map，来自上次同步 | Git 工作区通过 `git ls-files --cached --others --exclude-standard` 获取候选集，因此根目录/嵌套 `.gitignore`、`.git/info/exclude` 和标准 excludes 都生效，同时保留已跟踪文件与 Agent 新建的未跟踪源码。Git 不可用或目录不是仓库时回退 `Files.walkFileTree`，并跳过 `.git`、`.mini-claude-code`、`target`、`node_modules` 等生成目录。两条路径都会过滤符号链接、超大文件和不可解析二进制，最终按 `/` 分隔的相对路径排序。 |
 
 `visitFile` 内部就是**廉价信号快速路径**：若 `known` 中该路径的指纹 `hasCheapSignal()` 且 size 与 mtime 均相同，就直接复用存储的哈希，产出一个 `content` 为 `Optional.empty()` 的 `ScannedFile`——省掉一次全文读取加一次 SHA-256。否则 `readAllBytes` 后走 `decode`：先在前 8192 字节里找 NUL 字节（找到即判为二进制丢弃），再用 `CodingErrorAction.REPORT` 的严格 UTF-8 解码器解码，失败同样丢弃。注意方向性：size+mtime 匹配只用来**跳过工作**，从不单独宣布"文件变了"；接受的代价是"同字节数 + 同一 mtime 粒度内改内容"这种理论窗口。
 

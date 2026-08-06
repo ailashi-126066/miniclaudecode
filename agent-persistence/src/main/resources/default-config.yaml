@@ -14,8 +14,9 @@ providers:
 
 rag:
   embedding:
-    # auto uses a remote semantic model when base-url is configured, otherwise offline hashing.
-    # OpenAI-compatible /v1/embeddings endpoint; see examples/config.example.yaml.
+    # auto uses remote when base-url is configured; otherwise it tries bundled ONNX semantic
+    # embeddings and falls back to deterministic fast hashing only if ONNX cannot initialize.
+    # See examples/config.example.yaml for explicit onnx, fast, and remote modes.
     provider: auto
     dimensions: 384
 

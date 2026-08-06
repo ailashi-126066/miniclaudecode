@@ -59,7 +59,7 @@ public final class FakeModelClient implements ModelClient {
   private static final class ScriptedSubscription implements Flow.Subscription {
     private final Flow.Subscriber<? super ModelStreamEvent> subscriber;
     private final List<ModelStreamEvent> script;
-    private final Runnable cancellationHook;
+    private final Runnable onCancellation;
     private int index;
     private long demand;
     private boolean draining;
@@ -69,10 +69,10 @@ public final class FakeModelClient implements ModelClient {
     private ScriptedSubscription(
         Flow.Subscriber<? super ModelStreamEvent> subscriber,
         List<ModelStreamEvent> script,
-        Runnable cancellationHook) {
+        Runnable onCancellation) {
       this.subscriber = subscriber;
       this.script = script;
-      this.cancellationHook = cancellationHook;
+      this.onCancellation = onCancellation;
     }
 
     @Override
@@ -91,7 +91,7 @@ public final class FakeModelClient implements ModelClient {
     public synchronized void cancel() {
       if (!cancelled && !terminated) {
         cancelled = true;
-        cancellationHook.run();
+        onCancellation.run();
       }
     }
 

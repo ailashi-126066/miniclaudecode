@@ -111,7 +111,6 @@ public final class DefaultCliActions implements CliActions {
               components::mcpStatus,
               () -> skills(components),
               session::checkpoints,
-              session::recovery,
               session::compact,
               session::switchTo,
               session::restoreCheckpoint,
@@ -247,10 +246,12 @@ public final class DefaultCliActions implements CliActions {
         .forEach(
             (name, metrics) ->
                 this.output.printf(
-                    "%s recall@5=%.3f recall@10=%.3f MRR=%.3f p50=%dms p95=%dms cases=%d%n",
+                    "%s recall@5=%.3f recall@10=%.3f canonical@5=%.3f canonical@10=%.3f MRR=%.3f p50=%dms p95=%dms cases=%d%n",
                     name,
                     metrics.recallAt5(),
                     metrics.recallAt10(),
+                    metrics.canonicalHitAt5(),
+                    metrics.canonicalHitAt10(),
                     metrics.meanReciprocalRank(),
                     metrics.p50LatencyMillis(),
                     metrics.p95LatencyMillis(),

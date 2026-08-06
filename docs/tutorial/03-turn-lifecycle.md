@@ -66,20 +66,20 @@ while (outcome.approvalRequest().isPresent() && !token.isCancellationRequested()
 
 ## ApplicationSession：一次 turn 的调度中枢
 
-`ApplicationSession` 持有整个会话的对话历史（`messages`）、turn 计数器（`nextTurn`）和"当前活跃 turn"三件套（`activeRunner` / `activeGraphThread` / `activeTurn`），是把 REPL 输入翻译成图执行的那一层。
+`ApplicationSession` 持有整个会话的对话历史（`messages`）、turn 计数器（`nextTurn`）和“当前活跃 turn”三件套（`activeRunner` / `activeGraphThread` / `activeTurn`），是把 REPL 输入翻译成图执行的薄协调层。具体职责已拆给 `TurnCoordinator`（请求与 runner）、`SessionRestorationService`（恢复）、`MemoryCoordinator`（记忆）和 `SessionAuditService`（事件审计），避免会话类继续膨胀。
 
 | 方法 | 参数 | 做什么 |
 |---|---|---|
 | `start(prompt, cancellationToken, renderer)` | `prompt` 用户输入；`cancellationToken` 本 turn 的取消令牌；`renderer` 渲染事件的消费者（实为 `StreamingRenderer::submit`） | 同步块内：若已有活跃 turn 或悬挂审批则直接失败；否则分配 `TurnId`，拼出图线程号 `sessionId + "-turn-" + turn`，写 `USER_MESSAGE` 审计事件，把 prompt 追加进消息副本，`createRunner` 组装运行器。随后 `supplyAsync` 在后台线程跑 `runner.start`，成功路径走 `finishState`。 |
 | `resume(decision, cancellationToken, renderer)` | `decision` 用户的审批决定；后两个同上 | 没有等待中的 turn 则失败；有 `activeRunner` 就复用，没有（跨会话恢复的审批）就 `createRunner` 现造一个——图会从 checkpoint 续跑（参见 04）。写 `APPROVAL_RESOLVED` 事件后调 `runner.resume`，结果同样进 `finishState`。 |
 | `finishState(state, turn, renderer)` | `state` 图返回的 `MiniClaudeState`；`turn` 本轮编号；`renderer` 同上 | 按 `AgentStatus` 分派的终点站，下文单讲。 |
-| `createRunner(turn, graphThread, cancellationToken, renderer)` | 同名参数含义同上 | 每 turn 现场组装一台运行器，下文单讲。 |
+| `createRunner(turn, cancellationToken, renderer)` | 同名参数含义同上 | 委托 `TurnCoordinator` 每 turn 现场组装一台运行器，下文单讲。 |
 | `request(selected, turnMessages)` | `selected` 当前 provider/model/thinking 选择；`turnMessages` 本轮完整消息列表 | 查 `ProviderProfile` 拿 `maxOutputTokens`，构造 `ModelRequest`：带工具描述符、thinking 开关，以及 `requireVerification`/`requireTaskCompletion` 等 hints。 |
 | `releaseTurnOnFailure(error)` | `error` 图 future 的异常（为 null 则不动） | `finishState` 只在成功路径运行；异常完成时在这里清空活跃三件套，否则后续每次输入都会报"waiting for approval"。 |
 | `switchTo(value)` / `restorePendingApproval` / `restoreTasks` | `value` 目标会话 id | 从事件流重建历史、用量、todo，并把最后一个未决 `APPROVAL_REQUESTED` 还原成 `restoredApproval`。细节参见 08-persistence-and-config.md。 |
 | `status()` / `sessions()` / `usage()` / `compact()` | 无 | 斜杠命令后端：会话状态、事件文件列表、用量汇总、用 `DeterministicContextReducer` 压缩历史（参见 08）。 |
 
-### createRunner 组装了什么
+### TurnCoordinator.createRunner 组装了什么
 
 一次 turn 的运行器是四层洋葱，`createRunner` 的返回语句就是包装关系本身：
 

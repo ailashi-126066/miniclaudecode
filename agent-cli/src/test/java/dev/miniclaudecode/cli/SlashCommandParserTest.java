@@ -23,6 +23,11 @@ class SlashCommandParserTest {
                     "/thinking on",
                     "/tools",
                     "/compact",
+                    "/checkpoints",
+                    "/restore abc123 apply",
+                    "/recovery",
+                    "/undo",
+                    "/redo",
                     "/sessions",
                     "/resume session-1",
                     "/mcp",
@@ -41,6 +46,11 @@ class SlashCommandParserTest {
             "thinking",
             "tools",
             "compact",
+            "checkpoints",
+            "restore",
+            "recovery",
+            "undo",
+            "redo",
             "sessions",
             "resume",
             "mcp",
@@ -66,5 +76,7 @@ class SlashCommandParserTest {
     assertThatThrownBy(() -> parser.parse("/rag stats"))
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> parser.parse("/thinking maybe")).hasMessageContaining("on|off");
+    assertThatThrownBy(() -> parser.parse("/undo operation-1"))
+        .hasMessageContaining("does not accept arguments");
   }
 }

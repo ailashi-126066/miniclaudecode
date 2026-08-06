@@ -25,9 +25,9 @@ public final class SessionCommandHandler implements SlashCommandHandler {
           "/checkpoints      List Git snapshots made before each turn",
           "/restore <id>     Preview restoring a Git snapshot",
           "/restore <id> apply  Restore snapshot files after preview",
-          "/recovery         List hash-guarded agent file operations",
-          "/undo [id]        Undo the latest (or selected) agent file operation",
-          "/redo [id]        Redo the latest (or selected) undone operation",
+          "/recovery         Alias for /checkpoints (deprecated)",
+          "/undo             Restore the previous Git checkpoint",
+          "/redo             Restore the next undone Git checkpoint",
           "/sessions         List saved sessions",
           "/resume <id>      Resume a saved session",
           "/mcp              Show MCP servers",
@@ -44,12 +44,11 @@ public final class SessionCommandHandler implements SlashCommandHandler {
   private final Supplier<String> mcp;
   private final Supplier<String> skills;
   private final Supplier<String> checkpoints;
-  private final Supplier<String> recovery;
   private final Runnable compact;
   private final Consumer<String> resume;
   private final java.util.function.Function<SlashCommand.Restore, String> restore;
-  private final java.util.function.Function<java.util.Optional<String>, String> undo;
-  private final java.util.function.Function<java.util.Optional<String>, String> redo;
+  private final Supplier<String> undo;
+  private final Supplier<String> redo;
   private final Path configFile;
   private String activeProvider;
   private String activeModel;
@@ -67,12 +66,11 @@ public final class SessionCommandHandler implements SlashCommandHandler {
       Supplier<String> mcp,
       Supplier<String> skills,
       Supplier<String> checkpoints,
-      Supplier<String> recovery,
       Runnable compact,
       Consumer<String> resume,
       java.util.function.Function<SlashCommand.Restore, String> restore,
-      java.util.function.Function<java.util.Optional<String>, String> undo,
-      java.util.function.Function<java.util.Optional<String>, String> redo,
+      Supplier<String> undo,
+      Supplier<String> redo,
       Path configFile) {
     this.providerModels = Map.copyOf(providerModels);
     if (!this.providerModels.containsKey(activeProvider)) {
@@ -88,7 +86,6 @@ public final class SessionCommandHandler implements SlashCommandHandler {
     this.mcp = Objects.requireNonNull(mcp, "mcp must not be null");
     this.skills = Objects.requireNonNull(skills, "skills must not be null");
     this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints must not be null");
-    this.recovery = Objects.requireNonNull(recovery, "recovery must not be null");
     this.compact = Objects.requireNonNull(compact, "compact must not be null");
     this.resume = Objects.requireNonNull(resume, "resume must not be null");
     this.restore = Objects.requireNonNull(restore, "restore must not be null");
@@ -114,9 +111,9 @@ public final class SessionCommandHandler implements SlashCommandHandler {
       }
       case SlashCommand.Checkpoints ignored -> checkpoints.get();
       case SlashCommand.Restore restoreCommand -> restore.apply(restoreCommand);
-      case SlashCommand.Recovery ignored -> recovery.get();
-      case SlashCommand.Undo undoCommand -> undo.apply(undoCommand.operationId());
-      case SlashCommand.Redo redoCommand -> redo.apply(redoCommand.operationId());
+      case SlashCommand.Recovery ignored -> checkpoints.get();
+      case SlashCommand.Undo ignored -> undo.get();
+      case SlashCommand.Redo ignored -> redo.get();
       case SlashCommand.Sessions ignored -> sessions.get();
       case SlashCommand.Resume value -> {
         resume.accept(value.sessionId());

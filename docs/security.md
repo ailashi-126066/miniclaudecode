@@ -26,6 +26,20 @@ MCP 或向用户申请权限。规划、写入、审批、验证和最终答复�
 
 ### OS 级沙箱
 
+#### Windows 模式边界
+
+Windows 原生运行时当前没有可用的 OS 级文件系统沙箱后端。三种策略的行为是明确且可预测的：
+
+| `MINICLAUDE_SANDBOX` | Windows 原生行为 | 适用场景 |
+|---|---|---|
+| `auto`（默认） | 显示 `NONE`/降级提示，在命令分类与人工审批后直接运行 PowerShell | 本地开发、可信仓库 |
+| `required` | 因无隔离后端而拒绝所有 shell 命令，不会静默退回直跑 | 必须 fail-closed 的自动化 |
+| `off` | 明确关闭沙箱，仍保留 denylist、风险分类和审批 | 已有外层隔离的环境 |
+
+高安全任务不要把 Windows `auto` 当成安全边界。推荐把工作区放进 WSL2 并安装
+`bubblewrap`，或在容器/受控虚拟机内运行；如果必须原生运行，则使用 `required`，并接受
+shell 工具不可用。WSL2 与容器中的进程按其 Linux 环境探测沙箱，不按宿主 Windows 处理。
+
 分类与审批决定命令是否运行；沙箱限制它运行后的影响范围。Linux 使用 bubblewrap（`bwrap`：PID/UTS/IPC namespace 隔离、`--new-session` 防 TIOCSTI 终端注入、系统目录与 `$HOME` 只读、工作区和工具链缓存 `~/.m2`/`~/.npm`/`~/.gradle` 可写——缓存可写是显式放宽，为了让构建保持增量），macOS 使用系统自带的 `sandbox-exec`（写入限制在工作区、`$TMPDIR`、临时目录和 `~/.m2`/`~/.npm`）。Windows 没有纯 Java 可用的隔离原语，会显式降级。
 
 两个刻意的取舍：**网络默认放行**（`mvn`/`npm install` 需要网络，一个会被用户关掉的沙箱不如一个被保留的弱沙箱——文件系统隔离才是主要收益）；**探测不到后端时降级而不是拒绝执行**（工具保持可用），但降级是可见的——审批提示会写明当前沙箱状态。通过 `MINICLAUDE_SANDBOX` 环境变量选择 `auto`（默认）、`required`（无后端时拒绝执行）或 `off`。

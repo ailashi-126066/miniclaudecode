@@ -17,14 +17,14 @@ class VerificationGateTest {
   void routesBackToModelWhenAChangeHasNotBeenVerified() {
     MiniClaudeState state = state(messages(changed()), 0);
 
-    assertThat(NormalTurnLoop.requiresVerification(state)).isTrue();
+    assertThat(CompletionRequirements.requiresVerification(state)).isTrue();
   }
 
   @Test
   void remainsRequiredAfterTheMaximumPromptCountUntilACommandActuallySucceeds() {
     MiniClaudeState state = state(messages(changed()), 2);
 
-    assertThat(NormalTurnLoop.requiresVerification(state)).isTrue();
+    assertThat(CompletionRequirements.requiresVerification(state)).isTrue();
   }
 
   @Test
@@ -37,14 +37,14 @@ class VerificationGateTest {
             ExecuteToolsNode.VERIFICATION_SUCCEEDED_PREFIX + "Tests pass",
             false));
 
-    assertThat(NormalTurnLoop.requiresVerification(state(messages, 0))).isFalse();
+    assertThat(CompletionRequirements.requiresVerification(state(messages, 0))).isFalse();
   }
 
   @Test
   void leavesLibraryCallersOptedOutByDefault() {
     MiniClaudeState state = state(messages(changed()), 0, false);
 
-    assertThat(NormalTurnLoop.requiresVerification(state)).isFalse();
+    assertThat(CompletionRequirements.requiresVerification(state)).isFalse();
   }
 
   @Test
@@ -52,7 +52,7 @@ class VerificationGateTest {
     List<AgentMessage> messages = messages(changed());
     messages.add(new AgentMessage.ToolMessage("shell-1", "shell:run", "hello", false));
 
-    assertThat(NormalTurnLoop.requiresVerification(state(messages, 0))).isTrue();
+    assertThat(CompletionRequirements.requiresVerification(state(messages, 0))).isTrue();
   }
 
   @Test
@@ -69,7 +69,7 @@ class VerificationGateTest {
         new MiniClaudeState(
             Map.of(MiniClaudeState.REQUEST, request, MiniClaudeState.MESSAGES, messages));
 
-    assertThat(NormalTurnLoop.hasIncompleteTasks(state)).isTrue();
+    assertThat(CompletionRequirements.hasIncompleteTasks(state)).isTrue();
   }
 
   private static AgentMessage.ToolMessage changed() {

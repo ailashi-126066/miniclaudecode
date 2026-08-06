@@ -12,7 +12,7 @@
 4. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/mcp/McpToolAdapter.java`
 5. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/mcp/McpResourceTools.java`
 6. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/mcp/McpPromptCatalog.java`
-7. `agent-cli/src/main/java/dev/miniclaudecode/cli/app/WorkspaceComponents.java`（本章只看 `wireMcp` 与 `create` 中的相关段落）
+7. `agent-cli/src/main/java/dev/miniclaudecode/cli/app/ExtensionWiringFactory.java`
 8. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/skill/SkillDescriptor.java`
 9. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/skill/SkillScanner.java`
 10. `agent-extensions/src/main/java/dev/miniclaudecode/extensions/skill/SkillCatalog.java`
@@ -96,9 +96,9 @@ MCP 连接的生命周期管理者，持有全部活跃连接，实现 `AutoClos
 | `list()` | 无 | `client.listPrompts()` 映射为 `PromptDescriptor(server, name, description, arguments)`，参数含 `name/description/required`。 |
 | `get(name, arguments)` | prompt 名；实参 map | `client.getPrompt` 后包成 `PromptValue`，消息列表经 `toChatMessage().toString()` 渲染为纯文本。 |
 
-### WorkspaceComponents.wireMcp：故障隔离设计
+### ExtensionWiringFactory：故障隔离设计
 
-`WorkspaceComponents.create`（参见 01-boot-and-wiring.md）在组装工具前调用私有静态方法 `wireMcp(layout, results)`。它的类注释直说了目标：**任何 MCP 问题都不能阻止 agent 启动**。隔离有三层：
+`WorkspaceComponents.create`（参见 01-boot-and-wiring.md）在组装工具前调用 `ExtensionWiringFactory.create(workspace, layout, results)`。它的目标是：**任何 MCP 问题都不能阻止 agent 启动**。隔离有三层：
 
 1. **单条配置**：`loadWithDiagnostics` 把解析失败收进 `rejected`，其余服务器照常；
 2. **单个服务器**：`connectAll` 把连接失败收进 `failures`，其余连接照常；
@@ -111,11 +111,11 @@ manager = new McpManager(results,
     configValue -> launchApproved.contains(configValue.name()));
 ```
 
-其中 `launchApproved` 是配置里 `launch-approved: true` 的服务器名集合。此外 `create` 里 `wireMcp` 之后的组装若抛异常（比如工具重名），catch 块会补一次 `mcp.manager().close()`——因为此刻 stdio 子进程已被 spawn，而 `WorkspaceComponents` 实例尚未存在、没有别人负责关闭。被 shadow 的工具与全部失败原因最终经 `mcpStatus()` 渲染进 `/mcp` 命令输出，不会静默消失。
+其中 `launchApproved` 是配置里 `launch-approved: true` 的服务器名集合。此外后续工具组装若抛异常（比如工具重名），`WorkspaceComponents.create` 的 catch 块会调用 `extensions.close()`——因为此刻 stdio 子进程已被 spawn，而 `WorkspaceComponents` 实例尚未存在、没有别人负责关闭。被 shadow 的工具与全部失败原因最终经 `mcpStatus()` 渲染进 `/mcp` 命令输出，不会静默消失。
 
 ```mermaid
 flowchart TD
-    A[WorkspaceComponents.create] --> B[wireMcp]
+    A[WorkspaceComponents.create] --> B[ExtensionWiringFactory.create]
     B --> C[McpConfigurationLoader.loadWithDiagnostics]
     C -->|单条解析失败| R[rejected 列表]
     C --> D[McpManager.connectAll]
@@ -169,7 +169,7 @@ flowchart TD
 
 MCP 组装（启动期）：
 
-`WorkspaceComponents.create()` → `wireMcp()`（WorkspaceComponents.java）→ `McpConfigurationLoader.loadWithDiagnostics()`（McpConfigurationLoader.java）→ `McpManager.connectAll()` → `connect()` → `adaptTools()`（McpManager.java）→ `new McpToolAdapter(...)` / `McpResourceTools.create()` → 工具列表并入 `DefaultToolRegistry`（WorkspaceComponents.java）
+`WorkspaceComponents.create()` → `ExtensionWiringFactory.create()` → `McpConfigurationLoader.loadWithDiagnostics()`（McpConfigurationLoader.java）→ `McpManager.connectAll()` → `connect()` → `adaptTools()`（McpManager.java）→ `new McpToolAdapter(...)` / `McpResourceTools.create()` → 工具列表并入 `DefaultToolRegistry`（ToolWiringFactory.java）
 
 MCP 工具调用（运行期，审批环节参见 03-turn-lifecycle.md 与 07-approval-risk-sandbox.md）：
 

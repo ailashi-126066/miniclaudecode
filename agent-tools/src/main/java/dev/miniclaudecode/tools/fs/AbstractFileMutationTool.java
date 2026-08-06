@@ -50,7 +50,6 @@ abstract class AbstractFileMutationTool implements AgentTool {
       ToolArguments arguments = ToolArguments.parse(call.argumentsJson());
       String requestedPath = arguments.requiredText("path");
       Path target = this.resolver.resolveForWrite(requestedPath);
-      boolean targetExisted = Files.exists(target);
       String before = readBefore(target);
       String after = this.createAfter(arguments, before);
       if (before.equals(after)) {
@@ -95,20 +94,11 @@ abstract class AbstractFileMutationTool implements AgentTool {
                       Map.of("path", displayPath)));
           case PermissionEngine.Authorization.Allowed ignored -> {
             this.writer.write(target, after.getBytes(StandardCharsets.UTF_8), beforeHash);
-            FileOperationRecovery.Operation recovery =
-                new FileOperationRecovery(this.resolver.workspace())
-                    .record(
-                        call.toolCallId(),
-                        target,
-                        beforeHash,
-                        targetExisted ? before.getBytes(StandardCharsets.UTF_8) : new byte[0],
-                        after.getBytes(StandardCharsets.UTF_8));
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("path", displayPath);
             metadata.put("beforeHash", beforeHash);
             metadata.put("afterHash", FileHashes.hash(target));
             metadata.put("diffHash", diff.diffHash());
-            metadata.put("recoveryId", recovery.operationId());
             metadata.put("changed", true);
             yield completed(
                 call,
