@@ -4,61 +4,54 @@
 
 | 模块 | 单一职责 | 主要扩展点 |
 | --- | --- | --- |
-| `agent-domain` | 消息、工具、审批、会话、事件等稳定领域类型 | `Tool`、`ApprovalGateway` |
-| `agent-model-api` | 与厂商无关的模型请求、流事件和输出协议类型 | `ModelClient` |
-| `agent-context` | Token 预算、压缩规划和上下文变换流水线 | `ContextTransformer` |
-| `agent-prompt` | 按顺序组装系统提示词，不持有运行状态 | `PromptContributor` |
-| `agent-runtime` | Query Loop 状态图、路由、重试、终止和格式修复 | `OutputProtocol` |
-| `agent-providers` | Anthropic、OpenAI-compatible、Ollama 适配器 | `ModelProviderPlugin` + `ServiceLoader` |
+| `agent-core` | 领域状态、模型/工具 SPI、Prompt/Context、计划、8 节点 Workflow、验证与 Middleware | `ModelClient`、`AgentTool`、`Verifier`、`AgentMiddleware` |
 | `agent-tools` | 工作区文件、命令、Web、Todo、Ask User 和安全策略 | `Tool`、`CommandPolicy` |
 | `agent-rag` | AST/文本分块、Lucene、BM25/Vector/RRF 与评测 | `EmbeddingModel` |
-| `agent-extensions` | MCP 与 `SKILL.md` 的发现、路由和按需加载 | MCP transport、Skill scanner |
-| `agent-persistence` | YAML 配置、记忆、JSONL、checkpoint、权限和工具账本 | Repository/Store 接口 |
+| `agent-integrations` | 模型供应商、SQLite/JSONL/checkpoint、MCP 与 Skills 适配器 | Provider、Store、MCP transport、Skill scanner |
 | `agent-cli` | Picocli/JLine 和唯一 composition root | 显式构造器装配 |
 
 目录名直接对应能力，定位问题时先按现象选择模块：模型请求失败看
-`agent-providers`，上下文溢出看 `agent-context`，输出无法终止看
-`agent-runtime/output`，命令被拒绝看 `agent-tools/process`。
+`agent-integrations/providers`，上下文或 Workflow 问题看 `agent-core`，命令被拒绝看
+`agent-tools/process`，代码检索问题看 `agent-rag`。
 
 核心依赖保持单向：
 
 ```text
-agent-domain
-   ├── agent-model-api ──┬── agent-context
-   │                     ├── agent-providers
-   │                     └── agent-runtime
-   └── agent-prompt
-
 agent-cli (composition root)
-   ├── runtime + providers + context + prompt
-   ├── tools + rag + extensions
-   └── persistence
+   ├── agent-core
+   ├── agent-tools ────────────→ agent-core SPI
+   ├── agent-rag ──────────────→ agent-core SPI
+   └── agent-integrations ─────→ agent-core SPI
 ```
 
 没有 `BaseAgent`、`SubAgent` 继承树，也没有为每个 Agent 单开类。主 Agent 是一条由
 状态图表达的数据流；只读委派是受控工具能力。模型、提示词、上下文、工具和输出协议
 通过小接口插入这条线，避免组件互相反向导入。
 
-## Agent Query Loop
+## 固定 Workflow + 有界 ReAct
 
 ```text
 START
   → prepare_context
   → call_model
-      ├─ 有 tool call ─────────→ execute_tools
-      │                           ├─ 需要批准 → await_approval → execute_tools
-      │                           └─ 已执行 ───────────────────→ call_model
-      ├─ 上下文溢出 ───────────→ compact_context → call_model
-      ├─ 可重试错误 ───────────→ recover_error → call_model
-      ├─ 输出格式不稳定 ───────→ repair_output → call_model
-      ├─ 修改后需要验证 ───────→ require_verification → call_model
-      └─ 满足终止协议 ─────────→ finish → END
+  ↔ execute_tools
+      ├─ 需要批准 → await_approval → execute_tools
+      └─ discovery 完成 → route_execution
+                            ├─ SIMPLE  → call_model(DIRECT) ↔ execute_tools → verify
+                            └─ PLANNED → plan_control
+                                           → call_model(PLAN_STEP)
+                                           ↔ execute_tools
+                                           → verify
+                                              ├─ RETRY  → call_model
+                                              ├─ NEXT   → plan_control
+                                              └─ REPLAN → plan_control（最多 1 次）
+  → finish → END
 ```
 
-循环不是无限 `while`。`TurnLimits` 限制模型步数和工具步数，重试次数来自
-`max-retries`，格式修复次数来自 `max-output-repairs`，LangGraph4j 还有独立的节点
-递归上限。取消、不可重试错误、审批拒绝、步数耗尽、修复耗尽和有效最终输出都是明确
-终止条件。
+物理图只有 8 个节点。压缩、记忆、预算、追踪和错误标准化通过有序 Middleware 或节点
+内部组合完成，不再扩张图节点。Discovery 只开放只读工具；简单任务不创建 Plan；复杂任务
+每个步骤仍复用同一个 ReAct 循环。Direct/Step 最多执行 2 次，整个任务最多 Replan 1 次，
+没有通用 Reflection 循环。
 
 ## 可插拔链路
 

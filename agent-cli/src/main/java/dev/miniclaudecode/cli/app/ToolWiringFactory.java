@@ -58,7 +58,7 @@ final class ToolWiringFactory {
     PermissionEngine permissions = new PermissionEngine(permissionRules, Clock.systemUTC());
     MemoryStore bullets =
         config.memory().enabled()
-            ? memoryStore(workspace, layout, secrets)
+            ? memoryStore(workspace, layout, secrets, config.memory().consolidateAfter())
             : new DisabledMemoryStore("Long-term memory is disabled by configuration");
     List<AgentTool> tools = new ArrayList<>();
     tools.add(new ReadTool(paths, results));
@@ -126,13 +126,14 @@ final class ToolWiringFactory {
   }
 
   private static MemoryStore memoryStore(
-      Path workspace, UserDataLayout layout, Set<String> secrets) {
+      Path workspace, UserDataLayout layout, Set<String> secrets, int consolidateAfter) {
     try {
       return new SqliteMemoryStore(
           layout.memoryDatabase(),
           layout.workspaceHash(workspace),
           workspace.resolve(".miniclaudecode/bullets/ace.jsonl"),
-          secrets);
+          secrets,
+          consolidateAfter);
     } catch (RuntimeException failure) {
       String message =
           "Long-term memory disabled: "

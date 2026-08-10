@@ -81,7 +81,7 @@ target.set((String) entry.getKey(), value.deepCopy());
 | --- | --- | --- |
 | `resolvedApiKey` | `environment`：环境变量 map（注入而非读 `System.getenv`，便于测试） | 先查 `apiKeyEnv` 指向的环境变量，非空则优先；否则退回配置内的 `apiKey`。模型接入层用它拿真实密钥（参见 05-model-providers.md） |
 
-`EmbeddingConfig` 结构与之平行，服务 RAG 的向量化（参见 09-rag-indexing.md）：`AUTO` 是默认值，本地先尝试 `ONNX`，初始化失败才回退 `FAST`；存在 `base-url` 时走 `REMOTE`。也可显式选择 `ONNX`（语义模型、失败即报错）、`FAST`（离线哈希）或 `REMOTE`（OpenAI 兼容 `/v1/embeddings`）。`dimensions ≥ 32` 且必须在建索引前声明；`REMOTE` 额外强制 `base-url` 与 `model` 存在。历史命名的 `fastDefault()` 现在返回 384 维 `AUTO` 配置；`resolvedApiKey` 与 `ProviderProfile` 同款。
+`EmbeddingConfig` 结构与之平行，服务 RAG 的向量化（参见 09-rag-indexing.md）：`AUTO` 是默认值，存在 `base-url` 时走 `REMOTE`，否则使用无模型依赖的 `FAST` 哈希兜底。生产语义检索推荐显式选择 `REMOTE`（OpenAI-compatible `/v1/embeddings`）；`FAST` 只适合离线开发和 CI。`dimensions ≥ 32` 且必须在建索引前声明；`REMOTE` 额外强制 `base-url` 与 `model` 存在。`resolvedApiKey` 与 `ProviderProfile` 同款。
 
 这里的 embedding 仅用于代码 RAG。会话原文写入 JSONL；跨会话长期记忆写入 SQLite FTS5，以 BM25 检索，不生成向量。
 

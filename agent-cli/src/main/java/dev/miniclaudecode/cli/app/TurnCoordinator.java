@@ -151,9 +151,9 @@ final class TurnCoordinator {
     attributes.put("requireVerification", true);
     attributes.put("planningEnabled", components.config().planning().enabled());
     attributes.put("planningMaxSteps", components.config().planning().maxSteps());
-    attributes.put(
-        "planningMaxAttemptsPerStep", components.config().planning().maxAttemptsPerStep());
-    attributes.put("planningMaxRevisions", components.config().planning().maxRevisions());
+    attributes.put("planningMaxAttemptsPerStep", components.config().execution().maxStepAttempts());
+    attributes.put("planningMaxRevisions", components.config().execution().maxReplans());
+    attributes.put("maxDirectAttempts", components.config().execution().maxDirectAttempts());
     attributes.put("maxRetries", profile.maxRetries());
     attributes.put("maxCompactions", 3);
     attributes.put("requireRagCitations", true);

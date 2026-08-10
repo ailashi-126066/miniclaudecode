@@ -13,17 +13,10 @@
     <description>A Java 21 modular coding-agent runtime.</description>
 
     <modules>
-        <module>agent-domain</module>
-        <module>agent-model-api</module>
-        <module>agent-context</module>
-        <module>agent-prompt</module>
-        <module>agent-planning</module>
-        <module>agent-runtime</module>
-        <module>agent-providers</module>
+        <module>agent-core</module>
         <module>agent-tools</module>
         <module>agent-rag</module>
-        <module>agent-extensions</module>
-        <module>agent-persistence</module>
+        <module>agent-integrations</module>
         <module>agent-cli</module>
     </modules>
 

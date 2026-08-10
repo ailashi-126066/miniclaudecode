@@ -80,22 +80,34 @@ deny 始终优先，不能用一次审批绕过。命中 allow 前缀的命令�
 ## Planning 与长期记忆
 
 ```yaml
+execution:
+  mode: hybrid
+  max-direct-attempts: 2
+  max-step-attempts: 2
+  max-replans: 1
+
 planning:
   enabled: true
   max-steps: 12
   max-attempts-per-step: 2
-  max-revisions: 3
+  max-revisions: 1
 
 memory:
   enabled: true
   backend: sqlite
-  approval-required: true
+  top-k: 3
+  max-injection-tokens: 1000
+  consolidate-after: 10
+  post-turn-extraction: signal-gated
+  embedding:
+    enabled: false
 ```
 
 会话消息和 Plan 事件按 session 写入 JSONL；Plan 的 checkpoint 是可恢复派生状态。跨会话
 长期记忆位于 `~/.mini-claude-code/memory/memory.db`，使用 SQLite FTS5/BM25，并按 workspace
-hash 隔离。自动提取的经验先进入 `PENDING_REVIEW`，只有 `/memory approve <id>` 后才参与
-prompt 检索。旧 `.miniclaudecode/bullets/ace.jsonl` 首次启动时幂等迁移，原文件不删除。
+hash 隔离。只有用户明确陈述的持久偏好/决策，或有命令、测试、工具证据的经验，才会通过
+确定性门控并直接写为 `ACTIVE`。旧 `PENDING_REVIEW` 数据迁移为 `ACTIVE`；旧
+`.miniclaudecode/bullets/ace.jsonl` 首次启动时幂等迁移，原文件不删除。
 
 这里的长期记忆不生成 embedding，也不需要向量数据库。下面的 embedding 配置只服务代码
 索引的混合检索，与会话/长期记忆无关。
@@ -107,18 +119,15 @@ prompt 检索。旧 `.miniclaudecode/bullets/ace.jsonl` 首次启动时幂等迁
 ```yaml
 rag:
   embedding:
-    provider: auto        # auto（默认）、onnx、fast 或 remote
-    dimensions: 384
-    # remote 需要以下字段：
-    # base-url: https://api.openai.com/v1
-    # api-key-env: OPENAI_API_KEY
-    # model: text-embedding-3-small
-    # dimensions: 1536
-    # timeout-seconds: 30
+    provider: remote
+    base-url: https://api.openai.com/v1
+    api-key-env: OPENAI_API_KEY
+    model: text-embedding-3-small
+    dimensions: 1536
+    timeout-seconds: 30
 ```
 
-- `auto`（默认）：配置 `base-url` 时使用 `remote`；否则先加载内置 ONNX 语义模型，只有 ONNX 初始化失败时才降级到 `fast`。
-- `onnx`：强制使用内置 MiniLM-L6-v2 ONNX 语义模型；初始化失败会直接报错，不静默降级。
+- `auto`（默认）：配置 `base-url` 时使用 `remote`；否则使用 `fast`，不会下载或加载本地模型。
 - `fast`：显式选择离线哈希嵌入。零下载、可复现，适合受限环境与 CI；语义质量有限（本质上是 BM25 的补充信号）。
 - `remote`：任意 OpenAI-compatible `/v1/embeddings` 端点（OpenAI、DeepSeek、llama.cpp server、LM Studio 等）。`dimensions` 必须与模型实际返回一致——每次响应都会校验，不一致会给出明确报错而不是污染索引。
 

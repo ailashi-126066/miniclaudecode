@@ -9,6 +9,11 @@ import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.model.ModelStreamEvent;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
+import dev.miniclaudecode.persistence.memory.MemoryAuthority;
+import dev.miniclaudecode.persistence.memory.MemoryCandidate;
+import dev.miniclaudecode.persistence.memory.MemoryDurability;
+import dev.miniclaudecode.persistence.memory.MemoryScope;
+import dev.miniclaudecode.persistence.memory.MemoryType;
 import dev.miniclaudecode.persistence.memory.ReflexionExtractor;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import java.time.Clock;
@@ -20,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.function.Consumer;
 
-/** Coordinates prompt memory, explicit preferences, and post-turn Reflexion extraction. */
+/** Coordinates prompt memory and signal-gated post-turn learning. */
 final class MemoryCoordinator {
   private final WorkspaceComponents components;
   private final SessionAuditService audit;
@@ -33,7 +38,8 @@ final class MemoryCoordinator {
     this.memory =
         new MemoryFacade(
             new ClaudeInstructions(components.workspace(), components.layout()),
-            components.bullets());
+            components.bullets(),
+            components.config().memory());
     this.reflexionExtractor = new ReflexionExtractor(clock, this::extractLesson);
   }
 
@@ -41,15 +47,12 @@ final class MemoryCoordinator {
     return memory.memoryContextForTurn(prompt);
   }
 
-  Optional<String> approveExplicitCandidate(String prompt) {
-    return memory.approveExplicitCandidate(prompt);
-  }
-
   void captureExplicitPreference(
       SessionId sessionId, MiniClaudeState state, TurnId turn, Consumer<RenderEvent> renderer) {
     try {
       memory
-          .rememberExplicitPreference(state.messages())
+          .rememberExplicitPreference(
+              state.messages(), sessionId.value(), Long.toString(turn.value()))
           .ifPresent(
               preference ->
                   audit.emit(
@@ -69,28 +72,43 @@ final class MemoryCoordinator {
       TurnId turn,
       Consumer<RenderEvent> renderer) {
     try {
+      if (state.compactionCount() > 0) {
+        components.bullets().requestConsolidation();
+      }
       reflexionExtractor
           .extract(state.messages(), state.status(), error)
-          .map(components.bullets()::propose)
+          .flatMap(
+              bullet ->
+                  components
+                      .bullets()
+                      .remember(
+                          new MemoryCandidate(
+                              MemoryType.VERIFIED_LESSON,
+                              MemoryScope.PROJECT,
+                              bullet.lesson(),
+                              "verified-lesson:" + MemoryCandidate.normalizeKey(bullet.trigger()),
+                              MemoryAuthority.VERIFIED_RESULT,
+                              MemoryDurability.DURABLE,
+                              bullet.evidence(),
+                              sessionId.value(),
+                              Long.toString(turn.value()))))
           .ifPresent(
-              bullet -> {
+              record -> {
                 audit.emit(
                     sessionId,
                     turn,
                     AgentEventType.MEMORY_EXTRACTED,
                     Map.of(
-                        "memoryId", bullet.id(),
-                        "category", "ACE_BULLET_CANDIDATE",
-                        "objective", bullet.trigger()));
+                        "memoryId", record.id(),
+                        "category", "VERIFIED_LESSON",
+                        "objective", record.candidate().normalizedKey()));
                 renderer.accept(
                     new Progress(
-                        "Project memory candidate "
-                            + bullet.id().substring(0, Math.min(12, bullet.id().length()))
-                            + " created; approve with: 批准记忆："
-                            + bullet.id()));
+                        "Verified project lesson saved: "
+                            + record.id().substring(0, Math.min(12, record.id().length()))));
               });
     } catch (RuntimeException failure) {
-      renderer.accept(new Progress("Reflexion skipped: " + message(failure)));
+      renderer.accept(new Progress("Post-turn learning skipped: " + message(failure)));
     }
   }
 

@@ -127,15 +127,6 @@ final class ApplicationSession implements TurnHandler {
       this.activeGraphThread = graphThread;
       this.activeTurn = turn;
     }
-    this.memory
-        .approveExplicitCandidate(prompt)
-        .ifPresent(
-            id ->
-                renderer.accept(
-                    new Progress(
-                        "Approved project memory candidate "
-                            + id.substring(0, Math.min(12, id.length())))));
-
     String checkpoint = this.checkpoints.create(turn.value());
     synchronized (this) {
       this.lastCheckpoint = checkpoint;
@@ -280,21 +271,33 @@ final class ApplicationSession implements TurnHandler {
 
   synchronized String memory(SlashCommand.Memory command) {
     return switch (command.action()) {
-      case "pending" -> renderMemories(this.components.bullets().pending());
-      case "approve" ->
-          this.components.bullets().approve(command.value().orElseThrow())
-              ? "Memory approved: " + command.value().orElseThrow()
-              : "Memory was not approved (unknown id or conflict): "
-                  + command.value().orElseThrow();
+      case "list" -> renderMemories(this.components.bullets().list());
       case "archive" ->
           this.components.bullets().archive(command.value().orElseThrow())
               ? "Memory archived: " + command.value().orElseThrow()
               : "Unknown memory id: " + command.value().orElseThrow();
+      case "edit" -> editMemory(command.value().orElseThrow());
       case "search" ->
           renderMemories(this.components.bullets().search(command.value().orElseThrow(), 20));
       case "export" -> exportMemories(this.components.bullets().list());
+      case "clear" -> {
+        int archived = this.components.bullets().clear();
+        yield "Archived " + archived + " active memory entr" + (archived == 1 ? "y." : "ies.");
+      }
       default -> throw new IllegalArgumentException("unknown memory action: " + command.action());
     };
+  }
+
+  private String editMemory(String arguments) {
+    int separator = arguments.indexOf(' ');
+    if (separator < 1 || separator == arguments.length() - 1) {
+      throw new IllegalArgumentException("usage: /memory edit <id> <content>");
+    }
+    String id = arguments.substring(0, separator);
+    String content = arguments.substring(separator + 1).strip();
+    return this.components.bullets().edit(id, content)
+        ? "Memory updated: " + id
+        : "Unknown memory id: " + id;
   }
 
   private String currentPlanSummary() {

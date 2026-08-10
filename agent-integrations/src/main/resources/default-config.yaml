@@ -1,0 +1,66 @@
+active-provider: ollama
+
+execution:
+  mode: hybrid
+  max-direct-attempts: 2
+  max-step-attempts: 2
+  max-replans: 1
+
+planning:
+  enabled: true
+  max-steps: 12
+  max-attempts-per-step: 2
+  max-revisions: 1
+
+memory:
+  enabled: true
+  backend: sqlite
+  top-k: 3
+  max-injection-tokens: 1000
+  consolidate-after: 10
+  post-turn-extraction: signal-gated
+  embedding:
+    enabled: false
+
+providers:
+  ollama:
+    type: ollama
+    base-url: http://localhost:11434
+    model: qwen2.5-coder:7b
+    temperature: 0.2
+    max-output-tokens: 8192
+    thinking: false
+    timeout-seconds: 120
+    max-retries: 3
+    output-protocol: natural-language
+    max-output-repairs: 1
+
+rag:
+  embedding:
+    # auto uses remote when base-url is configured; otherwise it uses deterministic fast hashing.
+    # Memory retrieval uses SQLite FTS5 and never uses this code-index embedding provider.
+    # Use provider: remote plus base-url/model for semantic RAG; fast is only a local fallback.
+    provider: auto
+    dimensions: 384
+
+security:
+  shell:
+    # Deny always wins. When allowlist-only is false, unmatched commands still go through risk
+    # classification and approval instead of being silently allowed.
+    allowlist-only: false
+    allow-prefixes:
+      - rg
+      - git status
+      - git diff
+      - git log
+      - get-content
+      - get-childitem
+    deny-fragments:
+      - rm -rf
+      - git reset --hard
+      - git clean -f
+      - "format "
+      - diskpart
+      - shutdown
+      - reboot
+      - remove-item -recurse -force

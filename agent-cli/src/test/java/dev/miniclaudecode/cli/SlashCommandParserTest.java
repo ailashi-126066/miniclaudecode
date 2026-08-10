@@ -35,11 +35,12 @@ class SlashCommandParserTest {
                     "/plan",
                     "/plan history",
                     "/plan evidence step-1",
-                    "/memory pending",
-                    "/memory approve abc",
+                    "/memory list",
                     "/memory archive abc",
+                    "/memory edit abc Prefer Maven wrapper",
                     "/memory search java build",
                     "/memory export",
+                    "/memory clear",
                     "/config",
                     "/config setup")
                 .stream()
@@ -66,6 +67,7 @@ class SlashCommandParserTest {
             "plan",
             "plan",
             "plan",
+            "memory",
             "memory",
             "memory",
             "memory",

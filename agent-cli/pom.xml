@@ -15,27 +15,12 @@
     <dependencies>
         <dependency>
             <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-model-api</artifactId>
+            <artifactId>agent-core</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-context</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-prompt</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-runtime</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-providers</artifactId>
+            <artifactId>agent-integrations</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -50,13 +35,10 @@
         </dependency>
         <dependency>
             <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-extensions</artifactId>
+            <artifactId>agent-integrations</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.miniclaudecode</groupId>
-            <artifactId>agent-persistence</artifactId>
-            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jline</groupId>

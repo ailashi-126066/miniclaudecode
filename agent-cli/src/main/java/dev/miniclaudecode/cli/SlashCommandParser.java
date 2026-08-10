@@ -64,16 +64,20 @@ public final class SlashCommandParser {
 
   private static SlashCommand parseMemory(String[] tokens) {
     if (tokens.length == 2
-        && Set.of("pending", "export").contains(tokens[1].toLowerCase(Locale.ROOT))) {
+        && Set.of("list", "export", "clear").contains(tokens[1].toLowerCase(Locale.ROOT))) {
       return new SlashCommand.Memory(tokens[1], Optional.empty());
     }
     if (tokens.length >= 3
-        && Set.of("approve", "archive", "search").contains(tokens[1].toLowerCase(Locale.ROOT))) {
+        && Set.of("archive", "search").contains(tokens[1].toLowerCase(Locale.ROOT))) {
       return new SlashCommand.Memory(
           tokens[1], Optional.of(String.join(" ", Arrays.copyOfRange(tokens, 2, tokens.length))));
     }
+    if (tokens.length >= 4 && tokens[1].equalsIgnoreCase("edit")) {
+      return new SlashCommand.Memory(
+          "edit", Optional.of(String.join(" ", Arrays.copyOfRange(tokens, 2, tokens.length))));
+    }
     throw new IllegalArgumentException(
-        "usage: /memory pending|approve <id>|archive <id>|search <query>|export");
+        "usage: /memory list|archive <id>|edit <id> <content>|search <query>|export|clear");
   }
 
   public boolean isSlashCommand(String input) {

@@ -4,7 +4,6 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.miniclaudecode.persistence.config.EmbeddingConfig;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.rag.embedding.LocalCodeEmbeddingModel;
-import dev.miniclaudecode.rag.embedding.OnnxLocalEmbeddingModel;
 import dev.miniclaudecode.rag.embedding.RemoteEmbeddingModel;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.Bm25Retriever;
@@ -41,8 +40,7 @@ final class RagWiringFactory {
                   embedding.model(),
                   embedding.dimensions(),
                   embedding.timeout())
-              : tryOnnxOrFallback(embedding.dimensions());
-      case ONNX -> new OnnxLocalEmbeddingModel();
+              : new LocalCodeEmbeddingModel(embedding.dimensions());
       case FAST -> new LocalCodeEmbeddingModel(embedding.dimensions());
       case REMOTE ->
           new RemoteEmbeddingModel(
@@ -56,17 +54,6 @@ final class RagWiringFactory {
               embedding.dimensions(),
               embedding.timeout());
     };
-  }
-
-  private static EmbeddingModel tryOnnxOrFallback(int dimensions) {
-    try {
-      if (dimensions == OnnxLocalEmbeddingModel.DIMENSIONS) {
-        return new OnnxLocalEmbeddingModel();
-      }
-    } catch (Exception | LinkageError ignored) {
-      // Keep startup available when native ONNX support cannot initialize.
-    }
-    return new LocalCodeEmbeddingModel(dimensions);
   }
 
   record Wiring(

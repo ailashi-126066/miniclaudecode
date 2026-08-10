@@ -3,9 +3,9 @@
 ## 需求分析
 
 原项目已有状态图、Provider、工具、RAG、MCP、Skill 和持久化能力，功能覆盖面不错；
-主要结构问题是模型端口放在通用 domain、上下文算法藏在 runtime、系统提示词集中在
-CLI，一个新模型或新压缩策略容易牵动多个模块。终止条件也主要依赖“没有工具调用”，
-对要求 JSON 终止的模型缺少格式兜底。
+当前实现已把原 12 个 Maven 模块收敛为 5 个，并将运行时图收敛为固定 8 节点。
+`agent-core` 保存稳定 SPI 与 Workflow；工具、RAG 和供应商/持久化适配器只依赖 core；
+CLI 是唯一装配入口。
 
 本次重构的目标不是增加一套 Agent 继承体系，而是把 Agent 看作一条可组合的执行线：
 
@@ -20,15 +20,15 @@ Prompt → Context → Model → Output Gate → Tools → Loop/Finish
 
 | 需求 | 落点 | 结果 |
 | --- | --- | --- |
-| 模型调用单独抽离 | `agent-model-api` | `ModelClient`、`ModelRequest`、流事件不再混在 domain |
-| 模型实现可插拔 | `agent-providers/ModelProviderPlugin` | 使用 `ServiceLoader` 发现 Anthropic、OpenAI-compatible、Ollama |
+| 模型与工具端口 | `agent-core` | `ModelClient`、`AgentTool`、状态、计划与验证接口集中维护 |
+| 模型实现可插拔 | `agent-integrations/providers` | 使用 `ServiceLoader` 发现 Anthropic、OpenAI-compatible、Ollama |
 | 支持模型用 YAML 管理 | `providers.<name>` | 模型、端点、thinking、输出协议和修复次数均由 profile 配置 |
-| Context 单独维护 | `agent-context` | 预算规划、压缩算法、`ContextTransformer`、`ContextPipeline` |
-| Prompt 单独维护 | `agent-prompt` | `PromptContributor` 可按序增删，系统 Prompt 不再散落于 Session |
+| Context/Prompt | `agent-core` | 预算、压缩和 `PromptContributor` 保持小接口，但不再各占 Maven 模块 |
 | Tools 独立 | `agent-tools` | 工具继续通过统一 Registry 注册，Runtime 只依赖执行端口 |
 | 避免 Agent 类继承树 | `AgentGraphFactory` | Agent 是状态图；没有 BaseAgent/子类 Agent |
-| 不稳定输出兜底 | `agent-runtime/output` | 自然语言和 JSON 两种终止协议，失败后反馈模型修复 |
-| 明确 Loop 终止 | Runtime 路由与 `TurnLimits` | 成功、取消、审批、重试、修复和步数上限均显式 |
+| 固定 Workflow | `agent-core/AgentGraphFactory` | 8 个物理节点，Simple Direct 与 Planned Step 复用 ReAct |
+| 明确 Loop 终止 | `VerificationPipeline` 与有界计数 | Direct/Step 最多 2 次、Replan 最多 1 次 |
+| 轻量长期记忆 | `agent-integrations/persistence/memory` | SQLite/FTS5、确定性写入门控、去重/冲突/异步整合 |
 | 沙箱黑白名单 | `CommandPolicy` + `security.shell` | deny 优先、可选严格 allowlist、项目配置不能弱化策略 |
 
 ## 扩展示例

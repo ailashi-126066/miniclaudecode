@@ -202,7 +202,11 @@ final class WorkspaceComponents implements AutoCloseable {
 
   @Override
   public void close() {
-    this.mcpManager.close();
+    try {
+      this.bullets.close();
+    } finally {
+      this.mcpManager.close();
+    }
   }
 
   Map<String, List<String>> providerModels() {

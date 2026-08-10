@@ -36,7 +36,7 @@ MiniClaudeCode 是一个 Java 21 实现的中心化多 Agent 终端编程助手�
 - LangChain4j Provider：Anthropic、OpenAI-compatible（OpenAI、DeepSeek、通义兼容网关等）和 Ollama；支持流式文本与 thinking 摘要。
 - 安全 Coding Tools：命令 denylist/allowlist、风险审批和 OS 沙箱分层；文件变更先展示 unified diff。
 - 可审计恢复：JSONL 会话事件、LangGraph4j 文件 checkpoint、工具执行账本；区分“等待审批”和“不确定副作用”。
-- 有含金量但可讲清的 RAG：JavaParser AST 分块（TYPE chunk 为结构骨架）、Lucene BM25、可插拔嵌入（默认 auto：本地 ONNX 语义模型，失败时降级 fast；也可切换 OpenAI-compatible 远程模型）、RRF 融合、size+mtime 增量指纹、explain 与评测指标。
+- 有含金量但可讲清的 RAG：JavaParser AST 分块（TYPE chunk 为结构骨架）、Lucene BM25、OpenAI-compatible Embedding API（无本地模型依赖）、RRF 融合、size+mtime 增量指纹、explain 与评测指标；未配置 API 时可用 `fast` 哈希嵌入作为开发兜底。
 - 扩展能力：真实 MCP stdio/Streamable HTTP Client，以及用户、`.claude/skills`、项目级 `SKILL.md` 的按需加载。
 - JLine CLI：历史、补全、流式输出、Ctrl+C 取消、审批菜单和会话命令。
 
