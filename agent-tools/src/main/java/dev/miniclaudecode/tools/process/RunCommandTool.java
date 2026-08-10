@@ -12,6 +12,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.tools.fs.WorkspacePathResolver;
@@ -46,7 +47,8 @@ public final class RunCommandTool implements AgentTool {
           "run",
           "Run a command in the workspace using PowerShell on Windows or /bin/sh on POSIX",
           "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"},\"workingDirectory\":{\"type\":\"string\"},\"timeoutSeconds\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":600},\"maxOutputBytes\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"command\"]}",
-          RiskLevel.HIGH);
+          RiskLevel.HIGH,
+          ToolEffect.PROCESS);
   private final WorkspacePathResolver resolver;
   private final ProcessRunner processRunner;
   private final ToolResultStore resultStore;

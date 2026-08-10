@@ -6,9 +6,11 @@ import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
 import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Completed;
 import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Error;
 import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress;
+import dev.miniclaudecode.cli.commands.SlashCommand;
 import dev.miniclaudecode.context.DeterministicContextReducer;
 import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
+import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;
@@ -20,14 +22,13 @@ import dev.miniclaudecode.domain.session.SessionEventStore.ReadResult;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
 import dev.miniclaudecode.persistence.config.ProviderProfile;
+import dev.miniclaudecode.persistence.memory.AceBullet;
 import dev.miniclaudecode.prompt.DefaultCodingPromptContributors;
 import dev.miniclaudecode.prompt.PromptBuildContext;
 import dev.miniclaudecode.prompt.PromptPipeline;
 import dev.miniclaudecode.runtime.AgentThreadRunner;
 import dev.miniclaudecode.runtime.TurnProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
-import dev.miniclaudecode.tools.task.TodoTool.Status;
-import dev.miniclaudecode.tools.task.TodoTool.TodoItem;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -207,8 +208,6 @@ final class ApplicationSession implements TurnHandler {
   }
 
   synchronized String status() {
-    List<TodoItem> tasks = this.components.todoTool().items(this.sessionId);
-    long done = tasks.stream().filter(item -> item.status() == Status.DONE).count();
     String state =
         this.restoredApproval != null
             ? "Awaiting approval"
@@ -222,10 +221,8 @@ final class ApplicationSession implements TurnHandler {
         + "Turn: "
         + this.nextTurn
         + System.lineSeparator()
-        + "Tasks: "
-        + done
-        + "/"
-        + tasks.size()
+        + "Plan: "
+        + currentPlanSummary()
         + System.lineSeparator()
         + "Phase: "
         + this.lastPhase
@@ -238,6 +235,152 @@ final class ApplicationSession implements TurnHandler {
         + System.lineSeparator()
         + "Checkpoint: "
         + this.lastCheckpoint;
+  }
+
+  synchronized String plan(SlashCommand.PlanView command) {
+    List<AgentEvent> events = planEvents();
+    if ("history".equals(command.action())) {
+      if (events.isEmpty()) {
+        return "No Plan events for this session.";
+      }
+      return events.stream()
+          .map(
+              event ->
+                  event.occurredAt()
+                      + " "
+                      + event.type()
+                      + " plan="
+                      + event.payload().getOrDefault("planId", "?")
+                      + " version="
+                      + event.payload().getOrDefault("version", "?"))
+          .reduce((left, right) -> left + System.lineSeparator() + right)
+          .orElseThrow();
+    }
+    if ("evidence".equals(command.action())) {
+      String stepId = command.stepId().orElseThrow();
+      for (int index = events.size() - 1; index >= 0; index--) {
+        Object rawSteps = events.get(index).payload().get("steps");
+        if (rawSteps instanceof List<?> steps) {
+          for (Object value : steps) {
+            if (value instanceof Map<?, ?> step && stepId.equals(String.valueOf(step.get("id")))) {
+              Object evidence = step.get("evidence");
+              return evidence == null
+                  ? "No evidence recorded for Plan step " + stepId
+                  : "Evidence for " + stepId + ":\n" + evidence;
+            }
+          }
+        }
+      }
+      return "Unknown Plan step: " + stepId;
+    }
+    return events.isEmpty()
+        ? "No Plan is available for this session."
+        : renderPlan(events.getLast().payload());
+  }
+
+  synchronized String memory(SlashCommand.Memory command) {
+    return switch (command.action()) {
+      case "pending" -> renderMemories(this.components.bullets().pending());
+      case "approve" ->
+          this.components.bullets().approve(command.value().orElseThrow())
+              ? "Memory approved: " + command.value().orElseThrow()
+              : "Memory was not approved (unknown id or conflict): "
+                  + command.value().orElseThrow();
+      case "archive" ->
+          this.components.bullets().archive(command.value().orElseThrow())
+              ? "Memory archived: " + command.value().orElseThrow()
+              : "Unknown memory id: " + command.value().orElseThrow();
+      case "search" ->
+          renderMemories(this.components.bullets().search(command.value().orElseThrow(), 20));
+      case "export" -> exportMemories(this.components.bullets().list());
+      default -> throw new IllegalArgumentException("unknown memory action: " + command.action());
+    };
+  }
+
+  private String currentPlanSummary() {
+    List<AgentEvent> events = planEvents();
+    if (events.isEmpty()) {
+      return "(none)";
+    }
+    Map<String, Object> payload = events.getLast().payload();
+    return payload.getOrDefault("status", "?")
+        + " v"
+        + payload.getOrDefault("version", "?")
+        + " - "
+        + payload.getOrDefault("goal", "");
+  }
+
+  private List<AgentEvent> planEvents() {
+    return this.audit.read(this.sessionId).events().stream()
+        .filter(event -> event.type().name().startsWith("PLAN_"))
+        .toList();
+  }
+
+  private static String renderPlan(Map<String, Object> payload) {
+    StringBuilder output = new StringBuilder();
+    output
+        .append("Plan ")
+        .append(payload.getOrDefault("planId", "?"))
+        .append(" [")
+        .append(payload.getOrDefault("status", "?"))
+        .append("] v")
+        .append(payload.getOrDefault("version", "?"))
+        .append(" revisions=")
+        .append(payload.getOrDefault("revisions", 0))
+        .append("\nGoal: ")
+        .append(payload.getOrDefault("goal", ""));
+    Object rawSteps = payload.get("steps");
+    if (rawSteps instanceof List<?> steps) {
+      for (Object value : steps) {
+        if (value instanceof Map<?, ?> step) {
+          output
+              .append("\n- [")
+              .append(step.get("status"))
+              .append("] ")
+              .append(step.get("id"))
+              .append(": ")
+              .append(step.get("description"));
+        }
+      }
+    }
+    return output.toString();
+  }
+
+  private static String renderMemories(List<AceBullet> memories) {
+    if (memories.isEmpty()) {
+      return "(none)";
+    }
+    return memories.stream()
+        .map(
+            memory ->
+                memory.id()
+                    + " ["
+                    + memory.state()
+                    + "] confidence="
+                    + String.format(java.util.Locale.ROOT, "%.2f", memory.confidence())
+                    + "\n  trigger: "
+                    + memory.trigger()
+                    + "\n  lesson: "
+                    + memory.lesson())
+        .reduce((left, right) -> left + System.lineSeparator() + right)
+        .orElseThrow();
+  }
+
+  private static String exportMemories(List<AceBullet> memories) {
+    StringBuilder markdown = new StringBuilder("# MiniClaudeCode memory export\n");
+    for (AceBullet memory : memories) {
+      markdown
+          .append("\n## ")
+          .append(memory.id())
+          .append("\n\n- State: ")
+          .append(memory.state())
+          .append("\n- Trigger: ")
+          .append(memory.trigger())
+          .append("\n- Lesson: ")
+          .append(memory.lesson())
+          .append("\n");
+    }
+    return markdown.toString().stripTrailing();
   }
 
   synchronized String sessions() {
@@ -301,7 +444,6 @@ final class ApplicationSession implements TurnHandler {
     SessionRestorationService.RestoredSession restored =
         this.restoration.restore(selected, read.events(), this.systemPrompt());
     this.usage.restore(read.events());
-    this.components.todoTool().restore(selected, restored.tasks());
     this.sessionId = selected;
     this.nextTurn = restored.nextTurn();
     this.messages = restored.messages();

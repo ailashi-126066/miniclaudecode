@@ -55,23 +55,6 @@ class VerificationGateTest {
     assertThat(CompletionRequirements.requiresVerification(state(messages, 0))).isTrue();
   }
 
-  @Test
-  void routesBackToModelWhileTheLatestTaskChecklistIsIncomplete() {
-    List<AgentMessage> messages = new ArrayList<>();
-    messages.add(new AgentMessage.UserMessage("Fix App"));
-    messages.add(
-        new AgentMessage.ToolMessage(
-            "tasks-1", "task:todo", "[x] inspect\n[>] verify\n[ ] summarize", false));
-    ModelRequest request =
-        new ModelRequest(
-            "test", "fake", messages, List.of(), false, 100, Map.of("requireTaskCompletion", true));
-    MiniClaudeState state =
-        new MiniClaudeState(
-            Map.of(MiniClaudeState.REQUEST, request, MiniClaudeState.MESSAGES, messages));
-
-    assertThat(CompletionRequirements.hasIncompleteTasks(state)).isTrue();
-  }
-
   private static AgentMessage.ToolMessage changed() {
     return new AgentMessage.ToolMessage(
         "edit-1", "workspace:edit", "Applied approved change to src/App.java", false);

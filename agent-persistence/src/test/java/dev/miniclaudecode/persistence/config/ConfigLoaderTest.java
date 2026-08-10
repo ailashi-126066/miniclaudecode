@@ -69,6 +69,29 @@ class ConfigLoaderTest {
     Assertions.assertThat(config.activeProfile().timeout().toSeconds()).isPositive();
     Assertions.assertThat(config.embedding().provider()).isEqualTo(EmbeddingConfig.Provider.AUTO);
     Assertions.assertThat(config.embedding().dimensions()).isEqualTo(384);
+    Assertions.assertThat(config.planning()).isEqualTo(PlanningConfig.defaults());
+    Assertions.assertThat(config.memory()).isEqualTo(MemoryConfig.defaults());
+  }
+
+  @Test
+  void parsesPlanningAndSqliteMemoryConfiguration() throws Exception {
+    Path userConfig = this.tempDir.resolve("user.yaml");
+    Files.writeString(
+        userConfig,
+        "planning:\n"
+            + "  enabled: false\n"
+            + "  max-steps: 8\n"
+            + "  max-attempts-per-step: 3\n"
+            + "  max-revisions: 1\n"
+            + "memory:\n"
+            + "  enabled: false\n"
+            + "  backend: sqlite\n"
+            + "  approval-required: true\n");
+
+    AppConfig config = new ConfigLoader().load(userConfig, Optional.empty());
+
+    Assertions.assertThat(config.planning()).isEqualTo(new PlanningConfig(false, 8, 3, 1));
+    Assertions.assertThat(config.memory()).isEqualTo(new MemoryConfig(false, "sqlite", true));
   }
 
   @Test

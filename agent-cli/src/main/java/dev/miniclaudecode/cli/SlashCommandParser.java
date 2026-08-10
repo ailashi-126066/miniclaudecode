@@ -4,6 +4,7 @@ import dev.miniclaudecode.cli.commands.SlashCommand;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 public final class SlashCommandParser {
 
@@ -41,9 +42,38 @@ public final class SlashCommandParser {
       case "resume" -> new SlashCommand.Resume(requiredArgument(tokens, "resume"));
       case "mcp" -> noArguments(tokens, new SlashCommand.Mcp());
       case "skills" -> noArguments(tokens, new SlashCommand.Skills());
+      case "plan" -> parsePlan(tokens);
+      case "memory" -> parseMemory(tokens);
       case "config" -> parseConfig(tokens);
       default -> throw new IllegalArgumentException("unknown slash command: /" + name);
     };
+  }
+
+  private static SlashCommand parsePlan(String[] tokens) {
+    if (tokens.length == 1) {
+      return new SlashCommand.PlanView("current", Optional.empty());
+    }
+    if (tokens.length == 2 && tokens[1].equalsIgnoreCase("history")) {
+      return new SlashCommand.PlanView("history", Optional.empty());
+    }
+    if (tokens.length == 3 && tokens[1].equalsIgnoreCase("evidence")) {
+      return new SlashCommand.PlanView("evidence", Optional.of(tokens[2]));
+    }
+    throw new IllegalArgumentException("usage: /plan [history|evidence <step-id>]");
+  }
+
+  private static SlashCommand parseMemory(String[] tokens) {
+    if (tokens.length == 2
+        && Set.of("pending", "export").contains(tokens[1].toLowerCase(Locale.ROOT))) {
+      return new SlashCommand.Memory(tokens[1], Optional.empty());
+    }
+    if (tokens.length >= 3
+        && Set.of("approve", "archive", "search").contains(tokens[1].toLowerCase(Locale.ROOT))) {
+      return new SlashCommand.Memory(
+          tokens[1], Optional.of(String.join(" ", Arrays.copyOfRange(tokens, 2, tokens.length))));
+    }
+    throw new IllegalArgumentException(
+        "usage: /memory pending|approve <id>|archive <id>|search <query>|export");
   }
 
   public boolean isSlashCommand(String input) {

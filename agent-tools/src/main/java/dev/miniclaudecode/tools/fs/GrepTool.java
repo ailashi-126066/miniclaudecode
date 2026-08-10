@@ -5,6 +5,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.tools.internal.GlobMatcher;
 import dev.miniclaudecode.tools.internal.TextFiles;
@@ -32,7 +33,8 @@ public final class GrepTool implements AgentTool {
           "grep",
           "Search UTF-8 workspace files with a Java regular expression",
           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"glob\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"query\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final WorkspacePathResolver resolver;
   private final ToolResultStore resultStore;
   private final int defaultMaxResults;

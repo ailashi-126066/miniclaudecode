@@ -5,8 +5,9 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.extensions.skill.LoadSkillTool;
 import dev.miniclaudecode.extensions.skill.RouteSkillTool;
 import dev.miniclaudecode.persistence.config.AppConfig;
-import dev.miniclaudecode.persistence.memory.AceBulletStore;
-import dev.miniclaudecode.persistence.memory.UserProfileStore;
+import dev.miniclaudecode.persistence.memory.DisabledMemoryStore;
+import dev.miniclaudecode.persistence.memory.MemoryStore;
+import dev.miniclaudecode.persistence.memory.SqliteMemoryStore;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.persistence.permission.JsonPermissionRuleStore;
 import dev.miniclaudecode.rag.tool.CodeSearchTool;
@@ -19,6 +20,7 @@ import dev.miniclaudecode.tools.fs.ListTool;
 import dev.miniclaudecode.tools.fs.ReadTool;
 import dev.miniclaudecode.tools.fs.WorkspacePathResolver;
 import dev.miniclaudecode.tools.fs.WriteTool;
+import dev.miniclaudecode.tools.planning.PlanningRequestTool;
 import dev.miniclaudecode.tools.process.CommandPolicy;
 import dev.miniclaudecode.tools.process.CommandRiskClassifier;
 import dev.miniclaudecode.tools.process.CommandSandbox;
@@ -28,7 +30,6 @@ import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
-import dev.miniclaudecode.tools.task.TodoTool;
 import dev.miniclaudecode.tools.user.AskUserTool;
 import dev.miniclaudecode.tools.web.WebFetchTool;
 import java.nio.file.Path;
@@ -55,8 +56,10 @@ final class ToolWiringFactory {
     WorkspacePathResolver paths = new WorkspacePathResolver(workspace);
     JsonPermissionRuleStore permissionRules = new JsonPermissionRuleStore(layout.permissionsFile());
     PermissionEngine permissions = new PermissionEngine(permissionRules, Clock.systemUTC());
-    AceBulletStore bullets = new AceBulletStore(workspace);
-    UserProfileStore profile = new UserProfileStore(layout.profileFile());
+    MemoryStore bullets =
+        config.memory().enabled()
+            ? memoryStore(workspace, layout, secrets)
+            : new DisabledMemoryStore("Long-term memory is disabled by configuration");
     List<AgentTool> tools = new ArrayList<>();
     tools.add(new ReadTool(paths, results));
     tools.add(new ListTool(paths, results));
@@ -67,8 +70,7 @@ final class ToolWiringFactory {
     tools.add(new ApplyPatchTool(paths, permissions));
     tools.add(commandTool(paths, workspace, config, environment, results, permissionRules));
     tools.add(new WebFetchTool(results));
-    TodoTool todoTool = new TodoTool();
-    tools.add(todoTool);
+    tools.add(new PlanningRequestTool());
     tools.add(new AskUserTool());
     tools.add(new CodeSearchTool(rag.codeIndex(), rag.searcher(), results));
     tools.add(new ReadToolResultTool(results));
@@ -96,7 +98,7 @@ final class ToolWiringFactory {
             isolatedTools,
             worktrees));
     tools.addAll(extensions.tools());
-    return new Wiring(new DefaultToolRegistry(tools), bullets, profile, todoTool);
+    return new Wiring(new DefaultToolRegistry(tools), bullets);
   }
 
   private static RunCommandTool commandTool(
@@ -121,6 +123,24 @@ final class ToolWiringFactory {
             config.commandPolicy().allowlistOnly()),
         permissionRules,
         Clock.systemUTC());
+  }
+
+  private static MemoryStore memoryStore(
+      Path workspace, UserDataLayout layout, Set<String> secrets) {
+    try {
+      return new SqliteMemoryStore(
+          layout.memoryDatabase(),
+          layout.workspaceHash(workspace),
+          workspace.resolve(".miniclaudecode/bullets/ace.jsonl"),
+          secrets);
+    } catch (RuntimeException failure) {
+      String message =
+          "Long-term memory disabled: "
+              + java.util.Objects.requireNonNullElse(
+                  failure.getMessage(), failure.getClass().getSimpleName());
+      System.err.println(message);
+      return new DisabledMemoryStore(message);
+    }
   }
 
   private static DefaultToolRegistry isolatedRegistry(
@@ -158,9 +178,5 @@ final class ToolWiringFactory {
         .contains(tool.descriptor().qualifiedName());
   }
 
-  record Wiring(
-      DefaultToolRegistry tools,
-      AceBulletStore bullets,
-      UserProfileStore profile,
-      TodoTool todoTool) {}
+  record Wiring(DefaultToolRegistry tools, MemoryStore bullets) {}
 }

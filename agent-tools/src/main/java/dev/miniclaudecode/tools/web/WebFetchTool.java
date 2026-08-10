@@ -8,6 +8,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.tools.internal.ToolArguments;
@@ -71,7 +72,8 @@ public final class WebFetchTool implements AgentTool {
           "fetch",
           "Fetch bounded HTTP(S) text with redirect and SSRF protection",
           "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"timeoutSeconds\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":120},\"maxBytes\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"url\"]}",
-          RiskLevel.MEDIUM);
+          RiskLevel.MEDIUM,
+          ToolEffect.READ_ONLY_EXTERNAL);
   private final HttpClient client;
   private final WebFetchTool.AddressResolver resolver;
   private final ToolResultStore resultStore;

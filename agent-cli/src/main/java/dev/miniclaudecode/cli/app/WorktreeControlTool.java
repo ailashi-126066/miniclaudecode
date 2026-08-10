@@ -8,6 +8,7 @@ import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import java.time.Instant;
 import java.util.Map;
@@ -31,7 +32,8 @@ final class WorktreeControlTool implements AgentTool {
         "worktree",
         "Record a layered review, then explicitly merge or discard an isolated delegated worktree commit",
         "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"review\",\"merge\",\"discard\"]},\"layer\":{\"enum\":[\"function\",\"quality\",\"security\"]},\"id\":{\"type\":\"string\"}},\"required\":[\"action\",\"id\"]}",
-        RiskLevel.HIGH);
+        RiskLevel.HIGH,
+        ToolEffect.MUTATION);
   }
 
   public CompletionStage<ToolResult> execute(ToolCall call, ToolContext context) {

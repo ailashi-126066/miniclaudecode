@@ -2,6 +2,7 @@ package dev.miniclaudecode.tools.fs;
 
 import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.tools.approval.PermissionEngine;
 import dev.miniclaudecode.tools.approval.RiskClassifier;
 import dev.miniclaudecode.tools.diff.UnifiedDiffService;
@@ -14,7 +15,8 @@ public final class EditTool extends AbstractFileMutationTool {
           "edit",
           "Replace exact text in a UTF-8 workspace file after diff-bound approval",
           "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"oldText\":{\"type\":\"string\"},\"newText\":{\"type\":\"string\"},\"replaceAll\":{\"type\":\"boolean\"}},\"required\":[\"path\",\"oldText\",\"newText\"]}",
-          RiskLevel.MEDIUM);
+          RiskLevel.MEDIUM,
+          ToolEffect.MUTATION);
 
   public EditTool(WorkspacePathResolver resolver, PermissionEngine permissionEngine) {
     super(

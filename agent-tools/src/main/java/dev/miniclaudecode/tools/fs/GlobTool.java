@@ -5,6 +5,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.tools.internal.GlobMatcher;
 import dev.miniclaudecode.tools.internal.ToolArguments;
@@ -28,7 +29,8 @@ public final class GlobTool implements AgentTool {
           "glob",
           "Find workspace files by a portable glob pattern without following symbolic links",
           "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"pattern\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final WorkspacePathResolver resolver;
   private final ToolResultStore resultStore;
   private final int defaultMaxResults;

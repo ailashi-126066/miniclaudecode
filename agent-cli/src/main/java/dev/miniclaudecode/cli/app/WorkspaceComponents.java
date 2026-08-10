@@ -5,8 +5,7 @@ import dev.miniclaudecode.extensions.mcp.McpManager;
 import dev.miniclaudecode.extensions.mcp.McpManager.ConnectReport;
 import dev.miniclaudecode.extensions.skill.SkillCatalog;
 import dev.miniclaudecode.persistence.config.AppConfig;
-import dev.miniclaudecode.persistence.memory.AceBulletStore;
-import dev.miniclaudecode.persistence.memory.UserProfileStore;
+import dev.miniclaudecode.persistence.memory.MemoryStore;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.Bm25Retriever;
@@ -14,7 +13,6 @@ import dev.miniclaudecode.rag.search.HybridCodeSearcher;
 import dev.miniclaudecode.rag.search.VectorRetriever;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import dev.miniclaudecode.tools.result.ToolResultStore;
-import dev.miniclaudecode.tools.task.TodoTool;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,11 +34,9 @@ final class WorkspaceComponents implements AutoCloseable {
   private final VectorRetriever vector;
   private final HybridCodeSearcher searcher;
   private final Set<String> secrets;
-  private final AceBulletStore bullets;
-  private final UserProfileStore profile;
+  private final MemoryStore bullets;
   private final McpManager mcpManager;
   private final ConnectReport mcpReport;
-  private final TodoTool todoTool;
 
   private WorkspaceComponents(
       Path workspace,
@@ -54,11 +50,9 @@ final class WorkspaceComponents implements AutoCloseable {
       VectorRetriever vector,
       HybridCodeSearcher searcher,
       Set<String> secrets,
-      AceBulletStore bullets,
-      UserProfileStore profile,
+      MemoryStore bullets,
       McpManager mcpManager,
-      ConnectReport mcpReport,
-      TodoTool todoTool) {
+      ConnectReport mcpReport) {
     this.workspace = workspace;
     this.layout = layout;
     this.config = config;
@@ -71,10 +65,8 @@ final class WorkspaceComponents implements AutoCloseable {
     this.searcher = searcher;
     this.secrets = secrets;
     this.bullets = bullets;
-    this.profile = profile;
     this.mcpManager = mcpManager;
     this.mcpReport = mcpReport;
-    this.todoTool = todoTool;
   }
 
   static WorkspaceComponents create(
@@ -120,10 +112,8 @@ final class WorkspaceComponents implements AutoCloseable {
           rag.searcher(),
           model.secrets(),
           tools.bullets(),
-          tools.profile(),
           extensions.manager(),
-          extensions.report(),
-          tools.todoTool());
+          extensions.report());
     } catch (RuntimeException failure) {
       extensions.close();
       throw failure;
@@ -174,16 +164,8 @@ final class WorkspaceComponents implements AutoCloseable {
     return this.secrets;
   }
 
-  AceBulletStore bullets() {
+  MemoryStore bullets() {
     return this.bullets;
-  }
-
-  UserProfileStore profile() {
-    return this.profile;
-  }
-
-  TodoTool todoTool() {
-    return this.todoTool;
   }
 
   String mcpStatus() {

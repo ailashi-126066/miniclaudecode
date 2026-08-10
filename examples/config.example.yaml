@@ -35,6 +35,20 @@ providers:
   #   output-protocol: json
   #   max-output-repairs: 2
 
+# Side-effecting work uses a durable Plan as its only task-state source.
+planning:
+  enabled: true
+  max-steps: 12
+  max-attempts-per-step: 2
+  max-revisions: 3
+
+# Session transcripts remain JSONL. Cross-session memory uses SQLite FTS5 (no embeddings)
+# and extracted candidates require explicit approval before retrieval.
+memory:
+  enabled: true
+  backend: sqlite
+  approval-required: true
+
 # Code-index embeddings. `auto` (default) uses remote when base-url is present; otherwise it
 # tries bundled ONNX semantic embeddings and falls back to deterministic `fast` hashing only
 # when ONNX cannot initialize. Select `onnx` or `fast` to make the local choice strict.

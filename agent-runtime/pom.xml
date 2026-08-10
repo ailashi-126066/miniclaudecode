@@ -29,6 +29,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>dev.miniclaudecode</groupId>
+            <artifactId>agent-planning</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.bsc.langgraph4j</groupId>
             <artifactId>langgraph4j-core</artifactId>
         </dependency>

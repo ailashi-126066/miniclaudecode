@@ -6,6 +6,7 @@ import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,8 @@ public final class RouteSkillTool implements AgentTool {
           "route_skill",
           "Two-stage metadata recall and reranking for local skills without loading their bodies",
           "{\"type\":\"object\",\"properties\":{\"intent\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10}},\"required\":[\"intent\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final SkillCatalog catalog;
 
   public RouteSkillTool(SkillCatalog catalog) {

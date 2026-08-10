@@ -5,6 +5,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.tools.internal.ToolArguments;
 import dev.miniclaudecode.tools.internal.ToolResults;
@@ -27,7 +28,8 @@ public final class ListTool implements AgentTool {
           "list",
           "List files and directories immediately below a workspace directory",
           "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"maxEntries\":{\"type\":\"integer\",\"minimum\":1}}}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final WorkspacePathResolver resolver;
   private final ToolResultStore resultStore;
   private final int inlineByteLimit;

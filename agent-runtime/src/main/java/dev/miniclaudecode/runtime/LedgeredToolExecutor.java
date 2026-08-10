@@ -39,8 +39,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
           "memory:search",
           "session:search",
           "skills:route_skill",
-          "skills:load_skill",
-          "task:todo");
+          "skills:load_skill");
 
   /**
    * These tools have no side effects and are independent of one another, so a model batch can run
@@ -75,6 +74,15 @@ public final class LedgeredToolExecutor implements ToolExecutor {
       List<ToolCall> calls,
       Optional<ApprovalRequest> pendingApproval,
       Optional<ApprovalDecision> approvalDecision) {
+    return execute(calls, pendingApproval, approvalDecision, Optional.empty());
+  }
+
+  @Override
+  public CompletionStage<List<ToolResult>> execute(
+      List<ToolCall> calls,
+      Optional<ApprovalRequest> pendingApproval,
+      Optional<ApprovalDecision> approvalDecision,
+      Optional<PlanExecutionContext> planContext) {
     Objects.requireNonNull(calls, "calls must not be null");
     Objects.requireNonNull(pendingApproval, "pendingApproval must not be null");
     Objects.requireNonNull(approvalDecision, "approvalDecision must not be null");
@@ -94,7 +102,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
                   if (awaitingApproval(accumulated)) {
                     return CompletableFuture.completedFuture(accumulated);
                   }
-                  return executeReadOnlyBatch(batch, pendingApproval, approvalDecision)
+                  return executeReadOnlyBatch(batch, pendingApproval, approvalDecision, planContext)
                       .thenApply(
                           results -> {
                             accumulated.addAll(results);
@@ -111,7 +119,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
                   if (awaitingApproval(accumulated)) {
                     return CompletableFuture.completedFuture(accumulated);
                   }
-                  return executeOne(call, pendingApproval, approvalDecision)
+                  return executeOne(call, pendingApproval, approvalDecision, planContext)
                       .thenApply(
                           result -> {
                             accumulated.add(result);
@@ -127,10 +135,14 @@ public final class LedgeredToolExecutor implements ToolExecutor {
   private CompletionStage<List<ToolResult>> executeReadOnlyBatch(
       List<ToolCall> calls,
       Optional<ApprovalRequest> pendingApproval,
-      Optional<ApprovalDecision> approvalDecision) {
+      Optional<ApprovalDecision> approvalDecision,
+      Optional<PlanExecutionContext> planContext) {
     List<CompletableFuture<ToolResult>> futures =
         calls.stream()
-            .map(call -> executeOne(call, pendingApproval, approvalDecision).toCompletableFuture())
+            .map(
+                call ->
+                    executeOne(call, pendingApproval, approvalDecision, planContext)
+                        .toCompletableFuture())
             .toList();
     CompletableFuture<?>[] all = futures.toArray(CompletableFuture[]::new);
     return CompletableFuture.allOf(all)
@@ -149,7 +161,8 @@ public final class LedgeredToolExecutor implements ToolExecutor {
   private CompletionStage<ToolResult> executeOne(
       ToolCall call,
       Optional<ApprovalRequest> batchApproval,
-      Optional<ApprovalDecision> batchDecision) {
+      Optional<ApprovalDecision> batchDecision,
+      Optional<PlanExecutionContext> planContext) {
     // An approval request and its decision are scoped to exactly one tool call. Forwarding a
     // decision to a call it was not issued for makes tools reject it as a tampered binding, so the
     // decision travels only alongside its own request.
@@ -191,7 +204,7 @@ public final class LedgeredToolExecutor implements ToolExecutor {
     saveRecord(pending);
     CompletionStage<List<ToolResult>> execution;
     try {
-      execution = delegate.execute(List.of(call), pendingApproval, approvalDecision);
+      execution = delegate.execute(List.of(call), pendingApproval, approvalDecision, planContext);
     } catch (RuntimeException error) {
       markInterrupted(pending, call);
       return CompletableFuture.failedFuture(error);

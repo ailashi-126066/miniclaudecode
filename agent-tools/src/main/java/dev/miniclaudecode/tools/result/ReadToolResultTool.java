@@ -4,6 +4,7 @@ import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.tools.internal.ToolArguments;
 import java.util.Map;
@@ -25,7 +26,8 @@ public final class ReadToolResultTool implements AgentTool {
           "read_result",
           "Read a bounded slice of an externalized tool result by its sha256 reference",
           "{\"type\":\"object\",\"properties\":{\"reference\":{\"type\":\"string\",\"pattern\":\"^sha256:[0-9a-f]{64}$\"},\"offset\":{\"type\":\"integer\",\"minimum\":0},\"maxCharacters\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65536}},\"required\":[\"reference\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final ToolResultStore store;
 
   public ReadToolResultTool(ToolResultStore store) {

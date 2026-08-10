@@ -17,6 +17,7 @@ import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
+import dev.miniclaudecode.runtime.PlanExecutionContext;
 import dev.miniclaudecode.runtime.ToolExecutor;
 import dev.miniclaudecode.tools.approval.PromptInjectionScanner;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
@@ -99,13 +100,22 @@ final class RegistryToolExecutor implements ToolExecutor {
       List<ToolCall> calls,
       Optional<ApprovalRequest> pendingApproval,
       Optional<ApprovalDecision> approvalDecision) {
+    return execute(calls, pendingApproval, approvalDecision, Optional.empty());
+  }
+
+  @Override
+  public CompletionStage<List<ToolResult>> execute(
+      List<ToolCall> calls,
+      Optional<ApprovalRequest> pendingApproval,
+      Optional<ApprovalDecision> approvalDecision,
+      Optional<PlanExecutionContext> planContext) {
     CompletionStage<List<ToolResult>> chain = CompletableFuture.completedFuture(new ArrayList<>());
 
     for (ToolCall call : List.copyOf(calls)) {
       chain =
           chain.thenCompose(
               results ->
-                  this.executeOne(call, pendingApproval, approvalDecision)
+                  this.executeOne(call, pendingApproval, approvalDecision, planContext)
                       .thenApply(
                           result -> {
                             results.add(result);
@@ -119,7 +129,8 @@ final class RegistryToolExecutor implements ToolExecutor {
   private CompletionStage<ToolResult> executeOne(
       ToolCall call,
       Optional<ApprovalRequest> pendingApproval,
-      Optional<ApprovalDecision> approvalDecision) {
+      Optional<ApprovalDecision> approvalDecision,
+      Optional<PlanExecutionContext> planContext) {
     if (this.cancellationToken.isCancellationRequested()) {
       return CompletableFuture.completedFuture(
           new ToolResult(
@@ -130,11 +141,35 @@ final class RegistryToolExecutor implements ToolExecutor {
               Map.of()));
     } else {
       AgentTool tool = this.registry.require(call.qualifiedName());
+      if (!Boolean.FALSE.equals(this.fixedAttributes.get("planningEnabled"))
+          && tool.descriptor().effect().requiresPlan()
+          && (planContext.isEmpty()
+              || !planContext
+                  .orElseThrow()
+                  .expectedEffects()
+                  .contains(tool.descriptor().effect()))) {
+        ToolResult denied =
+            new ToolResult(
+                call.toolCallId(),
+                Status.FAILED,
+                planContext.isEmpty()
+                    ? "Tool effect "
+                        + tool.descriptor().effect()
+                        + " requires an active Plan and in-progress step"
+                    : "Tool effect "
+                        + tool.descriptor().effect()
+                        + " is not allowed by Plan step "
+                        + planContext.orElseThrow().stepId(),
+                Optional.empty(),
+                Map.of("planGate", "denied", "effect", tool.descriptor().effect().name()));
+        this.auditResult(call, denied, planContext);
+        return CompletableFuture.completedFuture(denied);
+      }
       Optional<ToolResult> mcpAuthorization =
           this.authorizeMcp(tool, call, pendingApproval, approvalDecision);
       if (mcpAuthorization.isPresent()) {
         ToolResult result = mcpAuthorization.orElseThrow();
-        this.auditResult(call, result);
+        this.auditResult(call, result, planContext);
         return CompletableFuture.completedFuture(result);
       } else {
         this.renderer.accept(new Progress(activityFor(call.qualifiedName())));
@@ -143,9 +178,14 @@ final class RegistryToolExecutor implements ToolExecutor {
             Map.of("toolCallId", call.toolCallId(), "tool", call.qualifiedName()));
         Map<String, Object> attributes = new LinkedHashMap<>();
         attributes.putAll(this.fixedAttributes);
-        attributes.put("requireVerifiedTodo", true);
         attributes.put("elevatedApprovalRequired", this.elevatedApprovalRequired);
         attributes.put("cancellationToken", this.cancellationToken);
+        planContext.ifPresent(
+            context -> {
+              attributes.put("planId", context.planId().toString());
+              attributes.put("stepId", context.stepId());
+              attributes.put("expectedEffects", context.expectedEffects());
+            });
         pendingApproval.ifPresent(value -> attributes.put("approvalRequest", value));
         approvalDecision.ifPresent(value -> attributes.put("approvalDecision", value));
         ToolContext context =
@@ -166,18 +206,7 @@ final class RegistryToolExecutor implements ToolExecutor {
         return execution.thenApply(
             rawResult -> {
               ToolResult result = this.inspectUntrustedResult(call, rawResult);
-              if (result.status() == Status.COMPLETED
-                  && "shell:run".equals(call.qualifiedName())
-                  && call.argumentsJson()
-                      .matches(
-                          "(?is).*\\b(mvn|gradle|npm|pnpm|yarn|pytest|go\\s+test|cargo\\s+test|dotnet\\s+test|jest|vitest|ruff|eslint|spotless|checkstyle|lint|compile|build)\\b.*")) {
-                this.registry
-                    .find("task:todo")
-                    .filter(dev.miniclaudecode.tools.task.TodoTool.class::isInstance)
-                    .map(dev.miniclaudecode.tools.task.TodoTool.class::cast)
-                    .ifPresent(todo -> todo.recordSuccessfulVerification(this.sessionId));
-              }
-              this.auditResult(call, result);
+              this.auditResult(call, result, planContext);
               return result;
             });
       }
@@ -222,7 +251,8 @@ final class RegistryToolExecutor implements ToolExecutor {
         metadata);
   }
 
-  private void auditResult(ToolCall call, ToolResult result) {
+  private void auditResult(
+      ToolCall call, ToolResult result, Optional<PlanExecutionContext> planContext) {
     AgentEventType type =
         result.status() == Status.APPROVAL_REQUIRED
             ? AgentEventType.APPROVAL_REQUESTED
@@ -233,6 +263,12 @@ final class RegistryToolExecutor implements ToolExecutor {
     payload.put("arguments", call.argumentsJson());
     payload.put("status", result.status().name());
     payload.put("summary", result.summary());
+    planContext.ifPresent(
+        context -> {
+          payload.put("planId", context.planId().toString());
+          payload.put("stepId", context.stepId());
+          payload.put("effectBinding", context.expectedEffects().stream().map(Enum::name).toList());
+        });
     if (result.metadata().get("approvalRequest") instanceof ApprovalRequest request) {
       payload.put("approvalId", request.approvalId().toString());
       payload.put("risk", request.riskLevel().name());

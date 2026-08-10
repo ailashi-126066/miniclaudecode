@@ -21,6 +21,8 @@ public sealed interface SlashCommand
         SlashCommand.Resume,
         SlashCommand.Mcp,
         SlashCommand.Skills,
+        SlashCommand.PlanView,
+        SlashCommand.Memory,
         SlashCommand.Config {
   String name();
 
@@ -74,6 +76,30 @@ public sealed interface SlashCommand
     @Override
     public String name() {
       return "mcp";
+    }
+  }
+
+  public static record PlanView(String action, Optional<String> stepId) implements SlashCommand {
+    public PlanView {
+      action = SlashCommand.requireText(action, "action").toLowerCase(java.util.Locale.ROOT);
+      stepId = SlashCommand.normalized(stepId, "stepId");
+    }
+
+    @Override
+    public String name() {
+      return "plan";
+    }
+  }
+
+  public static record Memory(String action, Optional<String> value) implements SlashCommand {
+    public Memory {
+      action = SlashCommand.requireText(action, "action").toLowerCase(java.util.Locale.ROOT);
+      value = SlashCommand.normalized(value, "value");
+    }
+
+    @Override
+    public String name() {
+      return "memory";
     }
   }
 

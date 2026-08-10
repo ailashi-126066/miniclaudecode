@@ -148,17 +148,18 @@ flowchart TD
 | | 有 `error`，且 `retryPolicy.decide(...)` 判可重试 | `retry` → recover_error |
 | | 有 `error`，不可重试 | `finish` → finish |
 | | 无错且 `pendingToolCalls` 非空 | `tools` → execute_tools |
-| | 无错无工具，但 `requiresVerification(state)` 或 `hasIncompleteTasks(state)` | `verify` → require_verification |
+| | 无错无工具，存在进行中的 Plan step | `verify_step` → verify_step |
+| | 无错无工具，但 `requiresVerification(state)` | `verify` → require_verification |
 | | 输出不满足当前协议且修复次数未满 | `repair` → repair_output |
 | | 输出有效，或修复次数耗尽 | `finish` → finish |
 | `afterTools()` | 有 `error` | `finish` → finish |
 | | `pendingApproval` 存在 | `approval` → await_approval |
 | | 否则 | `model` → call_model |
 
-两个验证判定都以 `verificationPrompts < 2` 为前提（最多催两次），且都由 `request.attributes()` 中的开关激活：
+变更验证以 `verificationPrompts < 2` 为前提（最多催两次），并由 `request.attributes()` 中的开关激活：
 
 - `requiresVerification`：开关 `requireVerification`。扫描 `messages` 里的 `ToolMessage`，若最后一次成功的**变更**（`workspace:write` / `workspace:edit` / `workspace:apply_patch`，见 `isMutation`）出现在最后一次成功的 `shell:run` 之后，说明改了文件却没验证，返回 true。
-- `hasIncompleteTasks`：开关 `requireTaskCompletion`。取最后一条成功的 `task:todo` 输出，文本含 `[ ]`（未开始）或 `[>]`（进行中）即视为任务未完。
+- Plan 是任务状态的唯一真源。`VerifyPlanStepNode` 根据当前 step 的工具证据和验证结果选择 `COMPLETE / RETRY / REPLAN / BLOCKED`；完成的 step 不可修改。
 
 ## RetryPolicy：重试的边界
 
@@ -199,7 +200,7 @@ if (backwards > 0 || !(messages.get(0) instanceof ToolMessage)) {
 
 即：切点向前回退到拥有这组工具调用的 assistant 消息上，宁可多保留上下文；仅当整个前缀全是工具结果（防御分支）才改为向后推进、丢弃孤儿。
 
-`summary(older)` 生成的摘要按六节组织：Objective（用户消息，首条 + 末两条）、Decisions and outcomes（无工具调用的 assistant 文本，末 3 条）、Changed files（变更工具触及的目标，去重）、Verification（`shell:run` 输出，末 3 条）、Failed attempts（出错的工具，末 3 条）、Remaining task state（最后一条 `task:todo`）。
+`summary(older)` 生成的摘要按五节组织：Objective（用户消息，首条 + 末两条）、Decisions and outcomes（无工具调用的 assistant 文本，末 3 条）、Changed files（变更工具触及的目标，去重）、Verification（`shell:run` 输出，末 3 条）、Failed attempts（出错的工具，末 3 条）。Plan 不从对话摘要推导，而由状态和事件流单独保存。
 
 ## ToolExecutor 与 LedgeredToolExecutor：带账本的工具执行
 
@@ -218,7 +219,7 @@ if (backwards > 0 || !(messages.get(0) instanceof ToolMessage)) {
 `executeOne` 的三路判定按序：
 
 1. **账本去重**：`ledger.find(call.toolCallId())` 命中 `COMPLETED` 记录，直接返回占位结果 `"Reused completed tool execution: ..."`（metadata 带 `ledgerReused=true`），绝不重放已完成的副作用。
-2. **不确定副作用二次确认**：命中 `PENDING` / `UNKNOWN`（`isUncertain`）且该工具不在 `SAFE_RETRY_TOOLS`（`workspace:read` / `list` / `glob` / `grep` / `code_search`、`task:todo`——无副作用、可放心重跑）——说明上一个进程可能死在这个工具执行中途。没有审批决定时，构造一个 HIGH 风险 `ApprovalRequest`（文案即「A previous process stopped while this tool might have been executing...」）返回 `APPROVAL_REQUIRED`；有决定时，校验 `toolCallId` 与 `approvalId` 双匹配且非 REJECT 才放行，否则返回 `CANCELLED`。
+2. **不确定副作用二次确认**：命中 `PENDING` / `UNKNOWN`（`isUncertain`）且该工具不在 `SAFE_RETRY_TOOLS`（`workspace:read` / `list` / `glob` / `grep` / `code_search` 等只读工具）——说明上一个进程可能死在这个工具执行中途。没有审批决定时，构造一个 HIGH 风险 `ApprovalRequest` 返回 `APPROVAL_REQUIRED`；有决定时，校验 `toolCallId` 与 `approvalId` 双匹配且非 REJECT 才放行，否则返回 `CANCELLED`。
 3. **正常执行**：先落一条 `PENDING` 账本记录，再委托内层执行，完成后 `recordResult` 落终态；中途异常由 `markInterrupted` 记 `UNKNOWN`——正是下一次恢复时触发第 2 路的伏笔。
 
 ## 所有回路为何有界

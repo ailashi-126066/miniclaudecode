@@ -6,8 +6,9 @@ import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
-import dev.miniclaudecode.persistence.memory.AceBulletStore;
+import dev.miniclaudecode.persistence.memory.MemoryStore;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,10 +23,11 @@ final class MemorySearchTool implements AgentTool {
           "search",
           "Retrieve project ACE lessons",
           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10}},\"required\":[\"query\"]}",
-          RiskLevel.LOW);
-  private final AceBulletStore bullets;
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
+  private final MemoryStore bullets;
 
-  MemorySearchTool(AceBulletStore bullets) {
+  MemorySearchTool(MemoryStore bullets) {
     this.bullets = Objects.requireNonNull(bullets, "bullets must not be null");
   }
 

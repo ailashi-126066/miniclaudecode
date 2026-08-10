@@ -1,6 +1,7 @@
 package dev.miniclaudecode.cli.app;
 
 import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
+import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.model.ModelStreamEvent.UsageReported;
@@ -10,9 +11,12 @@ import dev.miniclaudecode.domain.session.TurnId;
 import dev.miniclaudecode.persistence.checkpoint.FileCheckpointSaver;
 import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.persistence.ledger.JsonToolExecutionLedger;
+import dev.miniclaudecode.planning.Plan;
+import dev.miniclaudecode.planning.PlanStep;
 import dev.miniclaudecode.runtime.AgentGraphFactory;
 import dev.miniclaudecode.runtime.AgentThreadRunner;
 import dev.miniclaudecode.runtime.LedgeredToolExecutor;
+import dev.miniclaudecode.runtime.PlanProgressListener;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.TurnProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
@@ -75,7 +79,8 @@ final class TurnCoordinator {
             audit.store(),
             cancellationToken,
             renderer,
-            clock);
+            clock,
+            Map.of("planningEnabled", components.config().planning().enabled()));
     Path sessionRoot =
         components.layout().sessionWorkspaceRoot(components.workspace()).resolve(sessionId.value());
     JsonToolExecutionLedger ledger =
@@ -94,14 +99,61 @@ final class TurnCoordinator {
             new TurnLimits(24, 64),
             checkpoint,
             cancellationToken,
-            progressListener));
+            progressListener,
+            planProgressListener(sessionId, turn)));
+  }
+
+  private PlanProgressListener planProgressListener(SessionId sessionId, TurnId turn) {
+    return (event, plan) ->
+        audit.emit(sessionId, turn, AgentEventType.valueOf(event), planPayload(plan));
+  }
+
+  private static Map<String, Object> planPayload(Plan plan) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("planId", plan.id().toString());
+    payload.put("goal", plan.goal());
+    payload.put("status", plan.status().name());
+    payload.put("version", plan.version());
+    payload.put("revisions", plan.revisions());
+    payload.put("createdAt", plan.createdAt().toString());
+    payload.put("updatedAt", plan.updatedAt().toString());
+    payload.put("steps", plan.steps().stream().map(TurnCoordinator::stepPayload).toList());
+    return Map.copyOf(payload);
+  }
+
+  private static Map<String, Object> stepPayload(PlanStep step) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("id", step.id());
+    payload.put("description", step.description());
+    payload.put("dependsOn", step.dependsOn());
+    payload.put("acceptanceCriteria", step.acceptanceCriteria());
+    payload.put(
+        "expectedEffects", step.expectedEffects().stream().map(Enum::name).sorted().toList());
+    payload.put("status", step.status().name());
+    payload.put("attempts", step.attempts());
+    step.evidence()
+        .ifPresent(
+            evidence -> {
+              Map<String, Object> details = new LinkedHashMap<>();
+              details.put("toolResults", evidence.toolResults());
+              details.put("verificationResults", evidence.verificationResults());
+              details.put("changedFiles", evidence.changedFiles());
+              evidence.failureReason().ifPresent(reason -> details.put("failureReason", reason));
+              details.put("recordedAt", evidence.recordedAt().toString());
+              payload.put("evidence", Map.copyOf(details));
+            });
+    return Map.copyOf(payload);
   }
 
   private Map<String, Object> requestAttributes(ProviderProfile profile) {
     Map<String, Object> attributes = new LinkedHashMap<>();
     attributes.put("workspace", components.workspace().toString());
     attributes.put("requireVerification", true);
-    attributes.put("requireTaskCompletion", true);
+    attributes.put("planningEnabled", components.config().planning().enabled());
+    attributes.put("planningMaxSteps", components.config().planning().maxSteps());
+    attributes.put(
+        "planningMaxAttemptsPerStep", components.config().planning().maxAttemptsPerStep());
+    attributes.put("planningMaxRevisions", components.config().planning().maxRevisions());
     attributes.put("maxRetries", profile.maxRetries());
     attributes.put("maxCompactions", 3);
     attributes.put("requireRagCitations", true);

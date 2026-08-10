@@ -33,6 +33,9 @@ public final class StateSchema {
     channels.put("toolSteps", Channels.base(() -> 0));
     channels.put("verificationPrompts", Channels.base(() -> 0));
     channels.put("outputRepairCount", Channels.base(() -> 0));
+    channels.put("plan", Channels.base(() -> ""));
+    channels.put("planningPhase", Channels.base(() -> "DISCOVER"));
+    channels.put("stepDecision", Channels.base(() -> ""));
     channels.put("trace", Channels.appenderWithDuplicate(ArrayList::new));
     return Map.copyOf(channels);
   }

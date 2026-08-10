@@ -704,18 +704,16 @@ feat(extensions): support secured MCP clients and capabilities
 feat(extensions): discover and load local skills on demand
 ```
 
-### 任务 18：补齐 Web、Todo、Ask User 与完整图场景
+### 任务 18：补齐 Web、Ask User 与完整图场景
 
 **测试文件**
 
 - `agent-tools/src/test/java/dev/miniclaudecode/tools/web/WebFetchToolTest.java`
-- `agent-tools/src/test/java/dev/miniclaudecode/tools/task/TodoToolTest.java`
 - `agent-runtime/src/test/java/dev/miniclaudecode/runtime/CompleteCodingAgentScenarioTest.java`
 
 **生产文件**
 
 - `agent-tools/src/main/java/dev/miniclaudecode/tools/web/WebFetchTool.java`
-- `agent-tools/src/main/java/dev/miniclaudecode/tools/task/TodoTool.java`
 - `agent-tools/src/main/java/dev/miniclaudecode/tools/user/AskUserTool.java`
 
 **Red**

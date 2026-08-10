@@ -7,7 +7,11 @@
 - `skills:route_skill` 对 Skill 元数据先召回、再按名称/标签/触发词/示例重排，正文仍由
   `skills:load_skill` 按需加载。
 - 成功任务会自动蒸馏为路径经验、错误修复、会话结果或用户偏好，并由
-  `memory:search` 跨会话复用；输入 `记住：...` 可明确保存偏好。
+  `memory:search` 跨会话复用。会话原文保持 JSONL；长期记忆存入工作区隔离的 SQLite
+  FTS5 数据库，候选记忆必须人工批准后才参与检索，不使用 embedding。
+- 有副作用的任务遵循独立 Plan 状态机：`DISCOVER → CREATE_PLAN → SELECT_STEP →
+  EXECUTE_STEP → VERIFY_STEP`，失败时有界地 `RETRY / REPLAN / BLOCKED`。Plan 是任务状态的
+  唯一真源，工具执行还会校验 `planId`、`stepId` 和 `ToolEffect`。
 - 大型代码检索和工具结果使用 `sha256:` 内容地址外置，`context:read_result` 支持按
   offset 分页取回，避免把完整结果反复塞回 Prompt。
 - `agent:delegate` 可并发运行 1–4 个探索/审查/规划子 Agent。子 Agent 只有只读工具，
@@ -54,7 +58,7 @@ JLine / Picocli CLI (composition root)
         │                    ├── memory / externalized result retrieval
         │                    ├── MCP tools/resources
         │                    └── SKILL.md router + loader
-        └── JSONL / Checkpoint / Tool Ledger / index diagnostics
+        └── JSONL sessions / SQLite FTS5 memory / Plan events / Checkpoint / Tool Ledger
 ```
 
 依赖方向和状态图详见 [docs/architecture.md](docs/architecture.md)，本次模块化改造和扩展方法

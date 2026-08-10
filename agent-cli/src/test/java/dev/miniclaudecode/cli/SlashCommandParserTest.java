@@ -32,6 +32,14 @@ class SlashCommandParserTest {
                     "/resume session-1",
                     "/mcp",
                     "/skills",
+                    "/plan",
+                    "/plan history",
+                    "/plan evidence step-1",
+                    "/memory pending",
+                    "/memory approve abc",
+                    "/memory archive abc",
+                    "/memory search java build",
+                    "/memory export",
                     "/config",
                     "/config setup")
                 .stream()
@@ -55,6 +63,14 @@ class SlashCommandParserTest {
             "resume",
             "mcp",
             "skills",
+            "plan",
+            "plan",
+            "plan",
+            "memory",
+            "memory",
+            "memory",
+            "memory",
+            "memory",
             "config",
             "config");
   }

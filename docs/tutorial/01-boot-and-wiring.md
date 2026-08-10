@@ -86,7 +86,7 @@ commands.set(commandHandler);
 4. `ToolResultStore`（按 `layout.workspaceHash(workspace)` 分目录）、`WorkspacePathResolver`、`JsonPermissionRuleStore` + `PermissionEngine`（参见 07-approval-risk-sandbox.md）；
 5. `RagWiringFactory` 依配置选择 `AUTO` / `ONNX` / `FAST` / `REMOTE`，据此构造 `LuceneCodeIndex`、`Bm25Retriever`、`VectorRetriever`、`HybridCodeSearcher`（参见 09/10 两章）；
 6. `ExtensionWiringFactory` 发现 `SkillCatalog` 并隔离 MCP 连接故障（参见 11-mcp-and-skills.md）；
-7. 组装工具清单：`ReadTool`/`ListTool`/`GlobTool`/`GrepTool`（只读）、`WriteTool`/`EditTool`/`ApplyPatchTool`（走 `PermissionEngine`）、`RunCommandTool`（内含 `CommandSandbox.detect` 选 OS 沙箱 + `ProcessRunner`）、`WebFetchTool`、`TodoTool`、`AskUserTool`、`CodeSearchTool`、`LoadSkillTool`，再追加全部 MCP 工具，装进 `DefaultToolRegistry`（参见 06-tools-read-write.md）；
+7. 组装工具清单：`ReadTool`/`ListTool`/`GlobTool`/`GrepTool`（只读）、`WriteTool`/`EditTool`/`ApplyPatchTool`（走 `PermissionEngine`）、`RunCommandTool`（内含 `CommandSandbox.detect` 选 OS 沙箱 + `ProcessRunner`）、`WebFetchTool`、`PlanningRequestTool`、`AskUserTool`、`CodeSearchTool`、`LoadSkillTool`，再追加全部 MCP 工具，装进 `DefaultToolRegistry`（参见 06-tools-read-write.md）；
 8. 汇总 `secrets` 集合：所有 provider 与 embedding 配置解析出的 API key，供审计日志脱敏（源码注释强调漏一个 key 就会明文落盘）。
 
 ```mermaid

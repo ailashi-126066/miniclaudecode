@@ -71,9 +71,9 @@ target.set((String) entry.getKey(), value.deepCopy());
 
 ### AppConfig / ProviderProfile / EmbeddingConfig
 
-三个 record，校验全部压进紧凑构造器，因此"存在即合法"。
+五个 record，校验全部压进紧凑构造器，因此"存在即合法"。
 
-`AppConfig(providers, activeProvider, embedding)`：`providers` 防御性 `Map.copyOf` 且非空；`activeProvider` 非空白且必须是 `providers` 的键；`activeProfile()` 返回当前生效的 profile。
+`AppConfig(providers, activeProvider, embedding, planning, memory)`：`providers` 防御性 `Map.copyOf` 且非空；`activeProvider` 非空白且必须是 `providers` 的键；`activeProfile()` 返回当前生效的 profile。`PlanningConfig` 约束 Plan-first 执行的最大步骤、单步尝试和重规划次数；`MemoryConfig` 固定使用 SQLite 后端，并强制候选记忆经过批准。
 
 `ProviderProfile` 十个字段：`type`（枚举 `ANTHROPIC` / `OPENAI_COMPATIBLE` / `OLLAMA`，`Type.parse` 接受连字符写法 `openai-compatible`）、`baseUrl`（必须 http/https 且带 host）、`apiKey` / `apiKeyEnv`（trim 后空串归一为 `Optional.empty()`）、`model`（非空白）、`temperature`（0–2 且有限）、`maxOutputTokens`（≥1）、`thinking`、`timeout`（正值）、`maxRetries`（0–10）。
 
@@ -82,6 +82,8 @@ target.set((String) entry.getKey(), value.deepCopy());
 | `resolvedApiKey` | `environment`：环境变量 map（注入而非读 `System.getenv`，便于测试） | 先查 `apiKeyEnv` 指向的环境变量，非空则优先；否则退回配置内的 `apiKey`。模型接入层用它拿真实密钥（参见 05-model-providers.md） |
 
 `EmbeddingConfig` 结构与之平行，服务 RAG 的向量化（参见 09-rag-indexing.md）：`AUTO` 是默认值，本地先尝试 `ONNX`，初始化失败才回退 `FAST`；存在 `base-url` 时走 `REMOTE`。也可显式选择 `ONNX`（语义模型、失败即报错）、`FAST`（离线哈希）或 `REMOTE`（OpenAI 兼容 `/v1/embeddings`）。`dimensions ≥ 32` 且必须在建索引前声明；`REMOTE` 额外强制 `base-url` 与 `model` 存在。历史命名的 `fastDefault()` 现在返回 384 维 `AUTO` 配置；`resolvedApiKey` 与 `ProviderProfile` 同款。
+
+这里的 embedding 仅用于代码 RAG。会话原文写入 JSONL；跨会话长期记忆写入 SQLite FTS5，以 BM25 检索，不生成向量。
 
 ### UserConfigWriter 与 ConfigurationWizard
 
@@ -164,11 +166,11 @@ int completeLineCount = hasIncompleteTail ? lines.length - 1 : lines.length;
 | 方法 | 参数 | 做什么 |
 | --- | --- | --- |
 | `sessions` | 无 | 列出 `sessions/<hash>/events/` 下所有 `*.jsonl` 文件名（去扩展名、排序），即 `/sessions` 的输出 |
-| `switchTo` | `value`：目标 session id 字符串 | `/resume <id>` 的实现：`eventStore.read` 重放事件流，空则报 `unknown session`；否则依次恢复用量统计、消息历史、turn 计数、任务清单、悬挂审批（详见下） |
+| `switchTo` | `value`：目标 session id 字符串 | `/resume <id>` 的实现：`eventStore.read` 重放事件流，空则报 `unknown session`；否则依次恢复用量统计、消息历史、turn 计数、Plan 视图与悬挂审批（详见下） |
 | `emit` | `turnId`：当前 turn；`type`：事件类型；`payload`：事件数据 | 每个关键节点写一条事件——正是这些事件让 `switchTo` 成为可能 |
 | `createRunner`（私有） | `turn` / `graphThread` / `cancellationToken` / `renderer` | 每 turn 组装一套运行件：本 turn 专属的 `JsonToolExecutionLedger`、指向 `checkpoints/<workspaceHash>` 的 `FileCheckpointSaver`，图线程 id 固定为 `<sessionId>-turn-<n>` |
 
-`switchTo` 重放的规则：消息历史从零开始——先放一条新鲜的 `SystemMessage(systemPrompt())`，然后 `USER_MESSAGE` 事件的 `text` 变 `UserMessage`、`TURN_FINAL` 的 `text` 变 `AssistantMessage`（中间的工具往返不进历史，上下文因此天然紧凑）；`nextTurn` 取所见最大 `turnId` 加一；`restoreTasks` 只取最后一条 `TASK_UPDATED` 的 `items` 整表覆盖 todo 状态。
+`switchTo` 重放的规则：消息历史从零开始——先放一条新鲜的 `SystemMessage(systemPrompt())`，然后 `USER_MESSAGE` 事件的 `text` 变 `UserMessage`、`TURN_FINAL` 的 `text` 变 `AssistantMessage`（中间的工具往返不进历史，上下文因此天然紧凑）；`nextTurn` 取所见最大 `turnId` 加一。Plan 由 `PLAN_*` 事件提供历史和证据视图，运行中断点则从 checkpoint 恢复。旧 JSONL 中的 `TASK_UPDATED` 仍可解码，但会被忽略，不再恢复 todo 状态。
 
 最精巧的是 `restorePendingApproval`：顺序扫描，遇 `APPROVAL_REQUESTED` 记为悬挂、遇 `APPROVAL_RESOLVED` 或 `TURN_FINAL` 清空。扫完仍悬挂，说明上次进程死在等审批——于是从 payload 重建 `ApprovalRequest` 与 diff 预览，并把 `activeGraphThread` 设回 `<sessionId>-turn-<n>`。这个 id 与当初 `createRunner` 用的图线程 id 相同，因此用户批准后 `resume()` 能通过 `FileCheckpointSaver` 找到当时冻结的图状态、从中断点继续执行。
 
@@ -184,12 +186,12 @@ sequenceDiagram
     C-->>E: DecodeResult（坏行→warning）
     E-->>S: ReadResult(events, warnings)
     S->>S: 重建 messages / nextTurn / usage
-    S->>S: restoreTasks(最后一条 TASK_UPDATED)
+    S->>S: 读取 PLAN_* 视图；忽略旧 TASK_UPDATED
     S->>S: restorePendingApproval(未决审批→activeGraphThread)
     Note over S: 若有悬挂审批，后续 resume() 经<br/>FileCheckpointSaver 接回图断点
 ```
 
-调用链：`/resume <id>` → `SessionCommandHandler`（agent-cli/.../cli/SessionCommandHandler.java，经 `session::switchTo` 方法引用接线）→ `ApplicationSession.switchTo()` → `SessionAuditService.read()` → `SessionRestorationService.restore()`（消息、任务、审批和进度一次性重建）。
+调用链：`/resume <id>` → `SessionCommandHandler`（agent-cli/.../cli/SessionCommandHandler.java，经 `session::switchTo` 方法引用接线）→ `ApplicationSession.switchTo()` → `SessionAuditService.read()` → `SessionRestorationService.restore()`（消息、用量、审批和进度一次性重建）。
 
 ## 下一章
 

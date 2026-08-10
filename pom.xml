@@ -17,6 +17,7 @@
         <module>agent-model-api</module>
         <module>agent-context</module>
         <module>agent-prompt</module>
+        <module>agent-planning</module>
         <module>agent-runtime</module>
         <module>agent-providers</module>
         <module>agent-tools</module>
@@ -37,6 +38,7 @@
         <pdfbox.version>3.0.8</pdfbox.version>
         <poi.version>5.5.1</poi.version>
         <jsoup.version>1.22.2</jsoup.version>
+        <sqlite.version>3.50.3.0</sqlite.version>
         <jline.version>3.30.15</jline.version>
         <picocli.version>4.7.7</picocli.version>
         <jackson.version>2.21.1</jackson.version>
@@ -120,6 +122,11 @@
                 <groupId>org.jsoup</groupId>
                 <artifactId>jsoup</artifactId>
                 <version>${jsoup.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.xerial</groupId>
+                <artifactId>sqlite-jdbc</artifactId>
+                <version>${sqlite.version}</version>
             </dependency>
             <!-- POI's optional compression path is still on older commons releases; pin the
                  graph to the versions required by POI itself so dependency convergence remains a

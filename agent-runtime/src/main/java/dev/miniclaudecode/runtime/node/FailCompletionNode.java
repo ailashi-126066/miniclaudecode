@@ -32,10 +32,6 @@ public final class FailCompletionNode implements AsyncNodeAction<MiniClaudeState
       return "Verification is required after workspace changes, but no successful verification "
           + "command was recorded.";
     }
-    if (CompletionRequirements.hasIncompleteTasks(state)) {
-      return "The task checklist is still incomplete after the maximum number of completion "
-          + "prompts.";
-    }
     RagCitationValidator.Evaluation citation =
         this.citations.evaluate(state.request(), state.messages(), state.finalText());
     if (!citation.valid()) {

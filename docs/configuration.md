@@ -77,6 +77,29 @@ deny 始终优先，不能用一次审批绕过。命中 allow 前缀的命令�
 `git` 或 shell 之类过宽前缀放行危险子命令。未命中的命令在
 `allowlist-only: false` 时进入风险分类和审批；设为 `true` 时直接拒绝。
 
+## Planning 与长期记忆
+
+```yaml
+planning:
+  enabled: true
+  max-steps: 12
+  max-attempts-per-step: 2
+  max-revisions: 3
+
+memory:
+  enabled: true
+  backend: sqlite
+  approval-required: true
+```
+
+会话消息和 Plan 事件按 session 写入 JSONL；Plan 的 checkpoint 是可恢复派生状态。跨会话
+长期记忆位于 `~/.mini-claude-code/memory/memory.db`，使用 SQLite FTS5/BM25，并按 workspace
+hash 隔离。自动提取的经验先进入 `PENDING_REVIEW`，只有 `/memory approve <id>` 后才参与
+prompt 检索。旧 `.miniclaudecode/bullets/ace.jsonl` 首次启动时幂等迁移，原文件不删除。
+
+这里的长期记忆不生成 embedding，也不需要向量数据库。下面的 embedding 配置只服务代码
+索引的混合检索，与会话/长期记忆无关。
+
 ## RAG / Embeddings
 
 代码索引的向量模型通过 `rag.embedding` 配置：

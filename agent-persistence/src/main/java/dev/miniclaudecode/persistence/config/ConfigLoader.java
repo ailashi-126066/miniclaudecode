@@ -148,10 +148,38 @@ public final class ConfigLoader {
       }
 
       return new AppConfig(
-          providers, activeProvider, parseEmbedding(root), parseCommandPolicy(root));
+          providers,
+          activeProvider,
+          parseEmbedding(root),
+          parseCommandPolicy(root),
+          parsePlanning(root),
+          parseMemory(root));
     } else {
       throw new IllegalArgumentException("providers must be an object");
     }
+  }
+
+  private static PlanningConfig parsePlanning(ObjectNode root) {
+    JsonNode node = root.path("planning");
+    if (!(node instanceof ObjectNode planning)) {
+      return PlanningConfig.defaults();
+    }
+    return new PlanningConfig(
+        planning.path("enabled").asBoolean(true),
+        planning.path("max-steps").asInt(12),
+        planning.path("max-attempts-per-step").asInt(2),
+        planning.path("max-revisions").asInt(3));
+  }
+
+  private static MemoryConfig parseMemory(ObjectNode root) {
+    JsonNode node = root.path("memory");
+    if (!(node instanceof ObjectNode memory)) {
+      return MemoryConfig.defaults();
+    }
+    return new MemoryConfig(
+        memory.path("enabled").asBoolean(true),
+        optionalText(memory, "backend").orElse("sqlite"),
+        memory.path("approval-required").asBoolean(true));
   }
 
   private static EmbeddingConfig parseEmbedding(ObjectNode root) {

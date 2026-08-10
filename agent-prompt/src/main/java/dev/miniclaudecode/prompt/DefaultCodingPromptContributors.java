@@ -53,8 +53,11 @@ public final class DefaultCodingPromptContributors {
             context ->
                 "Run the narrowest relevant tests after a change and report what was actually"
                     + " verified.\n"
-                    + "For multi-step work, maintain task:todo with exactly one in_progress item"
-                    + " and finish all items before reporting completion."),
+                    + "During discovery, use only read-only tools. Before any mutation, process,"
+                    + " or external effect, call planning:request with the goal and expected"
+                    + " effects. Once a Plan is active, follow its current step exactly, keep only"
+                    + " one step in progress, and satisfy its acceptance criteria before"
+                    + " advancing."),
         PromptContributor.of(
             "engineering-report",
             625,

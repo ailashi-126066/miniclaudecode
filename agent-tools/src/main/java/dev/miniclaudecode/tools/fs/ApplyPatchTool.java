@@ -2,6 +2,7 @@ package dev.miniclaudecode.tools.fs;
 
 import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.tools.approval.PermissionEngine;
 import dev.miniclaudecode.tools.approval.RiskClassifier;
 import dev.miniclaudecode.tools.diff.UnifiedDiffService;
@@ -15,7 +16,8 @@ public final class ApplyPatchTool extends AbstractFileMutationTool {
           "apply_patch",
           "Apply a unified diff to one UTF-8 workspace file after diff-bound approval",
           "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"patch\":{\"type\":\"string\"}},\"required\":[\"path\",\"patch\"]}",
-          RiskLevel.MEDIUM);
+          RiskLevel.MEDIUM,
+          ToolEffect.MUTATION);
   private final UnifiedPatchApplier patchApplier = new UnifiedPatchApplier();
 
   public ApplyPatchTool(WorkspacePathResolver resolver, PermissionEngine permissionEngine) {

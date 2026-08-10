@@ -131,7 +131,7 @@ sealed 接口，模型流式响应的八种事件。按一次典型响应的出�
 
 `AgentEvent` 是全系统统一的事件信封：`eventId`（UUID）、`version`（当前 `CURRENT_VERSION = 1`，为事件格式演进留位）、`sessionId`、`turnId`、`occurredAt`、`type`、`payload`（自由键值）。两个静态工厂 `create(...)` 重载：一个收 `Clock` 取当前时刻，另一个直接收 `Instant`——后者给「事后补记」的场景用，比如批量审计层把合并事件的时间戳定在首个片段到达时刻而非 flush 时刻（参见 08-persistence-and-config.md）。
 
-`AgentEventType` 十四个值覆盖一轮的全部节拍：`USER_MESSAGE` / `ASSISTANT_MESSAGE` / `PROVIDER_THINKING` / `MODEL_USAGE`（模型侧）、`TOOL_STARTED` / `TOOL_RESULT` / `TASK_UPDATED`（工具侧）、`APPROVAL_REQUESTED` / `APPROVAL_RESOLVED`（审批）、`COMPACT_BOUNDARY`（历史压缩边界）、`RETRY` / `TURN_CANCELLED` / `ERROR` / `TURN_FINAL`（控制流终态）。
+`AgentEventType` 覆盖一轮的全部节拍：模型消息与用量、工具调用、`PLAN_CREATED` / `PLAN_STEP_*` / `PLAN_REVISED` / `PLAN_BLOCKED` / `PLAN_COMPLETED`、审批、checkpoint、压缩、重试、记忆提取和轮次终态。`TASK_UPDATED` 仅为旧会话 JSONL 的向后兼容保留；新运行时不再产生或消费它。
 
 `EventSink` 是 `@FunctionalInterface`，唯一方法 `emit(AgentEvent)`，自带 `NOOP` 常量。它是全项目扇出最广的接口：生产者几乎是所有模块（runtime 节点、工具经 `ToolContext.eventSink`、审计层），消费者两路——agent-cli 渲染进度，agent-persistence 落盘。链路：
 

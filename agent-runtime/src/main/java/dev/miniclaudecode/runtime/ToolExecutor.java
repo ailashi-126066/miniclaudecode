@@ -19,4 +19,12 @@ public interface ToolExecutor {
       Optional<ApprovalDecision> approvalDecision) {
     return execute(calls);
   }
+
+  default CompletionStage<List<ToolResult>> execute(
+      List<ToolCall> calls,
+      Optional<ApprovalRequest> pendingApproval,
+      Optional<ApprovalDecision> approvalDecision,
+      Optional<PlanExecutionContext> planContext) {
+    return execute(calls, pendingApproval, approvalDecision);
+  }
 }

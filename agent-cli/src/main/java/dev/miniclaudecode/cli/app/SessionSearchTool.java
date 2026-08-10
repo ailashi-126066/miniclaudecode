@@ -9,6 +9,7 @@ import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.persistence.config.SecretRedactor;
 import dev.miniclaudecode.persistence.event.JsonlEventStore;
@@ -34,7 +35,8 @@ final class SessionSearchTool implements AgentTool {
           "search",
           "Search user requests and final answers in this workspace's prior session history",
           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20}},\"required\":[\"query\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final Path eventRoot;
   private final JsonlEventStore events;
 

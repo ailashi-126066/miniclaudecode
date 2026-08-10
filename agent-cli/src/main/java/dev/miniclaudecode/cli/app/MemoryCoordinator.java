@@ -32,7 +32,6 @@ final class MemoryCoordinator {
     this.audit = audit;
     this.memory =
         new MemoryFacade(
-            components.profile(),
             new ClaudeInstructions(components.workspace(), components.layout()),
             components.bullets());
     this.reflexionExtractor = new ReflexionExtractor(clock, this::extractLesson);
@@ -111,7 +110,7 @@ final class MemoryCoordinator {
             List.of(),
             false,
             512,
-            Map.of("requireVerification", false, "requireTaskCompletion", false));
+            Map.of("requireVerification", false));
     CompletableFuture<Optional<String>> result = new CompletableFuture<>();
     StringBuilder text = new StringBuilder();
     try {

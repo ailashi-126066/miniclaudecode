@@ -31,21 +31,6 @@ public final class CompletionRequirements {
     return lastMutation > lastSuccessfulVerification;
   }
 
-  public static boolean hasIncompleteTasks(MiniClaudeState state) {
-    if (!Boolean.TRUE.equals(state.request().attributes().get("requireTaskCompletion"))) {
-      return false;
-    }
-    ToolMessage latest = null;
-    for (AgentMessage message : state.messages()) {
-      if (message instanceof ToolMessage tool
-          && "task:todo".equals(tool.qualifiedToolName())
-          && !tool.error()) {
-        latest = tool;
-      }
-    }
-    return latest != null && (latest.text().contains("[ ]") || latest.text().contains("[>]"));
-  }
-
   private static boolean isMutation(String name) {
     return "workspace:write".equals(name)
         || "workspace:edit".equals(name)

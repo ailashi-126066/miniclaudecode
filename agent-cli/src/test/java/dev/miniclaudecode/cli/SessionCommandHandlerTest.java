@@ -17,23 +17,24 @@ class SessionCommandHandlerTest {
     AtomicBoolean compacted = new AtomicBoolean();
     SessionCommandHandler handler =
         new SessionCommandHandler(
-            Map.of("anthropic", List.of("claude"), "openai", List.of("gpt-4.1")),
-            "anthropic",
-            "claude",
-            true,
-            List.of("workspace:read", "shell:run"),
-            () -> "Session: session-1",
-            () -> "Prompt cache hit: 75.0%",
-            () -> "session-1",
-            () -> "(no MCP servers)",
-            () -> "(no skills)",
-            () -> "checkpoint",
-            () -> compacted.set(true),
-            ignored -> {},
-            ignored -> "restore",
-            () -> "undo",
-            () -> "redo",
-            Path.of("config.yaml"));
+                Map.of("anthropic", List.of("claude"), "openai", List.of("gpt-4.1")),
+                "anthropic",
+                "claude",
+                true,
+                List.of("workspace:read", "shell:run"),
+                () -> "Session: session-1",
+                () -> "Prompt cache hit: 75.0%",
+                () -> "session-1",
+                () -> "(no MCP servers)",
+                () -> "(no skills)",
+                () -> "checkpoint",
+                () -> compacted.set(true),
+                ignored -> {},
+                ignored -> "restore",
+                () -> "undo",
+                () -> "redo",
+                Path.of("config.yaml"))
+            .withPlanAndMemory(ignored -> "Plan ACTIVE", ignored -> "Memory PENDING");
 
     handler.execute(new SlashCommand.Provider(Optional.of("openai")));
     handler.execute(new SlashCommand.Thinking(false));
@@ -47,5 +48,9 @@ class SessionCommandHandlerTest {
     assertThat(usage).contains("Prompt cache hit: 75.0%");
     assertThat(compacted).isTrue();
     assertThat(handler.execute(new SlashCommand.Recovery())).isEqualTo("checkpoint");
+    assertThat(handler.execute(new SlashCommand.PlanView("current", java.util.Optional.empty())))
+        .isEqualTo("Plan ACTIVE");
+    assertThat(handler.execute(new SlashCommand.Memory("pending", java.util.Optional.empty())))
+        .isEqualTo("Memory PENDING");
   }
 }

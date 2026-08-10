@@ -28,7 +28,7 @@ class ReflexionExtractorTest {
     Optional<AceBullet> bullet = this.extractor.extract(messages, AgentStatus.COMPLETED, "");
 
     assertThat(bullet).isPresent();
-    assertThat(bullet.get().evidence()).anyMatch(line -> line.startsWith("verified completion:"));
+    assertThat(bullet.get().evidence()).containsExactly("verification command succeeded");
   }
 
   @Test

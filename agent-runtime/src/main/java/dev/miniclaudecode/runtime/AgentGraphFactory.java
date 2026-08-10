@@ -10,13 +10,19 @@ import dev.miniclaudecode.domain.runtime.CancellationToken;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.runtime.node.AwaitApprovalNode;
 import dev.miniclaudecode.runtime.node.CallModelNode;
+import dev.miniclaudecode.runtime.node.CreatePlanNode;
+import dev.miniclaudecode.runtime.node.ExecutePlanStepNode;
 import dev.miniclaudecode.runtime.node.ExecuteToolsNode;
 import dev.miniclaudecode.runtime.node.FailCompletionNode;
+import dev.miniclaudecode.runtime.node.FinalVerificationNode;
 import dev.miniclaudecode.runtime.node.FinishNode;
 import dev.miniclaudecode.runtime.node.PrepareContextNode;
 import dev.miniclaudecode.runtime.node.RecoverErrorNode;
 import dev.miniclaudecode.runtime.node.RepairOutputNode;
+import dev.miniclaudecode.runtime.node.ReplanNode;
 import dev.miniclaudecode.runtime.node.RequireVerificationNode;
+import dev.miniclaudecode.runtime.node.SelectPlanStepNode;
+import dev.miniclaudecode.runtime.node.VerifyPlanStepNode;
 import dev.miniclaudecode.runtime.output.EngineeringReportValidator;
 import dev.miniclaudecode.runtime.output.OutputProtocolRegistry;
 import dev.miniclaudecode.runtime.output.RagCitationValidator;
@@ -24,6 +30,7 @@ import dev.miniclaudecode.runtime.retry.RetryPolicy;
 import dev.miniclaudecode.runtime.route.ResponseRouter;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Objects;
 import org.bsc.langgraph4j.CompileConfig;
@@ -49,6 +56,12 @@ public final class AgentGraphFactory {
   public static final String REPAIR_REPORT = "repair_report";
   public static final String FAIL_COMPLETION = "fail_completion";
   public static final String FINISH = "finish";
+  public static final String CREATE_PLAN = "create_plan";
+  public static final String SELECT_STEP = "select_step";
+  public static final String EXECUTE_STEP = "execute_step";
+  public static final String VERIFY_STEP = "verify_step";
+  public static final String REPLAN = "replan";
+  public static final String FINAL_VERIFICATION = "final_verification";
 
   private final CompiledGraph<MiniClaudeState> graph;
 
@@ -76,7 +89,8 @@ public final class AgentGraphFactory {
         limits,
         checkpointSaver,
         cancellationToken,
-        TurnProgressListener.noOp());
+        TurnProgressListener.noOp(),
+        PlanProgressListener.noOp());
   }
 
   public AgentGraphFactory(
@@ -86,6 +100,24 @@ public final class AgentGraphFactory {
       BaseCheckpointSaver checkpointSaver,
       CancellationToken cancellationToken,
       TurnProgressListener progressListener) {
+    this(
+        modelClient,
+        toolExecutor,
+        limits,
+        checkpointSaver,
+        cancellationToken,
+        progressListener,
+        PlanProgressListener.noOp());
+  }
+
+  public AgentGraphFactory(
+      ModelClient modelClient,
+      ToolExecutor toolExecutor,
+      TurnLimits limits,
+      BaseCheckpointSaver checkpointSaver,
+      CancellationToken cancellationToken,
+      TurnProgressListener progressListener,
+      PlanProgressListener planProgressListener) {
     Objects.requireNonNull(modelClient, "modelClient must not be null");
     Objects.requireNonNull(toolExecutor, "toolExecutor must not be null");
     Objects.requireNonNull(limits, "limits must not be null");
@@ -96,7 +128,8 @@ public final class AgentGraphFactory {
             limits,
             checkpointSaver,
             cancellationToken,
-            Objects.requireNonNull(progressListener, "progressListener must not be null"));
+            Objects.requireNonNull(progressListener, "progressListener must not be null"),
+            Objects.requireNonNull(planProgressListener, "planProgressListener must not be null"));
   }
 
   public MiniClaudeState run(ModelRequest request) {
@@ -130,7 +163,8 @@ public final class AgentGraphFactory {
       TurnLimits limits,
       BaseCheckpointSaver checkpointSaver,
       CancellationToken cancellationToken,
-      TurnProgressListener progressListener) {
+      TurnProgressListener progressListener,
+      PlanProgressListener planProgressListener) {
     dev.miniclaudecode.context.ContextPlanner contextPlanner =
         new dev.miniclaudecode.context.ContextPlanner();
     RetryPolicy retryPolicy = new RetryPolicy();
@@ -139,6 +173,9 @@ public final class AgentGraphFactory {
     EngineeringReportValidator reports = new EngineeringReportValidator();
     ResponseRouter router =
         new ResponseRouter(contextPlanner, retryPolicy, outputProtocols, citations, reports);
+    Clock planningClock = Clock.systemUTC();
+    dev.miniclaudecode.planning.TaskPlanner taskPlanner =
+        new dev.miniclaudecode.planning.StructuredTaskPlanner(modelClient, planningClock);
     RepairOutputNode repairOutput = new RepairOutputNode(outputProtocols);
     AsyncNodeAction<MiniClaudeState> repairCitations =
         state ->
@@ -171,6 +208,13 @@ public final class AgentGraphFactory {
                   "after_tools",
                   progressListener))
           .addNode(AWAIT_APPROVAL, new AwaitApprovalNode())
+          .addNode(
+              CREATE_PLAN, new CreatePlanNode(taskPlanner, planningClock, planProgressListener))
+          .addNode(SELECT_STEP, new SelectPlanStepNode(planningClock, planProgressListener))
+          .addNode(EXECUTE_STEP, new ExecutePlanStepNode())
+          .addNode(VERIFY_STEP, new VerifyPlanStepNode(planningClock, planProgressListener))
+          .addNode(REPLAN, new ReplanNode(taskPlanner, planningClock, planProgressListener))
+          .addNode(FINAL_VERIFICATION, new FinalVerificationNode())
           .addNode(COMPACT_CONTEXT, new SemanticCompactContextNode(modelClient, progressListener))
           .addNode(RECOVER_ERROR, new RecoverErrorNode(retryPolicy))
           .addNode(REQUIRE_VERIFICATION, new RequireVerificationNode())
@@ -194,6 +238,7 @@ public final class AgentGraphFactory {
                   Map.entry("compact", COMPACT_CONTEXT),
                   Map.entry("retry", RECOVER_ERROR),
                   Map.entry("verify", REQUIRE_VERIFICATION),
+                  Map.entry("verify_step", VERIFY_STEP),
                   Map.entry("repair_output", REPAIR_OUTPUT),
                   Map.entry("repair_citations", REPAIR_CITATIONS),
                   Map.entry("repair_report", REPAIR_REPORT),
@@ -210,7 +255,35 @@ public final class AgentGraphFactory {
                   "model", CALL_MODEL,
                   "compact", COMPACT_CONTEXT,
                   "approval", AWAIT_APPROVAL,
+                  "create_plan", CREATE_PLAN,
                   "finish", FINISH))
+          .addEdge(CREATE_PLAN, SELECT_STEP)
+          .addConditionalEdges(
+              SELECT_STEP,
+              router.afterSelectStep(),
+              Map.of(
+                  "execute", EXECUTE_STEP,
+                  "final_verify", FINAL_VERIFICATION,
+                  "finish", FINISH))
+          .addEdge(EXECUTE_STEP, CALL_MODEL)
+          .addConditionalEdges(
+              VERIFY_STEP,
+              router.afterVerifyStep(),
+              Map.of("select", SELECT_STEP, "replan", REPLAN, "finish", FINISH))
+          .addEdge(REPLAN, SELECT_STEP)
+          .addConditionalEdges(
+              FINAL_VERIFICATION,
+              router.afterModel(),
+              Map.ofEntries(
+                  Map.entry("tools", EXECUTE_TOOLS),
+                  Map.entry("compact", COMPACT_CONTEXT),
+                  Map.entry("retry", RECOVER_ERROR),
+                  Map.entry("verify", REQUIRE_VERIFICATION),
+                  Map.entry("repair_output", REPAIR_OUTPUT),
+                  Map.entry("repair_citations", REPAIR_CITATIONS),
+                  Map.entry("repair_report", REPAIR_REPORT),
+                  Map.entry("invalid", FAIL_COMPLETION),
+                  Map.entry("finish", FINISH)))
           .addEdge(AWAIT_APPROVAL, EXECUTE_TOOLS)
           .addEdge(FAIL_COMPLETION, FINISH)
           .addEdge(FINISH, END);

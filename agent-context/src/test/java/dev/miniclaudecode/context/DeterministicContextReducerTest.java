@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class DeterministicContextReducerTest {
   @Test
-  void preservesStructuredGoalChangesVerificationFailuresAndTaskState() {
+  void preservesStructuredGoalChangesVerificationAndFailures() {
     List<AgentMessage> messages = new ArrayList<>();
     messages.add(new SystemMessage("system"));
     messages.add(new UserMessage("Implement reliable save"));
@@ -20,8 +20,6 @@ class DeterministicContextReducerTest {
             "edit", "workspace:edit", "Applied approved change to src/Save.java", false));
     messages.add(new ToolMessage("failed", "shell:run", "Tests failed: expected 2", true));
     messages.add(new ToolMessage("passed", "shell:run", "Tests run: 2, Failures: 0", false));
-    messages.add(
-        new ToolMessage("tasks", "task:todo", "[x] inspect\n[>] verify\n[ ] summarize", false));
 
     for (int index = 0; index < 8; index++) {
       messages.add(new UserMessage("recent " + index));
@@ -45,9 +43,7 @@ class DeterministicContextReducerTest {
               "Verification:",
               "Tests run: 2, Failures: 0",
               "Failed attempts:",
-              "expected 2",
-              "Remaining task state:",
-              "summarize"
+              "expected 2"
             });
   }
 }

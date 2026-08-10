@@ -13,11 +13,11 @@
 5. `fs/ReadTool.java`、`fs/ListTool.java`、`fs/GlobTool.java`、`fs/GrepTool.java`、`internal/GlobMatcher.java`
 6. `fs/AbstractFileMutationTool.java`、`fs/WriteTool.java`、`fs/EditTool.java`、`fs/ApplyPatchTool.java`
 7. `diff/UnifiedDiffService.java`、`diff/UnifiedPatchApplier.java`、`diff/FileHashes.java`、`fs/AtomicFileWriter.java`
-8. `task/TodoTool.java`、`user/AskUserTool.java`
+8. `planning/PlanningRequestTool.java`、`user/AskUserTool.java`
 
 ## 6.1 注册与查找：DefaultToolRegistry
 
-`DefaultToolRegistry` 是所有 `AgentTool` 实例的静态花名册：构造时一次性建好索引，之后只查不改。每个工具用 `ToolDescriptor`（参见 02-domain-model.md）自述身份，`qualifiedName()` 即 `namespace + ":" + name`，例如 `workspace:read`、`task:todo`、`user:ask`。
+`DefaultToolRegistry` 是所有 `AgentTool` 实例的静态花名册：构造时一次性建好索引，之后只查不改。每个工具用 `ToolDescriptor`（参见 02-domain-model.md）自述身份、风险和 `ToolEffect`，`qualifiedName()` 即 `namespace + ":" + name`，例如 `workspace:read`、`planning:request`、`user:ask`。
 
 | 方法 | 参数 | 做什么 |
 |---|---|---|
@@ -144,14 +144,13 @@ if (!currentHash.equals(expectedBeforeHash)) {
 
 哈希对上后，在**目标同目录**创建临时文件（保证同一文件系统、move 可原子），写满内容并 `channel.force(true)` 刷盘，再 `ATOMIC_MOVE + REPLACE_EXISTING` 替换目标（文件系统不支持时降级为普通 `REPLACE_EXISTING` move），`finally` 里清理残留临时文件。审批期间文件若被人改过，写入会失败而不是覆盖掉别人的修改。
 
-## 6.7 TodoTool 与 AskUserTool
+## 6.7 PlanningRequestTool 与 AskUserTool
 
-**`TodoTool`**（`task:todo`，LOW）维护每个会话的执行清单，状态存在进程内的 `ConcurrentHashMap<SessionId, List<TodoItem>>`。`TodoItem` 是 record `(id, content, status)`，`Status` 为 `TODO / IN_PROGRESS / DONE`。
+**`PlanningRequestTool`**（`planning:request`，LOW、`READ_ONLY_LOCAL`）是发现阶段进入规划阶段的显式信号。它本身不执行副作用，只校验 goal 与 `MUTATION / PROCESS / EXTERNAL_EFFECT` 列表，并把结构化请求交给 `CreatePlanNode`。
 
 | 方法 | 参数 | 做什么 |
 |---|---|---|
-| `execute` | `action`：`list` 或 `replace`；`items`：replace 时的完整清单 | `list` 返回当前清单；`replace` 整体替换——校验 id 唯一、至多一项 `in_progress`、总数不超 100，然后通过 `context.eventSink()` 发出 `TASK_UPDATED` 事件（供 UI 与持久化订阅，参见 08-persistence-and-config.md）。渲染格式为 `[ ]`/`[>]`/`[x]` 加 id 与内容。 |
-| `items` / `restore` | `sessionId`；`restore` 另收 `items` | 供会话恢复用的读写口：重启后由持久化层回填清单（参见 08-persistence-and-config.md）。 |
+| `execute` | `goal`：要完成的目标；`expectedEffects`：预计需要的副作用类型 | 返回带 `planningRequested=true` 的结构化 metadata。图随后调用独立 Planner；Plan 才是 step 状态、尝试次数、验收标准和证据的唯一真源。 |
 
 **`AskUserTool`**（`user:ask`，LOW）让 agent 主动向用户提一个问题，巧妙之处在于它**复用了审批暂停通道**：没有独立的"提问"机制，问题被包装成一个 `ApprovalRequest` 走审批那条路。
 

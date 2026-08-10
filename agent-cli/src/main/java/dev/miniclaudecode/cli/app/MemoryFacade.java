@@ -3,8 +3,8 @@ package dev.miniclaudecode.cli.app;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.persistence.memory.AceBullet;
-import dev.miniclaudecode.persistence.memory.AceBulletStore;
-import dev.miniclaudecode.persistence.memory.UserProfileStore;
+import dev.miniclaudecode.persistence.memory.MemoryStore;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -12,12 +12,10 @@ import java.util.Optional;
 /** One entry point from a turn into layered memory stores. */
 final class MemoryFacade {
   private static final int ACTIVE_PROFILE_LIMIT = 20;
-  private final UserProfileStore profile;
   private final ClaudeInstructions instructions;
-  private final AceBulletStore bullets;
+  private final MemoryStore bullets;
 
-  MemoryFacade(UserProfileStore profile, ClaudeInstructions instructions, AceBulletStore bullets) {
-    this.profile = Objects.requireNonNull(profile, "profile must not be null");
+  MemoryFacade(ClaudeInstructions instructions, MemoryStore bullets) {
     this.instructions = Objects.requireNonNull(instructions, "instructions must not be null");
     this.bullets = Objects.requireNonNull(bullets, "bullets must not be null");
   }
@@ -64,7 +62,23 @@ final class MemoryFacade {
             .map(UserMessage::text)
             .reduce((ignored, latest) -> latest)
             .flatMap(MemoryFacade::explicitPreference);
-    return preference.filter(this.profile::add);
+    return preference.map(
+        value -> {
+          Instant now = Instant.now();
+          this.bullets.curate(
+              new AceBullet(
+                  null,
+                  "explicit user preference",
+                  value,
+                  List.of("explicit user request"),
+                  1,
+                  now,
+                  now,
+                  0.95,
+                  List.of(),
+                  AceBullet.State.ACTIVE));
+          return value;
+        });
   }
 
   Optional<String> approveExplicitCandidate(String prompt) {
@@ -81,8 +95,13 @@ final class MemoryFacade {
   }
 
   private List<String> activePreferences() {
-    List<String> all = this.profile.list();
-    return all.subList(Math.max(0, all.size() - ACTIVE_PROFILE_LIMIT), all.size());
+    List<String> all =
+        this.bullets.list().stream()
+            .filter(memory -> memory.state() == AceBullet.State.ACTIVE)
+            .filter(memory -> "explicit user preference".equals(memory.trigger()))
+            .map(AceBullet::lesson)
+            .toList();
+    return all.subList(0, Math.min(all.size(), ACTIVE_PROFILE_LIMIT));
   }
 
   private static Optional<String> explicitPreference(String prompt) {

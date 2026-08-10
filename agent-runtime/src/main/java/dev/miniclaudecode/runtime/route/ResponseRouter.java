@@ -49,7 +49,29 @@ public final class ResponseRouter {
         CompletableFuture.completedFuture(
             state.error().isPresent()
                 ? "finish"
-                : state.pendingApproval().isPresent() ? "approval" : routeContext(state));
+                : state.pendingApproval().isPresent()
+                    ? "approval"
+                    : planningRequested(state) ? "create_plan" : routeContext(state));
+  }
+
+  public AsyncEdgeAction<MiniClaudeState> afterSelectStep() {
+    return state ->
+        CompletableFuture.completedFuture(
+            switch (state.planningPhase()) {
+              case "EXECUTE_STEP" -> "execute";
+              case "FINAL_VERIFICATION" -> "final_verify";
+              default -> "finish";
+            });
+  }
+
+  public AsyncEdgeAction<MiniClaudeState> afterVerifyStep() {
+    return state ->
+        CompletableFuture.completedFuture(
+            switch (state.stepDecision()) {
+              case "COMPLETE", "RETRY" -> "select";
+              case "REPLAN" -> "replan";
+              default -> "finish";
+            });
   }
 
   private String routeAfterModel(MiniClaudeState state) {
@@ -72,8 +94,10 @@ public final class ResponseRouter {
     if (!state.pendingToolCalls().isEmpty()) {
       return "tools";
     }
-    if (CompletionRequirements.requiresVerification(state)
-        || CompletionRequirements.hasIncompleteTasks(state)) {
+    if (state.plan().flatMap(dev.miniclaudecode.planning.Plan::currentStep).isPresent()) {
+      return "verify_step";
+    }
+    if (CompletionRequirements.requiresVerification(state)) {
       return state.verificationPrompts() < 2 ? "verify" : "invalid";
     }
     OutputProtocol.Evaluation output = this.protocols.evaluate(state.request(), state.finalText());
@@ -91,6 +115,12 @@ public final class ResponseRouter {
       return canRepair(state) ? "repair_report" : "invalid";
     }
     return "finish";
+  }
+
+  private static boolean planningRequested(MiniClaudeState state) {
+    return state.plan().isEmpty()
+        && state.toolResults().stream()
+            .anyMatch(result -> Boolean.TRUE.equals(result.metadata().get("planningRequested")));
   }
 
   private String routeContext(MiniClaudeState state) {

@@ -100,23 +100,24 @@ public final class DefaultCliActions implements CliActions {
               components, () -> selection(commands.get(), components), Clock.systemUTC());
       SessionCommandHandler commandHandler =
           new SessionCommandHandler(
-              components.providerModels(),
-              components.config().activeProvider(),
-              components.config().activeProfile().model(),
-              components.config().activeProfile().thinking(),
-              toolNames(components),
-              session::status,
-              session::usage,
-              session::sessions,
-              components::mcpStatus,
-              () -> skills(components),
-              session::checkpoints,
-              session::compact,
-              session::switchTo,
-              session::restoreCheckpoint,
-              session::undo,
-              session::redo,
-              this.layout.configFile());
+                  components.providerModels(),
+                  components.config().activeProvider(),
+                  components.config().activeProfile().model(),
+                  components.config().activeProfile().thinking(),
+                  toolNames(components),
+                  session::status,
+                  session::usage,
+                  session::sessions,
+                  components::mcpStatus,
+                  () -> skills(components),
+                  session::checkpoints,
+                  session::compact,
+                  session::switchTo,
+                  session::restoreCheckpoint,
+                  session::undo,
+                  session::redo,
+                  this.layout.configFile())
+              .withPlanAndMemory(session::plan, session::memory);
       commands.set(commandHandler);
 
       try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {

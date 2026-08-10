@@ -15,6 +15,7 @@ import dev.miniclaudecode.domain.runtime.CancellationToken;
 import dev.miniclaudecode.domain.runtime.CancellationToken.Registration;
 import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
+import dev.miniclaudecode.domain.tool.ToolDescriptor;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -56,7 +57,7 @@ public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
               original.providerProfile(),
               original.modelName(),
               state.messages(),
-              original.tools(),
+              visibleTools(state, original),
               original.thinkingEnabled(),
               original.maxOutputTokens(),
               original.attributes());
@@ -71,6 +72,22 @@ public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
 
       return result;
     }
+  }
+
+  private static List<ToolDescriptor> visibleTools(MiniClaudeState state, ModelRequest original) {
+    if (!Boolean.TRUE.equals(original.attributes().get("planningEnabled"))) {
+      return original.tools();
+    }
+    Optional<dev.miniclaudecode.planning.PlanStep> current =
+        state.plan().flatMap(dev.miniclaudecode.planning.Plan::currentStep);
+    return original.tools().stream()
+        .filter(
+            descriptor ->
+                !descriptor.effect().requiresPlan()
+                    || current
+                        .map(step -> step.expectedEffects().contains(descriptor.effect()))
+                        .orElse(false))
+        .toList();
   }
 
   private static Map<String, Object> failed(String message) {

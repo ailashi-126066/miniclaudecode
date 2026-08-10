@@ -15,8 +15,10 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
+import dev.miniclaudecode.runtime.PlanExecutionContext;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -26,6 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -56,7 +60,16 @@ class RegistryToolExecutorTest {
         };
     RegistryToolExecutor executor = this.executor(mcp, events::add);
     ToolCall call = new ToolCall("mcp-1", "mcp.demo:publish", "{}");
-    ToolResult waiting = executor.execute(List.of(call)).toCompletableFuture().join().getFirst();
+    Optional<PlanExecutionContext> plan =
+        Optional.of(
+            new PlanExecutionContext(
+                UUID.randomUUID(), "step-1", Set.of(ToolEffect.EXTERNAL_EFFECT)));
+    ToolResult waiting =
+        executor
+            .execute(List.of(call), Optional.empty(), Optional.empty(), plan)
+            .toCompletableFuture()
+            .join()
+            .getFirst();
     Assertions.assertThat(waiting.status()).isEqualTo(Status.APPROVAL_REQUIRED);
     Assertions.assertThat(invocations).hasValue(0);
     ApprovalRequest request = (ApprovalRequest) waiting.metadata().get("approvalRequest");
@@ -81,12 +94,41 @@ class RegistryToolExecutorTest {
             Instant.parse("2026-07-21T00:00:00Z"));
     ToolResult completed =
         executor
-            .execute(List.of(call), Optional.of(request), Optional.of(decision))
+            .execute(List.of(call), Optional.of(request), Optional.of(decision), plan)
             .toCompletableFuture()
             .join()
             .getFirst();
     Assertions.assertThat(completed.status()).isEqualTo(Status.COMPLETED);
     Assertions.assertThat(invocations).hasValue(1);
+  }
+
+  @Test
+  void rejectsASideEffectWithoutAnActivePlanStep() {
+    AgentTool mutation =
+        new AgentTool() {
+          public ToolDescriptor descriptor() {
+            return new ToolDescriptor(
+                "workspace",
+                "write",
+                "write",
+                "{\"type\":\"object\"}",
+                RiskLevel.MEDIUM,
+                ToolEffect.MUTATION);
+          }
+
+          public CompletionStage<ToolResult> execute(ToolCall call, ToolContext context) {
+            throw new AssertionError("plan gate should reject before invocation");
+          }
+        };
+    ToolResult result =
+        executor(mutation)
+            .execute(List.of(new ToolCall("write-1", "workspace:write", "{}")))
+            .toCompletableFuture()
+            .join()
+            .getFirst();
+
+    Assertions.assertThat(result.status()).isEqualTo(Status.FAILED);
+    Assertions.assertThat(result.metadata()).containsEntry("planGate", "denied");
   }
 
   private RegistryToolExecutor executor(AgentTool tool) {

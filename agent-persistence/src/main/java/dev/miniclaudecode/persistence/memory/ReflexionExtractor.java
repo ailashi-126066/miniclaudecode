@@ -12,7 +12,7 @@ import java.util.function.Function;
 
 /**
  * Converts a completed, recovered, or failed turn into a concise candidate lesson; curation happens
- * in {@link AceBulletStore}.
+ * in a {@link MemoryStore}.
  */
 public final class ReflexionExtractor {
   private final Clock clock;
@@ -89,16 +89,22 @@ public final class ReflexionExtractor {
             : FALLBACK_FAILURE_LESSON;
     String lesson = this.lessonGenerator.apply(context).orElse(fallback);
 
+    String trigger =
+        failures.isEmpty()
+            ? (verifiedChange ? "verified workspace change" : status.name().toLowerCase() + " turn")
+            : "tool failure: " + toolName(failures.getLast());
+    String safeEvidence =
+        status == AgentStatus.COMPLETED && failures.isEmpty()
+            ? "verification command succeeded"
+            : failures.isEmpty()
+                ? "turn ended without verified completion"
+                : "tool failure observed: " + toolName(failures.getLast());
     return Optional.of(
         new AceBullet(
             null,
-            compact(objective, 300),
+            trigger,
             lesson,
-            List.of(
-                (status == AgentStatus.COMPLETED && failures.isEmpty()
-                        ? "verified completion: "
-                        : status == AgentStatus.COMPLETED ? "recovered failure: " : "failure: ")
-                    + cause),
+            List.of(safeEvidence),
             1,
             this.clock.instant(),
             this.clock.instant()));
@@ -127,5 +133,10 @@ public final class ReflexionExtractor {
   private static String compact(String value, int maximum) {
     String normalized = Objects.requireNonNullElse(value, "").replaceAll("\\s+", " ").strip();
     return normalized.length() <= maximum ? normalized : normalized.substring(0, maximum) + "...";
+  }
+
+  private static String toolName(String failure) {
+    int separator = failure.indexOf(": ");
+    return separator < 0 ? failure : failure.substring(0, separator);
   }
 }

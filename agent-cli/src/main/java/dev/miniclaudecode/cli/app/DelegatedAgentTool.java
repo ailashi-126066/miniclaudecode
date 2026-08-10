@@ -14,6 +14,7 @@ import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.runtime.AgentGraphFactory;
@@ -53,7 +54,8 @@ final class DelegatedAgentTool implements AgentTool {
             "maxModelSteps":{"type":"integer","minimum":1,"maximum":8}
           },"required":["tasks"]}
           """,
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.PROCESS);
 
   private final ModelClient modelClient;
   private final DefaultToolRegistry readOnlyTools;
@@ -187,8 +189,6 @@ final class DelegatedAgentTool implements AgentTool {
                 parent.workspace().toString(),
                 "requireVerification",
                 true,
-                "requireTaskCompletion",
-                false,
                 "maxRetries",
                 this.profile.maxRetries(),
                 "delegatedRole",

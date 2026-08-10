@@ -13,6 +13,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.tools.result.ToolResultStore;
@@ -115,7 +116,8 @@ public final class McpResourceTools {
               "list_resources",
               "List resources exposed by this MCP server",
               "{\"type\":\"object\"}",
-              risk);
+              risk,
+              ToolEffect.READ_ONLY_EXTERNAL);
     }
 
     public ToolDescriptor descriptor() {
@@ -159,7 +161,8 @@ public final class McpResourceTools {
               "read_resource",
               "Read one resource exposed by this MCP server",
               "{\"type\":\"object\",\"properties\":{\"uri\":{\"type\":\"string\"}},\"required\":[\"uri\"]}",
-              risk);
+              risk,
+              ToolEffect.READ_ONLY_EXTERNAL);
     }
 
     public ToolDescriptor descriptor() {

@@ -7,6 +7,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
@@ -29,7 +30,8 @@ public final class CodeSearchTool implements AgentTool {
           "code_search",
           "Search the workspace code index with explainable BM25 and vector retrieval",
           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"topK\":{\"type\":\"integer\",\"minimum\":1},\"tokenBudget\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"query\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final LuceneCodeIndex index;
   private final HybridCodeSearcher searcher;
   private final Optional<ToolResultStore> resultStore;

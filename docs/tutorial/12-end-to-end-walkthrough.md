@@ -29,7 +29,7 @@
 
 1. `Repl.java#run` — `readInput()` 经 JLine `reader.readLine` 拿到整行；不是斜杠命令，走 `executeTurn(input)`。
 2. `Repl.java#executeTurn` — 为本次 turn `new CancellationToken()` 并存入 `activeTurn`（Ctrl+C 的 SIGINT handler 从这里取 token 调 `cancel()`），然后调 `turnHandler.start(prompt, token, renderer::submit)`。
-3. `ApplicationSession.java#start` — synchronized 块内：确认没有活跃 turn，分配 `TurnId` 与图线程 id `<sessionId>-turn-<n>`，经 `SessionAuditService` 写 `USER_MESSAGE`，由 `MemoryCoordinator` 构建本轮记忆上下文，再让 `TurnCoordinator.request(...)` 组出 `ModelRequest`（携带全部工具 descriptor 和 `requireVerification`/`requireTaskCompletion` 属性）。
+3. `ApplicationSession.java#start` — synchronized 块内：确认没有活跃 turn，分配 `TurnId` 与图线程 id `<sessionId>-turn-<n>`，经 `SessionAuditService` 写 `USER_MESSAGE`，由 `MemoryCoordinator` 构建本轮记忆上下文，再让 `TurnCoordinator.request(...)` 组出 `ModelRequest`（携带全部工具 descriptor、`requireVerification` 和规划配置属性）。
 4. `TurnCoordinator.java#createRunner` — 组装四层洋葱：`AuditedModelClient` 包住 `components.modelClient()`（即 `RoutingModelClient`，参见 05-model-providers.md）；`LedgeredToolExecutor` 包住 `RegistryToolExecutor`；加 `TurnLimits(24, 64)` 与 `FileCheckpointSaver`，交给 `AgentGraphFactory`，再套 `AgentThreadRunner`。
 5. `ApplicationSession.java#start`（续）— `CompletableFuture.supplyAsync(() -> runner.start(graphThread, request))` 把图抛到后台线程；REPL 线程回到 `Repl.java#await`，用 `StreamingRenderer#renderUntil` 每 20ms 泵一次渲染队列直到 future 完成。
 
@@ -55,7 +55,7 @@
 ### 阶段 D：第二圈模型调用与收尾
 
 19. `CallModelNode.java#apply`（第二次）— 对话里现在有 pom.xml 内容的 `ToolMessage`，模型流回纯文本总结，没有新 `ToolCall`，`finalText` 即总结全文。
-20. `ResponseRouter.java#routeAfterModel` — `pendingToolCalls` 为空；`requiresVerification`（本轮无 mutation）与 `hasIncompleteTasks`（无 `task:todo`）都为 false → 返回 `"finish"`。
+20. `ResponseRouter.java#routeAfterModel` — `pendingToolCalls` 为空、当前无进行中的 Plan step，且 `requiresVerification` 为 false → 返回 `"finish"`。若存在进行中的 step，则先进入 `verify_step`，不会直接结束。
 21. `FinishNode.java#apply` — 非 CANCELLED、`error` 为空 → status 定格 `COMPLETED`，图走到 END，`graph.invoke` 返回终态 `MiniClaudeState`。
 22. `ApplicationSession.java#finishState` — 把 `state.messages()` 回写为会话历史；COMPLETED 分支 emit `TURN_FINAL`（payload 带 `finalText`），`renderer.accept(new Completed())`，清空 activeRunner/activeGraphThread/activeTurn，返回 `TurnOutcome.completed()`。
 23. `Repl.java#await` — `renderUntil` 排空队列（剩余 Text delta 与 Completed 换行收尾），`future.join()` 拿到 outcome；`approvalRequest` 为空，`executeTurn` 退出循环，回到 `> ` 提示符。

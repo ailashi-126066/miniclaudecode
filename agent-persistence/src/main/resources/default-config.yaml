@@ -1,4 +1,16 @@
 active-provider: ollama
+
+planning:
+  enabled: true
+  max-steps: 12
+  max-attempts-per-step: 2
+  max-revisions: 3
+
+memory:
+  enabled: true
+  backend: sqlite
+  approval-required: true
+
 providers:
   ollama:
     type: ollama

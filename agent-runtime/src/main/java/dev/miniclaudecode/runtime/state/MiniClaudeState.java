@@ -8,6 +8,7 @@ import dev.miniclaudecode.domain.model.ModelStreamEvent;
 import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolResult;
+import dev.miniclaudecode.planning.Plan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +36,9 @@ public final class MiniClaudeState extends AgentState {
   public static final String VERIFICATION_PROMPTS = "verificationPrompts";
   public static final String OUTPUT_REPAIR_COUNT = "outputRepairCount";
   public static final String TRACE = "trace";
+  public static final String PLAN = "plan";
+  public static final String PLANNING_PHASE = "planningPhase";
+  public static final String STEP_DECISION = "stepDecision";
 
   public MiniClaudeState(Map<String, Object> data) {
     super(data);
@@ -127,6 +131,18 @@ public final class MiniClaudeState extends AgentState {
 
   public List<String> trace() {
     return this.list("trace");
+  }
+
+  public Optional<Plan> plan() {
+    return this.optional(PLAN, Plan.class);
+  }
+
+  public String planningPhase() {
+    return this.scalar(PLANNING_PHASE, String.class, "DISCOVER");
+  }
+
+  public String stepDecision() {
+    return this.scalar(STEP_DECISION, String.class, "");
   }
 
   private Optional<String> optionalText(String key) {

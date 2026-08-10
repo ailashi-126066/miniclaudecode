@@ -8,6 +8,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.tools.internal.ToolArguments;
@@ -27,7 +28,8 @@ public final class AskUserTool implements AgentTool {
           "ask",
           "Pause the graph and ask the user one focused question",
           "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"}},\"required\":[\"question\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.USER_INTERACTION);
   private final Clock clock;
 
   public AskUserTool() {

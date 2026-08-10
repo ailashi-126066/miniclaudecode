@@ -7,6 +7,7 @@ import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
+import dev.miniclaudecode.runtime.PlanExecutionContext;
 import dev.miniclaudecode.runtime.ToolExecutor;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
@@ -50,7 +51,19 @@ public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> 
     } else {
       try {
         return this.toolExecutor
-            .execute(outstanding, state.pendingApproval(), state.approvalDecision())
+            .execute(
+                outstanding,
+                state.pendingApproval(),
+                state.approvalDecision(),
+                state
+                    .plan()
+                    .flatMap(
+                        plan ->
+                            plan.currentStep()
+                                .map(
+                                    step ->
+                                        new PlanExecutionContext(
+                                            plan.id(), step.id(), step.expectedEffects()))))
             .handle(
                 (results, error) ->
                     error == null

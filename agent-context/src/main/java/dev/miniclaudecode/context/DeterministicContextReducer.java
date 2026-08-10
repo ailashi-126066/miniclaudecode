@@ -131,7 +131,6 @@ public final class DeterministicContextReducer implements ContextTransformer {
     Set<String> changedFiles = new LinkedHashSet<>();
     List<String> verification = new ArrayList<>();
     List<String> failures = new ArrayList<>();
-    List<String> remaining = new ArrayList<>();
 
     for (AgentMessage message : messages) {
       if (message instanceof UserMessage user) {
@@ -161,14 +160,6 @@ public final class DeterministicContextReducer implements ContextTransformer {
           }
         }
 
-        if (message instanceof ToolMessage) {
-          ToolMessage tool = (ToolMessage) message;
-          if ("task:todo".equals(tool.qualifiedToolName())) {
-            remaining.add(abbreviate(tool.text(), 300));
-            continue;
-          }
-        }
-
         if (message instanceof AssistantMessage) {
           AssistantMessage assistant = (AssistantMessage) message;
           if (assistant.toolCalls().isEmpty() && !assistant.text().isBlank()) {
@@ -184,7 +175,6 @@ public final class DeterministicContextReducer implements ContextTransformer {
     addSection(sections, "Changed files", new ArrayList<>(changedFiles));
     addSection(sections, "Verification", tail(verification, 3));
     addSection(sections, "Failed attempts", tail(failures, 3));
-    addSection(sections, "Remaining task state", tail(remaining, 1));
     return String.join("\n", sections);
   }
 

@@ -5,6 +5,7 @@ import dev.miniclaudecode.domain.tool.AgentTool;
 import dev.miniclaudecode.domain.tool.AgentTool.ToolContext;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.tools.internal.TextFiles;
 import dev.miniclaudecode.tools.internal.ToolArguments;
@@ -31,7 +32,8 @@ public final class ReadTool implements AgentTool {
           "read",
           "Read a UTF-8 text file inside the workspace with stable line numbers",
           "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"startLine\":{\"type\":\"integer\",\"minimum\":1},\"maxLines\":{\"type\":\"integer\",\"minimum\":1}},\"required\":[\"path\"]}",
-          RiskLevel.LOW);
+          RiskLevel.LOW,
+          ToolEffect.READ_ONLY_LOCAL);
   private final WorkspacePathResolver resolver;
   private final ToolResultStore resultStore;
   private final int maxBytes;

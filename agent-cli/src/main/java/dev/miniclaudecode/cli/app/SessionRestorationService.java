@@ -11,8 +11,6 @@ import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
 import dev.miniclaudecode.domain.tool.ToolCall;
-import dev.miniclaudecode.tools.task.TodoTool.Status;
-import dev.miniclaudecode.tools.task.TodoTool.TodoItem;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,38 +39,8 @@ final class SessionRestorationService {
     return new RestoredSession(
         maximumTurn + 1L,
         List.copyOf(messages),
-        restoreTasks(events),
         restoreApproval(sessionId, events),
         restoreProgress(events));
-  }
-
-  private static List<TodoItem> restoreTasks(List<AgentEvent> events) {
-    List<TodoItem> restored = List.of();
-    for (AgentEvent event : events) {
-      if (event.type() != AgentEventType.TASK_UPDATED) {
-        continue;
-      }
-      Object rawItems = event.payload().get("items");
-      if (!(rawItems instanceof List<?> values)) {
-        continue;
-      }
-      List<TodoItem> parsed = new ArrayList<>();
-      for (Object value : values) {
-        if (value instanceof Map<?, ?> item) {
-          try {
-            parsed.add(
-                new TodoItem(
-                    String.valueOf(item.get("id")),
-                    String.valueOf(item.get("content")),
-                    Status.valueOf(String.valueOf(item.get("status")).toUpperCase())));
-          } catch (IllegalArgumentException ignored) {
-            // Preserve the remaining valid task snapshot when one durable item is malformed.
-          }
-        }
-      }
-      restored = List.copyOf(parsed);
-    }
-    return restored;
   }
 
   private static Optional<PendingApproval> restoreApproval(
@@ -140,7 +108,6 @@ final class SessionRestorationService {
   record RestoredSession(
       long nextTurn,
       List<AgentMessage> messages,
-      List<TodoItem> tasks,
       Optional<PendingApproval> pendingApproval,
       RestoredProgress progress) {}
 

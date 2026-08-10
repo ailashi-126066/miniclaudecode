@@ -60,8 +60,8 @@ public final class UserDataLayout {
     return this.root.resolve("indexes");
   }
 
-  public Path profileFile() {
-    return this.root.resolve("profile.md");
+  public Path memoryDatabase() {
+    return this.root.resolve("memory").resolve("memory.db");
   }
 
   public Path globalMiniclaudeFile() {

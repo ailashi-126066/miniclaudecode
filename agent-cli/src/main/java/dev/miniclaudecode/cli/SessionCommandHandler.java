@@ -32,6 +32,14 @@ public final class SessionCommandHandler implements SlashCommandHandler {
           "/resume <id>      Resume a saved session",
           "/mcp              Show MCP servers",
           "/skills           Show discovered skills",
+          "/plan             Show the current durable Plan",
+          "/plan history     Show Plan event history",
+          "/plan evidence <step-id>  Show evidence for one step",
+          "/memory pending   List memory candidates awaiting approval",
+          "/memory approve <id>  Approve a memory candidate",
+          "/memory archive <id>  Archive a memory entry",
+          "/memory search <query>  Search active long-term memory",
+          "/memory export    Export memory as Markdown",
           "/config           Show the user configuration path",
           "/config setup     Run the masked provider configuration wizard",
           "/exit             Save history and exit");
@@ -50,6 +58,10 @@ public final class SessionCommandHandler implements SlashCommandHandler {
   private final Supplier<String> undo;
   private final Supplier<String> redo;
   private final Path configFile;
+  private java.util.function.Function<SlashCommand.PlanView, String> plan =
+      ignored -> "No Plan is available.";
+  private java.util.function.Function<SlashCommand.Memory, String> memory =
+      ignored -> "Long-term memory is unavailable.";
   private String activeProvider;
   private String activeModel;
   private boolean thinking;
@@ -94,6 +106,14 @@ public final class SessionCommandHandler implements SlashCommandHandler {
     this.configFile = Objects.requireNonNull(configFile, "configFile must not be null");
   }
 
+  public synchronized SessionCommandHandler withPlanAndMemory(
+      java.util.function.Function<SlashCommand.PlanView, String> plan,
+      java.util.function.Function<SlashCommand.Memory, String> memory) {
+    this.plan = Objects.requireNonNull(plan, "plan must not be null");
+    this.memory = Objects.requireNonNull(memory, "memory must not be null");
+    return this;
+  }
+
   @Override
   public synchronized String execute(SlashCommand command) {
     Objects.requireNonNull(command, "command must not be null");
@@ -121,6 +141,8 @@ public final class SessionCommandHandler implements SlashCommandHandler {
       }
       case SlashCommand.Mcp ignored -> mcp.get();
       case SlashCommand.Skills ignored -> skills.get();
+      case SlashCommand.PlanView value -> plan.apply(value);
+      case SlashCommand.Memory value -> memory.apply(value);
       case SlashCommand.Config config ->
           config.setup()
               ? "Configuration setup is available only in the interactive terminal."

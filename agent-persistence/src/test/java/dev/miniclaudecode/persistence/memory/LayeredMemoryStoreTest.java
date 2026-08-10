@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.miniclaudecode.domain.message.AgentMessage.ToolMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.session.AgentStatus;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -18,26 +20,8 @@ class LayeredMemoryStoreTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void persistsUniqueUserPreferences() {
-    UserProfileStore profile = new UserProfileStore(temporaryDirectory.resolve("profile.md"));
-
-    assertThat(profile.add("Use Java 21")).isTrue();
-    assertThat(profile.add(" use   java 21 ")).isFalse();
-    assertThat(profile.list()).containsExactly("Use Java 21");
-  }
-
-  @Test
-  void refusesCredentialsInUserPreferences() {
-    UserProfileStore profile = new UserProfileStore(temporaryDirectory.resolve("profile.md"));
-
-    assertThatThrownBy(() -> profile.add("api_key=sk-this-must-not-be-stored"))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("credentials");
-  }
-
-  @Test
   void candidateMemoryRequiresExplicitApprovalBeforeRetrieval() {
-    AceBulletStore bullets = new AceBulletStore(temporaryDirectory.resolve("workspace"));
+    MemoryStore bullets = memory("workspace");
     Instant now = Instant.parse("2026-07-30T00:00:00Z");
     AceBullet candidate =
         bullets.propose(
@@ -61,7 +45,7 @@ class LayeredMemoryStoreTest {
 
   @Test
   void refusesToAutoApproveAConflictingProjectLesson() {
-    AceBulletStore bullets = new AceBulletStore(temporaryDirectory.resolve("workspace"));
+    MemoryStore bullets = memory("workspace");
     AceBullet active =
         new AceBullet(
             null,
@@ -90,7 +74,7 @@ class LayeredMemoryStoreTest {
 
   @Test
   void curatorMergesRepeatedBulletsAndSearchesProjectLocalLessons() {
-    AceBulletStore bullets = new AceBulletStore(temporaryDirectory.resolve("workspace"));
+    MemoryStore bullets = memory("workspace");
     Instant now = Instant.parse("2026-07-30T00:00:00Z");
     AceBullet first =
         new AceBullet(
@@ -124,7 +108,7 @@ class LayeredMemoryStoreTest {
 
   @Test
   void archivesBulletsWithoutDeletingTheirHistory() {
-    AceBulletStore bullets = new AceBulletStore(temporaryDirectory.resolve("workspace"));
+    MemoryStore bullets = memory("workspace");
     Instant now = Instant.parse("2026-07-30T00:00:00Z");
     AceBullet stored =
         bullets.curate(
@@ -160,8 +144,8 @@ class LayeredMemoryStoreTest {
                 "compile error")
             .orElseThrow();
 
-    assertThat(candidate.trigger()).contains("Maven build");
-    assertThat(candidate.evidence()).contains("failure: compile error");
+    assertThat(candidate.trigger()).isEqualTo("failed turn");
+    assertThat(candidate.evidence()).containsExactly("turn ended without verified completion");
   }
 
   @Test
@@ -178,7 +162,7 @@ class LayeredMemoryStoreTest {
                 "fixed")
             .orElseThrow();
 
-    assertThat(candidate.evidence()).contains("recovered failure: shell:run: tests failed");
+    assertThat(candidate.evidence()).containsExactly("tool failure observed: shell:run");
   }
 
   @Test
@@ -197,5 +181,71 @@ class LayeredMemoryStoreTest {
             .orElseThrow();
 
     assertThat(candidate.lesson()).contains("verification command succeeded");
+  }
+
+  @Test
+  void isolatesWorkspacesAndSearchesChineseWithTrigrams() {
+    MemoryStore first = memory("first");
+    MemoryStore second = memory("second");
+    Instant now = Instant.parse("2026-08-10T00:00:00Z");
+    first.curate(
+        new AceBullet(null, "数据库迁移失败", "先检查迁移脚本，再执行回滚。", List.of("测试发现字段缺失"), 1, now, now));
+
+    assertThat(first.search("迁移脚本", 3)).hasSize(1);
+    assertThat(second.search("迁移脚本", 3)).isEmpty();
+  }
+
+  @Test
+  void importsLegacyJsonlOnceWithoutDeletingIt() throws Exception {
+    Path workspace = temporaryDirectory.resolve("legacy-workspace");
+    Path legacy = workspace.resolve(".miniclaudecode/bullets/ace.jsonl");
+    Files.createDirectories(legacy.getParent());
+    Files.writeString(
+        legacy,
+        "{\"id\":\"legacy\",\"trigger\":\"old build\",\"lesson\":\"run tests\",\"evidence\":[],\"occurrences\":1,\"createdAt\":\"2026-08-10T00:00:00Z\",\"updatedAt\":\"2026-08-10T00:00:00Z\",\"confidence\":0.7,\"applicablePaths\":[],\"state\":\"ACTIVE\"}\n",
+        StandardCharsets.UTF_8);
+
+    MemoryStore first =
+        new SqliteMemoryStore(
+            temporaryDirectory.resolve("legacy-memory.db"), "legacy-workspace", legacy);
+    MemoryStore reopened =
+        new SqliteMemoryStore(
+            temporaryDirectory.resolve("legacy-memory.db"), "legacy-workspace", legacy);
+
+    assertThat(first.list()).hasSize(1);
+    assertThat(reopened.list()).hasSize(1);
+    assertThat(legacy).exists();
+  }
+
+  @Test
+  void rejectsKnownSecretsFromLongTermMemory() {
+    MemoryStore store =
+        new SqliteMemoryStore(
+            temporaryDirectory.resolve("secret-memory.db"),
+            "workspace",
+            temporaryDirectory.resolve("missing.jsonl"),
+            java.util.Set.of("super-secret-value"));
+    Instant now = Instant.parse("2026-08-10T00:00:00Z");
+
+    assertThatThrownBy(
+            () ->
+                store.propose(
+                    new AceBullet(
+                        null,
+                        "build failure",
+                        "Never print super-secret-value in logs",
+                        List.of("sanitized evidence"),
+                        1,
+                        now,
+                        now)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("secret-like");
+  }
+
+  private MemoryStore memory(String workspaceId) {
+    return new SqliteMemoryStore(
+        temporaryDirectory.resolve("memory.db"),
+        workspaceId,
+        temporaryDirectory.resolve(workspaceId).resolve("missing.jsonl"));
   }
 }
