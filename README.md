@@ -156,4 +156,3 @@ JaCoCo 对每个模块强制执行最低 50% 行覆盖率；每周安全工作�
 5. 为什么 Skill 只提供指令，MCP 只提供能力，两者都不能提升本地权限。
 
 RAG 评测方法与基线见 [benchmarks/rag/miniclaudecode-v2/README.md](benchmarks/rag/miniclaudecode-v2/README.md)。
-多语言分块的 Tree-sitter 选型、原生库与降级策略见 [HANDOVER.md](HANDOVER.md)。
