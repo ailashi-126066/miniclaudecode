@@ -11,9 +11,30 @@ and one canonical implementation method.
 The top-level `benchmarks` directory is deliberately excluded by `WorkspaceScanner`, so evaluation
 queries cannot retrieve themselves.
 
-## Baseline measured on 2026-08-06
+## What the Chinese split actually measures
 
-Persistent indexes were synchronized immediately before evaluation. Latency is omitted from the
+The Chinese queries ask about this repository's **Java source**, whose identifiers, comments and
+Javadoc are English. That makes the split a cross-lingual retrieval task, and BM25 cannot serve it
+at any tokenization: there are no shared terms between 在每轮代理执行前创建 Git 检查点 and
+`GitCheckpointService.create(long)` beyond the word `Git`. Its score is therefore a measurement of
+the embedding model's multilingual ability, not of the lexical pipeline — improving it means a
+multilingual embedding model, not a better analyzer.
+
+Chinese retrieval over a Chinese *corpus* is a different question and is not covered here. It is
+what the CJK bigram analyzer actually improves, and it is worth a fifth split — but the split needs
+a Chinese corpus inside the indexed tree to measure against, and this repository no longer ships
+one.
+
+## Historical baseline measured on 2026-08-06
+
+The ONNX rows below are retained as historical measurements only. The current production wiring
+does **not** contain or select an ONNX embedding backend: `auto` chooses the configured remote
+OpenAI-compatible embedding endpoint, otherwise it falls back to deterministic `fast` hashing.
+Therefore these ONNX numbers cannot be reproduced by the current fat JAR and must not be presented
+as its production baseline.
+
+At the time of the historical run, persistent indexes were synchronized immediately before
+evaluation. Latency is omitted from the
 baseline because 13-query percentiles are dominated by JVM/model warm-up and OS cache state.
 
 | Provider | Strategy | Recall@5 | Recall@10 | Canonical@5 | Canonical@10 | MRR |
@@ -36,13 +57,23 @@ ONNX hybrid results by group:
 
 ## Run
 
-Choose a configured isolated user home and run each split independently:
+To produce a current, reproducible baseline, choose an isolated user home, configure either
+`rag.embedding.provider: remote` (with `base-url`, `model`, dimensions and key) or `fast`, rebuild
+the index, and run each split independently. Label the results with that configured provider; do
+not label them ONNX.
 
 ```powershell
 $benchmark = "benchmarks\rag\miniclaudecode-v2"
-java "-Duser.home=$PWD\target\rag-onnx-benchmark-home" `
+java "-Duser.home=$PWD\target\rag-benchmark-home" `
   -jar agent-cli\target\mini-claude-code.jar rag eval "$benchmark\english.jsonl"
 ```
 
 Repeat with `chinese.jsonl`, `symbol.jsonl`, and `natural-language.jsonl`. A one-point change in a
 13-query split moves its rate by 0.077, so compare both the grouped and 52-query aggregate results.
+
+Synchronize the index first (`... index -w .`): `rag eval` queries whatever is on disk and does not
+build it. Evaluating a stale index is not an error, it is a low score.
+
+Ground truth is content-addressed: each `chunkId` hashes path, kind, owner, symbol and start line.
+Editing the indexed source moves start lines and silently invalidates the affected cases, so
+re-verify the IDs after touching the files these queries target.
