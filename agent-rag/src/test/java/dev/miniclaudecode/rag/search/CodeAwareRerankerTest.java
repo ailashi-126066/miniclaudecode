@@ -82,6 +82,53 @@ class CodeAwareRerankerTest {
   }
 
   @Test
+  void productionAndTestLayoutsAreRecognisedOutsideMaven() {
+    // Only `src/main/` used to count as production, so in a Python, Go or JS repository nothing
+    // could earn the boost while `tests/` still earned the penalty — the signal could only
+    // subtract.
+    assertThat(
+            this.reranker.rerank(
+                "restore session implementation",
+                List.of(
+                    result(
+                        "tests/test_restore.py", "restore_session", "def restore_session():", 0.2),
+                    result("src/restore.py", "restore_session", "def restore_session():", 0.2))))
+        .extracting(candidate -> candidate.chunk().path())
+        .containsExactly("src/restore.py", "tests/test_restore.py");
+
+    assertThat(
+            this.reranker.rerank(
+                "restore session implementation",
+                List.of(
+                    result("internal/store/restore_test.go", "RestoreSession", "func x() {}", 0.2),
+                    result("internal/store/restore.go", "RestoreSession", "func x() {}", 0.2))))
+        .extracting(candidate -> candidate.chunk().path())
+        .containsExactly("internal/store/restore.go", "internal/store/restore_test.go");
+
+    assertThat(
+            this.reranker.rerank(
+                "runner test",
+                List.of(
+                    result("src/runner.ts", "start", "async start() {}", 0.2),
+                    result("src/__tests__/runner.spec.ts", "start", "async start() {}", 0.2))))
+        .extracting(candidate -> candidate.chunk().path())
+        .containsExactly("src/__tests__/runner.spec.ts", "src/runner.ts");
+  }
+
+  @Test
+  void chineseQueriesMatchOnBigramsInsteadOfWholePhrasesOnly() {
+    // Punctuation splitting leaves a Chinese phrase as one token, so exact-token equality only
+    // fired on an identical phrase and the 0.52 lexical weight contributed nothing.
+    SearchResult related =
+        result("src/main/java/example/Restore.java", "restore", "会话恢复失败时重放事件", 0.2);
+    SearchResult unrelated =
+        result("src/main/java/example/Index.java", "index", "构建向量索引并写入磁盘", 0.2);
+
+    assertThat(this.reranker.rerank("会话恢复", List.of(unrelated, related)))
+        .containsExactly(related, unrelated);
+  }
+
+  @Test
   void fullyQualifiedSymbolLookupPrefersTheExactMethodOverItsClassSkeleton() {
     SearchResult type =
         result(

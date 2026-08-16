@@ -3,10 +3,13 @@ package dev.miniclaudecode.runtime.node;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.ToolMessage;
+import dev.miniclaudecode.domain.model.ModelRequest;
 import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
+import dev.miniclaudecode.domain.tool.ToolDescriptor;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.domain.tool.ToolResult.Status;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.PlanExecutionContext;
 import dev.miniclaudecode.runtime.ToolExecutor;
 import dev.miniclaudecode.runtime.TurnLimits;
@@ -14,6 +17,7 @@ import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,7 +25,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> {
   public static final String VERIFICATION_SUCCEEDED_PREFIX = "[verification-command-succeeded] ";
@@ -157,7 +160,40 @@ public final class ExecuteToolsNode implements AsyncNodeAction<MiniClaudeState> 
     update.put("toolSteps", state.toolSteps() + executedCalls);
     update.put("status", AgentStatus.RUNNING);
     update.put("trace", StateSchema.traceEntry("execute_tools"));
+    appendDiscoveredSchemas(state, results, update);
     return Map.copyOf(update);
+  }
+
+  private static void appendDiscoveredSchemas(
+      MiniClaudeState state, List<ToolResult> results, Map<String, Object> update) {
+    LinkedHashMap<String, ToolDescriptor> tools = new LinkedHashMap<>();
+    state.request().tools().forEach(tool -> tools.put(tool.qualifiedName(), tool));
+    LinkedHashSet<String> discovered = new LinkedHashSet<>(state.discoveredTools());
+    for (ToolResult result : results) {
+      Object rawDescriptors = result.metadata().get("discoveredToolDescriptors");
+      if (rawDescriptors instanceof List<?> descriptors) {
+        for (Object value : descriptors) {
+          if (value instanceof ToolDescriptor descriptor) {
+            tools.put(descriptor.qualifiedName(), descriptor);
+            discovered.add(descriptor.qualifiedName());
+          }
+        }
+      }
+    }
+    if (!discovered.equals(new LinkedHashSet<>(state.discoveredTools()))) {
+      ModelRequest current = state.request();
+      update.put(
+          MiniClaudeState.REQUEST,
+          new ModelRequest(
+              current.providerProfile(),
+              current.modelName(),
+              current.messages(),
+              List.copyOf(tools.values()),
+              current.thinkingEnabled(),
+              current.maxOutputTokens(),
+              current.attributes()));
+      update.put(MiniClaudeState.DISCOVERED_TOOLS, List.copyOf(discovered));
+    }
   }
 
   private static Map<String, Object> failed(String message) {

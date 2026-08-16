@@ -23,7 +23,29 @@ public interface TurnProgressListener {
       int estimatedInputTokens,
       int inputBudgetTokens,
       String compactionReason,
-      int beforeCompactionTokens) {
+      int beforeCompactionTokens,
+      String compactBoundaryId) {
+    public Progress(
+        String phase,
+        int modelSteps,
+        int toolSteps,
+        int compactionCount,
+        int estimatedInputTokens,
+        int inputBudgetTokens,
+        String compactionReason,
+        int beforeCompactionTokens) {
+      this(
+          phase,
+          modelSteps,
+          toolSteps,
+          compactionCount,
+          estimatedInputTokens,
+          inputBudgetTokens,
+          compactionReason,
+          beforeCompactionTokens,
+          "");
+    }
+
     public Progress {
       phase = requireText(phase, "phase");
       if (modelSteps < 0
@@ -35,6 +57,7 @@ public interface TurnProgressListener {
         throw new IllegalArgumentException("turn progress values must not be negative");
       }
       compactionReason = compactionReason == null ? "" : compactionReason;
+      compactBoundaryId = compactBoundaryId == null ? "" : compactBoundaryId;
     }
 
     public boolean compaction() {

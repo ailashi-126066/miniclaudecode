@@ -1,5 +1,6 @@
 package dev.miniclaudecode.cli.app;
 
+import dev.miniclaudecode.domain.approval.PermissionRuleStore;
 import dev.miniclaudecode.domain.model.ModelClient;
 import dev.miniclaudecode.extensions.mcp.McpManager;
 import dev.miniclaudecode.extensions.mcp.McpManager.ConnectReport;
@@ -11,7 +12,7 @@ import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import dev.miniclaudecode.rag.search.Bm25Retriever;
 import dev.miniclaudecode.rag.search.HybridCodeSearcher;
 import dev.miniclaudecode.rag.search.VectorRetriever;
-import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.registry.DeferredToolRegistry;
 import dev.miniclaudecode.tools.result.ToolResultStore;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,7 +27,7 @@ final class WorkspaceComponents implements AutoCloseable {
   private final Path workspace;
   private final UserDataLayout layout;
   private final AppConfig config;
-  private final DefaultToolRegistry tools;
+  private final DeferredToolRegistry tools;
   private final ModelClient modelClient;
   private final SkillCatalog skills;
   private final LuceneCodeIndex codeIndex;
@@ -35,14 +36,17 @@ final class WorkspaceComponents implements AutoCloseable {
   private final HybridCodeSearcher searcher;
   private final Set<String> secrets;
   private final MemoryStore bullets;
+  private final PermissionRuleStore permissionRules;
   private final McpManager mcpManager;
   private final ConnectReport mcpReport;
+  private final BackgroundAgentManager background;
+  private final TeamManager teams;
 
   private WorkspaceComponents(
       Path workspace,
       UserDataLayout layout,
       AppConfig config,
-      DefaultToolRegistry tools,
+      DeferredToolRegistry tools,
       ModelClient modelClient,
       SkillCatalog skills,
       LuceneCodeIndex codeIndex,
@@ -51,8 +55,11 @@ final class WorkspaceComponents implements AutoCloseable {
       HybridCodeSearcher searcher,
       Set<String> secrets,
       MemoryStore bullets,
+      PermissionRuleStore permissionRules,
       McpManager mcpManager,
-      ConnectReport mcpReport) {
+      ConnectReport mcpReport,
+      BackgroundAgentManager background,
+      TeamManager teams) {
     this.workspace = workspace;
     this.layout = layout;
     this.config = config;
@@ -65,8 +72,11 @@ final class WorkspaceComponents implements AutoCloseable {
     this.searcher = searcher;
     this.secrets = secrets;
     this.bullets = bullets;
+    this.permissionRules = permissionRules;
     this.mcpManager = mcpManager;
     this.mcpReport = mcpReport;
+    this.background = background;
+    this.teams = teams;
   }
 
   static WorkspaceComponents create(
@@ -112,8 +122,11 @@ final class WorkspaceComponents implements AutoCloseable {
           rag.searcher(),
           model.secrets(),
           tools.bullets(),
+          tools.permissionRules(),
           extensions.manager(),
-          extensions.report());
+          extensions.report(),
+          tools.background(),
+          tools.teams());
     } catch (RuntimeException failure) {
       extensions.close();
       throw failure;
@@ -132,7 +145,7 @@ final class WorkspaceComponents implements AutoCloseable {
     return this.config;
   }
 
-  DefaultToolRegistry tools() {
+  DeferredToolRegistry tools() {
     return this.tools;
   }
 
@@ -166,6 +179,18 @@ final class WorkspaceComponents implements AutoCloseable {
 
   MemoryStore bullets() {
     return this.bullets;
+  }
+
+  PermissionRuleStore permissionRules() {
+    return this.permissionRules;
+  }
+
+  BackgroundAgentManager background() {
+    return this.background;
+  }
+
+  TeamManager teams() {
+    return this.teams;
   }
 
   String mcpStatus() {
@@ -205,7 +230,11 @@ final class WorkspaceComponents implements AutoCloseable {
     try {
       this.bullets.close();
     } finally {
-      this.mcpManager.close();
+      try {
+        this.background.close();
+      } finally {
+        this.mcpManager.close();
+      }
     }
   }
 

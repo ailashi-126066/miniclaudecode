@@ -45,6 +45,17 @@
             <artifactId>jline</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.williamcallahan</groupId>
+            <artifactId>tui4j</artifactId>
+            <exclusions>
+                <!-- The direct jline aggregate already contains these classes at 3.30.15. -->
+                <exclusion>
+                    <groupId>org.jline</groupId>
+                    <artifactId>jline-terminal-jni</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
         </dependency>

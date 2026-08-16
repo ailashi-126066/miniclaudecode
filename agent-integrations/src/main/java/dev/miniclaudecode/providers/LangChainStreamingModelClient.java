@@ -77,17 +77,24 @@ public abstract class LangChainStreamingModelClient implements ModelClient {
   @Override
   public final Flow.Publisher<ModelStreamEvent> stream(ModelRequest request) {
     Objects.requireNonNull(request, "request must not be null");
+    ModelRequest effective = request;
     if (request.thinkingEnabled() && thinkingSupport == ThinkingSupport.UNSUPPORTED) {
-      return new ImmediatePublisher(
-          new ModelStreamEvent.Failed(
-              "thinking_unsupported",
-              "the selected provider does not support thinking summaries",
-              false));
+      Map<String, Object> attributes = new LinkedHashMap<>(request.attributes());
+      attributes.put("capabilityDowngrade", "thinking_disabled");
+      effective =
+          new ModelRequest(
+              request.providerProfile(),
+              request.modelName(),
+              request.messages(),
+              request.tools(),
+              false,
+              request.maxOutputTokens(),
+              attributes);
     }
-    ToolNameMapping names = ToolNameMapping.from(request.tools());
-    ChatRequest chatRequest = toChatRequest(request, names);
+    ToolNameMapping names = ToolNameMapping.from(effective.tools());
+    ChatRequest chatRequest = toChatRequest(effective, names);
     return new CallbackPublisher(
-        model, chatRequest, names, request.thinkingEnabled(), secret, streamIdleTimeout);
+        model, chatRequest, names, effective.thinkingEnabled(), secret, streamIdleTimeout);
   }
 
   private static ChatRequest toChatRequest(ModelRequest request, ToolNameMapping names) {
@@ -531,43 +538,6 @@ public abstract class LangChainStreamingModelClient implements ModelClient {
       if (nextName != null && !nextName.isBlank()) {
         name = nextName;
       }
-    }
-  }
-
-  private static final class ImmediatePublisher implements Flow.Publisher<ModelStreamEvent> {
-    private final ModelStreamEvent event;
-
-    private ImmediatePublisher(ModelStreamEvent event) {
-      this.event = event;
-    }
-
-    @Override
-    public void subscribe(Flow.Subscriber<? super ModelStreamEvent> subscriber) {
-      Objects.requireNonNull(subscriber, "subscriber must not be null");
-      subscriber.onSubscribe(
-          new Flow.Subscription() {
-            private boolean done;
-
-            @Override
-            public void request(long demand) {
-              if (done) {
-                return;
-              }
-              done = true;
-              if (demand <= 0) {
-                subscriber.onError(
-                    new IllegalArgumentException("demand must be greater than zero"));
-              } else {
-                subscriber.onNext(event);
-                subscriber.onComplete();
-              }
-            }
-
-            @Override
-            public void cancel() {
-              done = true;
-            }
-          });
     }
   }
 }

@@ -7,6 +7,7 @@ import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.planning.Plan;
 import dev.miniclaudecode.planning.PlanningInput;
 import dev.miniclaudecode.planning.TaskPlanner;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.PlanProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -18,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class CreatePlanNode implements AsyncNodeAction<MiniClaudeState> {
   private final TaskPlanner planner;

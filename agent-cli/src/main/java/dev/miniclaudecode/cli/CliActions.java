@@ -8,8 +8,6 @@ public interface CliActions {
 
   int interactive(Path workspace);
 
-  int run(Path workspace, String prompt);
-
   int index(Path workspace);
 
   int rag(Path workspace, String query);

@@ -22,8 +22,18 @@ public record CodeChunk(
     String parentChunkId,
     CodeChunk.Role role,
     int childIndex) {
+  /**
+   * Splits glued identifiers into words: camelCase boundaries, plus any run of punctuation, which
+   * covers snake_case, kebab-case and path separators alike.
+   *
+   * <p>The separator class is {@code [^\p{L}\p{N}]}, not {@code [^A-Za-z0-9]}. With the ASCII
+   * version every CJK character counted as a separator, and since {@code split} discards
+   * separators, the lexical copy below dropped Chinese text entirely — half the searchable signal
+   * for a Chinese document silently disappeared. Letters of every script are now kept; CJK runs
+   * stay glued here and are segmented by the analyzer's bigram filter instead.
+   */
   private static final Pattern IDENTIFIER_BOUNDARY =
-      Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+");
+      Pattern.compile("(?<=[\\p{Ll}\\p{N}])(?=\\p{Lu})|[^\\p{L}\\p{N}]+");
 
   public CodeChunk(
       String id,

@@ -1,7 +1,7 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress;
+import dev.miniclaudecode.cli.TurnEvent;
+import dev.miniclaudecode.cli.TurnEvent.Progress;
 import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
@@ -48,7 +48,7 @@ final class MemoryCoordinator {
   }
 
   void captureExplicitPreference(
-      SessionId sessionId, MiniClaudeState state, TurnId turn, Consumer<RenderEvent> renderer) {
+      SessionId sessionId, MiniClaudeState state, TurnId turn, Consumer<TurnEvent> renderer) {
     try {
       memory
           .rememberExplicitPreference(
@@ -70,7 +70,7 @@ final class MemoryCoordinator {
       MiniClaudeState state,
       String error,
       TurnId turn,
-      Consumer<RenderEvent> renderer) {
+      Consumer<TurnEvent> renderer) {
     try {
       if (state.compactionCount() > 0) {
         components.bullets().requestConsolidation();

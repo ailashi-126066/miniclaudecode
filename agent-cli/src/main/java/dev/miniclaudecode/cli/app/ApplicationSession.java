@@ -1,12 +1,13 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.Repl.TurnHandler;
-import dev.miniclaudecode.cli.Repl.TurnOutcome;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Completed;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Error;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress;
+import dev.miniclaudecode.cli.TurnEvent;
+import dev.miniclaudecode.cli.TurnEvent.Completed;
+import dev.miniclaudecode.cli.TurnEvent.Error;
+import dev.miniclaudecode.cli.TurnEvent.Progress;
+import dev.miniclaudecode.cli.TurnHandler;
+import dev.miniclaudecode.cli.TurnOutcome;
 import dev.miniclaudecode.cli.commands.SlashCommand;
+import dev.miniclaudecode.cli.tui.TuiDashboard;
 import dev.miniclaudecode.context.DeterministicContextReducer;
 import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
@@ -22,16 +23,12 @@ import dev.miniclaudecode.domain.session.SessionEventStore.ReadResult;
 import dev.miniclaudecode.domain.session.SessionId;
 import dev.miniclaudecode.domain.session.TurnId;
 import dev.miniclaudecode.persistence.config.ProviderProfile;
-import dev.miniclaudecode.persistence.memory.AceBullet;
 import dev.miniclaudecode.prompt.DefaultCodingPromptContributors;
 import dev.miniclaudecode.prompt.PromptBuildContext;
 import dev.miniclaudecode.prompt.PromptPipeline;
 import dev.miniclaudecode.runtime.AgentThreadRunner;
 import dev.miniclaudecode.runtime.TurnProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +39,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 
 final class ApplicationSession implements TurnHandler {
   private final WorkspaceComponents components;
@@ -54,6 +50,7 @@ final class ApplicationSession implements TurnHandler {
   private final TurnCoordinator turns;
   private final GitCheckpointService checkpoints;
   private final SessionUsageStats usage = new SessionUsageStats();
+  private final SessionCommandService commands;
   // Written only under the instance lock (start / switchTo), but read from both locked and
   // lock-free paths (emit() is reached from unsynchronized callers). volatile gives those reads
   // correct visibility of the latest committed id without pretending the field is lock-guarded.
@@ -71,6 +68,7 @@ final class ApplicationSession implements TurnHandler {
   private int lastCompactionCount;
   private String lastCheckpoint = "(none)";
   private String lastVerification = "not run";
+  private String lastTaskSummary = "0/0";
 
   ApplicationSession(
       WorkspaceComponents components,
@@ -86,11 +84,12 @@ final class ApplicationSession implements TurnHandler {
     this.memory = new MemoryCoordinator(components, audit, clock);
     this.turns = new TurnCoordinator(components, audit, clock);
     this.checkpoints = new GitCheckpointService(components.workspace());
+    this.commands = new SessionCommandService(components, audit, usage, checkpoints);
     this.messages = List.of(new SystemMessage(this.systemPrompt()));
   }
 
   public CompletionStage<TurnOutcome> start(
-      String prompt, CancellationToken cancellationToken, Consumer<RenderEvent> renderer) {
+      String prompt, CancellationToken cancellationToken, Consumer<TurnEvent> renderer) {
     Objects.requireNonNull(prompt, "prompt must not be null");
     ApplicationSession.TurnSelection selected = this.selection.get();
     TurnId turn;
@@ -121,7 +120,7 @@ final class ApplicationSession implements TurnHandler {
         turnMessages.add(new SystemMessage(memoryContext));
       }
       turnMessages.add(new UserMessage(prompt));
-      request = this.turns.request(selected, turnMessages);
+      request = this.turns.request(this.sessionId, selected, turnMessages);
       runner = this.createRunner(turn, cancellationToken, renderer);
       this.activeRunner = runner;
       this.activeGraphThread = graphThread;
@@ -144,7 +143,7 @@ final class ApplicationSession implements TurnHandler {
    *
    * <p>{@code finishState} runs on the success path only, so any exceptional completion — a graph
    * recursion limit, a checkpoint IO error — used to leave {@code activeRunner} set forever. Every
-   * later prompt then failed with "the current turn is waiting for approval" and the REPL was
+   * later prompt then failed with "the current turn is waiting for approval" and the TUI was
    * unusable until restart.
    */
   private synchronized void releaseTurnOnFailure(Throwable error) {
@@ -161,7 +160,7 @@ final class ApplicationSession implements TurnHandler {
   public CompletionStage<TurnOutcome> resume(
       ApprovalDecision decision,
       CancellationToken cancellationToken,
-      Consumer<RenderEvent> renderer) {
+      Consumer<TurnEvent> renderer) {
     AgentThreadRunner runner;
     SessionId graphThread;
     TurnId turn;
@@ -203,239 +202,66 @@ final class ApplicationSession implements TurnHandler {
         this.restoredApproval != null
             ? "Awaiting approval"
             : this.activeRunner != null ? "Running" : "Idle";
-    return "Session: "
-        + this.sessionId.value()
-        + System.lineSeparator()
-        + "State: "
-        + state
-        + System.lineSeparator()
-        + "Turn: "
-        + this.nextTurn
-        + System.lineSeparator()
-        + "Plan: "
-        + currentPlanSummary()
-        + System.lineSeparator()
-        + "Phase: "
-        + this.lastPhase
-        + System.lineSeparator()
-        + "Context: "
-        + contextStatus()
-        + System.lineSeparator()
-        + "Last verification: "
-        + this.lastVerification
-        + System.lineSeparator()
-        + "Checkpoint: "
-        + this.lastCheckpoint;
+    return this.commands.status(
+        this.sessionId,
+        state,
+        this.nextTurn,
+        this.lastTaskSummary,
+        this.lastPhase,
+        this.lastEstimatedTokens,
+        this.lastInputBudgetTokens,
+        this.lastCompactionCount,
+        this.lastVerification,
+        this.lastCheckpoint);
   }
 
   synchronized String plan(SlashCommand.PlanView command) {
-    List<AgentEvent> events = planEvents();
-    if ("history".equals(command.action())) {
-      if (events.isEmpty()) {
-        return "No Plan events for this session.";
-      }
-      return events.stream()
-          .map(
-              event ->
-                  event.occurredAt()
-                      + " "
-                      + event.type()
-                      + " plan="
-                      + event.payload().getOrDefault("planId", "?")
-                      + " version="
-                      + event.payload().getOrDefault("version", "?"))
-          .reduce((left, right) -> left + System.lineSeparator() + right)
-          .orElseThrow();
-    }
-    if ("evidence".equals(command.action())) {
-      String stepId = command.stepId().orElseThrow();
-      for (int index = events.size() - 1; index >= 0; index--) {
-        Object rawSteps = events.get(index).payload().get("steps");
-        if (rawSteps instanceof List<?> steps) {
-          for (Object value : steps) {
-            if (value instanceof Map<?, ?> step && stepId.equals(String.valueOf(step.get("id")))) {
-              Object evidence = step.get("evidence");
-              return evidence == null
-                  ? "No evidence recorded for Plan step " + stepId
-                  : "Evidence for " + stepId + ":\n" + evidence;
-            }
-          }
-        }
-      }
-      return "Unknown Plan step: " + stepId;
-    }
-    return events.isEmpty()
-        ? "No Plan is available for this session."
-        : renderPlan(events.getLast().payload());
+    return this.commands.plan(this.sessionId, command);
   }
 
   synchronized String memory(SlashCommand.Memory command) {
-    return switch (command.action()) {
-      case "list" -> renderMemories(this.components.bullets().list());
-      case "archive" ->
-          this.components.bullets().archive(command.value().orElseThrow())
-              ? "Memory archived: " + command.value().orElseThrow()
-              : "Unknown memory id: " + command.value().orElseThrow();
-      case "edit" -> editMemory(command.value().orElseThrow());
-      case "search" ->
-          renderMemories(this.components.bullets().search(command.value().orElseThrow(), 20));
-      case "export" -> exportMemories(this.components.bullets().list());
-      case "clear" -> {
-        int archived = this.components.bullets().clear();
-        yield "Archived " + archived + " active memory entr" + (archived == 1 ? "y." : "ies.");
-      }
-      default -> throw new IllegalArgumentException("unknown memory action: " + command.action());
-    };
-  }
-
-  private String editMemory(String arguments) {
-    int separator = arguments.indexOf(' ');
-    if (separator < 1 || separator == arguments.length() - 1) {
-      throw new IllegalArgumentException("usage: /memory edit <id> <content>");
-    }
-    String id = arguments.substring(0, separator);
-    String content = arguments.substring(separator + 1).strip();
-    return this.components.bullets().edit(id, content)
-        ? "Memory updated: " + id
-        : "Unknown memory id: " + id;
-  }
-
-  private String currentPlanSummary() {
-    List<AgentEvent> events = planEvents();
-    if (events.isEmpty()) {
-      return "(none)";
-    }
-    Map<String, Object> payload = events.getLast().payload();
-    return payload.getOrDefault("status", "?")
-        + " v"
-        + payload.getOrDefault("version", "?")
-        + " - "
-        + payload.getOrDefault("goal", "");
-  }
-
-  private List<AgentEvent> planEvents() {
-    return this.audit.read(this.sessionId).events().stream()
-        .filter(event -> event.type().name().startsWith("PLAN_"))
-        .toList();
-  }
-
-  private static String renderPlan(Map<String, Object> payload) {
-    StringBuilder output = new StringBuilder();
-    output
-        .append("Plan ")
-        .append(payload.getOrDefault("planId", "?"))
-        .append(" [")
-        .append(payload.getOrDefault("status", "?"))
-        .append("] v")
-        .append(payload.getOrDefault("version", "?"))
-        .append(" revisions=")
-        .append(payload.getOrDefault("revisions", 0))
-        .append("\nGoal: ")
-        .append(payload.getOrDefault("goal", ""));
-    Object rawSteps = payload.get("steps");
-    if (rawSteps instanceof List<?> steps) {
-      for (Object value : steps) {
-        if (value instanceof Map<?, ?> step) {
-          output
-              .append("\n- [")
-              .append(step.get("status"))
-              .append("] ")
-              .append(step.get("id"))
-              .append(": ")
-              .append(step.get("description"));
-        }
-      }
-    }
-    return output.toString();
-  }
-
-  private static String renderMemories(List<AceBullet> memories) {
-    if (memories.isEmpty()) {
-      return "(none)";
-    }
-    return memories.stream()
-        .map(
-            memory ->
-                memory.id()
-                    + " ["
-                    + memory.state()
-                    + "] confidence="
-                    + String.format(java.util.Locale.ROOT, "%.2f", memory.confidence())
-                    + "\n  trigger: "
-                    + memory.trigger()
-                    + "\n  lesson: "
-                    + memory.lesson())
-        .reduce((left, right) -> left + System.lineSeparator() + right)
-        .orElseThrow();
-  }
-
-  private static String exportMemories(List<AceBullet> memories) {
-    StringBuilder markdown = new StringBuilder("# MiniClaudeCode memory export\n");
-    for (AceBullet memory : memories) {
-      markdown
-          .append("\n## ")
-          .append(memory.id())
-          .append("\n\n- State: ")
-          .append(memory.state())
-          .append("\n- Trigger: ")
-          .append(memory.trigger())
-          .append("\n- Lesson: ")
-          .append(memory.lesson())
-          .append("\n");
-    }
-    return markdown.toString().stripTrailing();
+    return this.commands.memory(command);
   }
 
   synchronized String sessions() {
-    Path root = this.audit.eventsRoot();
-    if (!Files.isDirectory(root)) {
-      return "(none)";
-    } else {
-      try {
-        String var4;
-        try (Stream<Path> files = Files.list(root)) {
-          String result =
-              files
-                  .filter(path -> path.getFileName().toString().endsWith(".jsonl"))
-                  .map(path -> path.getFileName().toString().replaceFirst("\\.jsonl$", ""))
-                  .sorted()
-                  .reduce((left, right) -> left + System.lineSeparator() + right)
-                  .orElse("(none)");
-          var4 = result;
-        }
-
-        return var4;
-      } catch (IOException var7) {
-        return "Cannot list sessions: " + var7.getMessage();
-      }
-    }
+    return this.commands.sessions();
   }
 
   synchronized String usage() {
-    return this.usage.summary();
+    return this.commands.usage(this.sessionId);
+  }
+
+  synchronized String background() {
+    return this.commands.background(this.sessionId);
+  }
+
+  synchronized String teams() {
+    return this.commands.teams();
+  }
+
+  synchronized TuiDashboard dashboard() {
+    return this.commands.dashboard(this.sessionId, this.lastPhase);
   }
 
   synchronized String checkpoints() {
-    return this.checkpoints.list();
+    return this.commands.checkpoints();
   }
 
   synchronized String restoreCheckpoint(
       dev.miniclaudecode.cli.commands.SlashCommand.Restore command) {
     Objects.requireNonNull(command, "command must not be null");
     ensureNoActiveTurn();
-    return command.apply()
-        ? this.checkpoints.restore(command.revision())
-        : this.checkpoints.previewRestore(command.revision());
+    return this.commands.restoreCheckpoint(command);
   }
 
   synchronized String undo() {
     ensureNoActiveTurn();
-    return this.checkpoints.undo();
+    return this.commands.undo();
   }
 
   synchronized String redo() {
     ensureNoActiveTurn();
-    return this.checkpoints.redo();
+    return this.commands.redo();
   }
 
   synchronized void switchTo(String value) {
@@ -444,8 +270,10 @@ final class ApplicationSession implements TurnHandler {
     if (read.events().isEmpty()) {
       throw new IllegalArgumentException("unknown session: " + value);
     }
+    this.restoreDiscoveredTools(selected, read.events());
     SessionRestorationService.RestoredSession restored =
-        this.restoration.restore(selected, read.events(), this.systemPrompt());
+        this.restoration.restore(
+            selected, read.events(), this.systemPrompt(selected, this.selection.get()));
     this.usage.restore(read.events());
     this.sessionId = selected;
     this.nextTurn = restored.nextTurn();
@@ -462,6 +290,7 @@ final class ApplicationSession implements TurnHandler {
     this.lastEstimatedTokens = progress.estimatedTokens();
     this.lastInputBudgetTokens = progress.inputBudgetTokens();
     this.lastCompactionCount = progress.compactionCount();
+    this.lastTaskSummary = restored.taskSummary();
     Optional<SessionRestorationService.PendingApproval> pendingApproval =
         restored.pendingApproval();
     if (pendingApproval.isPresent()) {
@@ -507,7 +336,7 @@ final class ApplicationSession implements TurnHandler {
   }
 
   private AgentThreadRunner createRunner(
-      TurnId turn, CancellationToken cancellationToken, Consumer<RenderEvent> renderer) {
+      TurnId turn, CancellationToken cancellationToken, Consumer<TurnEvent> renderer) {
     return this.turns.createRunner(
         this.sessionId,
         turn,
@@ -518,7 +347,7 @@ final class ApplicationSession implements TurnHandler {
   }
 
   private synchronized TurnOutcome finishState(
-      MiniClaudeState state, TurnId turn, Consumer<RenderEvent> renderer) {
+      MiniClaudeState state, TurnId turn, Consumer<TurnEvent> renderer) {
     this.messages = state.messages();
     this.lastVerification = verificationStatus(state);
     if (state.status() == AgentStatus.WAITING_APPROVAL) {
@@ -569,6 +398,10 @@ final class ApplicationSession implements TurnHandler {
   }
 
   private String systemPrompt(TurnSelection selected) {
+    return this.systemPrompt(this.sessionId, selected);
+  }
+
+  private String systemPrompt(SessionId sessionId, TurnSelection selected) {
     ProviderProfile profile = this.components.config().providers().get(selected.provider());
     if (profile == null) {
       throw new IllegalArgumentException("unknown provider profile: " + selected.provider());
@@ -576,7 +409,7 @@ final class ApplicationSession implements TurnHandler {
     return this.promptPipeline.build(
         new PromptBuildContext(
             this.components.workspace(),
-            this.components.tools().descriptors(),
+            this.components.tools().descriptors(sessionId),
             this.components.skills().promptIndex(),
             profile.outputProtocol().promptInstruction(),
             Map.of(
@@ -585,12 +418,35 @@ final class ApplicationSession implements TurnHandler {
                 "thinking", selected.thinking())));
   }
 
-  private void emit(TurnId turnId, AgentEventType type, Map<String, Object> payload) {
+  private void restoreDiscoveredTools(SessionId sessionId, List<AgentEvent> events) {
+    List<String> discovered = new ArrayList<>();
+    for (AgentEvent event : events) {
+      Object raw = event.payload().get("discoveredTools");
+      if (raw instanceof List<?> names) {
+        names.stream()
+            .filter(String.class::isInstance)
+            .map(String.class::cast)
+            .forEach(discovered::add);
+      }
+    }
+    this.components.tools().restoreDiscovered(sessionId, discovered);
+  }
+
+  private synchronized void emit(TurnId turnId, AgentEventType type, Map<String, Object> payload) {
+    if (type == AgentEventType.TASK_UPDATED && payload.get("items") instanceof List<?> items) {
+      long completed =
+          items.stream()
+              .filter(Map.class::isInstance)
+              .map(Map.class::cast)
+              .filter(item -> "done".equalsIgnoreCase(String.valueOf(item.get("status"))))
+              .count();
+      this.lastTaskSummary = completed + "/" + items.size();
+    }
     this.audit.emit(this.sessionId, turnId, type, payload);
   }
 
   private synchronized void onLoopProgress(
-      TurnId turn, TurnProgressListener.Progress progress, Consumer<RenderEvent> renderer) {
+      TurnId turn, TurnProgressListener.Progress progress, Consumer<TurnEvent> renderer) {
     this.lastPhase = progress.phase();
     this.lastEstimatedTokens = progress.estimatedInputTokens();
     this.lastInputBudgetTokens = progress.inputBudgetTokens();
@@ -604,7 +460,8 @@ final class ApplicationSession implements TurnHandler {
               "beforeEstimatedTokens", progress.beforeCompactionTokens(),
               "afterEstimatedTokens", progress.estimatedInputTokens(),
               "inputBudgetTokens", progress.inputBudgetTokens(),
-              "compactionCount", progress.compactionCount()));
+              "compactionCount", progress.compactionCount(),
+              "compactBoundaryId", progress.compactBoundaryId()));
       renderer.accept(
           new Progress(
               "Context compacted: "
@@ -624,17 +481,6 @@ final class ApplicationSession implements TurnHandler {
               "estimatedInputTokens", progress.estimatedInputTokens(),
               "inputBudgetTokens", progress.inputBudgetTokens()));
     }
-  }
-
-  private String contextStatus() {
-    if (this.lastEstimatedTokens <= 0) {
-      return "not estimated";
-    }
-    String budget = this.lastInputBudgetTokens > 0 ? "/" + this.lastInputBudgetTokens : "";
-    return this.lastEstimatedTokens
-        + budget
-        + " estimated tokens; compactions="
-        + this.lastCompactionCount;
   }
 
   private static String verificationStatus(MiniClaudeState state) {

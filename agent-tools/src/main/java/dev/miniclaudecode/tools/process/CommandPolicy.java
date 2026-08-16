@@ -22,18 +22,31 @@ public final class CommandPolicy {
     this.allowlistOnly = allowlistOnly;
   }
 
+  /**
+   * Entries the deny layer adds on top of {@link CommandRiskClassifier#systemDestructiveMarkers()}.
+   *
+   * <p>These are repository-destructive rather than machine-destructive, so the classifier rates
+   * them HIGH (approvable) while the default denylist refuses them outright: recovering a wiped
+   * working tree costs the user real work, and no plausible task needs the agent to ask.
+   */
+  private static final List<String> UNRECOVERABLE_WORKSPACE_FRAGMENTS =
+      List.of(
+          "rm -rf", "rm -fr", "remove-item -recurse -force", "git reset --hard", "git clean -f");
+
+  /**
+   * The shipped policy. The deny half is derived from the classifier's destructive vocabulary so a
+   * marker cannot be added to one layer and forgotten in the other; the allow half is the read-only
+   * shortlist that skips classification entirely.
+   */
   public static CommandPolicy defaults() {
+    List<String> denyFragments =
+        java.util.stream.Stream.concat(
+                CommandRiskClassifier.systemDestructiveMarkers().stream(),
+                UNRECOVERABLE_WORKSPACE_FRAGMENTS.stream())
+            .toList();
     return new CommandPolicy(
         List.of("rg", "git status", "git diff", "git log", "get-content", "get-childitem"),
-        List.of(
-            "rm -rf",
-            "git reset --hard",
-            "git clean -f",
-            "format ",
-            "diskpart",
-            "shutdown",
-            "reboot",
-            "remove-item -recurse -force"),
+        denyFragments,
         false);
   }
 

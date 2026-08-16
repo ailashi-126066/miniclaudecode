@@ -16,6 +16,7 @@ import dev.miniclaudecode.domain.runtime.CancellationToken.Registration;
 import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.TurnLimits;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -30,7 +31,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow.Subscriber;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
   private final ModelClient modelClient;
@@ -171,6 +171,7 @@ public final class CallModelNode implements AsyncNodeAction<MiniClaudeState> {
           this.usage = reported;
           break;
         case Completed completedx:
+          this.metadata.put("finishReason", completedx.finishReason());
           this.metadata.putAll(completedx.providerMetadata());
           break;
         case Failed failed:

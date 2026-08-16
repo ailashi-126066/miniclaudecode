@@ -9,14 +9,14 @@ import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolResult;
 import dev.miniclaudecode.planning.Plan;
+import dev.miniclaudecode.runtime.recovery.RecoveryAttachment;
 import dev.miniclaudecode.runtime.workflow.ExecutionMode;
 import dev.miniclaudecode.runtime.workflow.ExecutionPhase;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.bsc.langgraph4j.state.AgentState;
 
-public final class MiniClaudeState extends AgentState {
+public final class MiniClaudeState {
   public static final String REQUEST = "request";
   public static final String MESSAGES = "messages";
   public static final String MODEL_EVENTS = "modelEvents";
@@ -46,9 +46,20 @@ public final class MiniClaudeState extends AgentState {
   public static final String WORKFLOW_ROUTE = "workflowRoute";
   public static final String DIRECT_ATTEMPTS = "directAttempts";
   public static final String WORKFLOW_SOURCE = "workflowSource";
+  public static final String CONTINUATION_TEXT = "continuationText";
+  public static final String CONTINUATION_COUNT = "continuationCount";
+  public static final String DISCOVERED_TOOLS = "discoveredTools";
+  public static final String RECOVERY_ATTACHMENT = "recoveryAttachment";
+  public static final String COMPACT_BOUNDARY_ID = "compactBoundaryId";
+
+  private final Map<String, Object> data;
 
   public MiniClaudeState(Map<String, Object> data) {
-    super(data);
+    this.data = Map.copyOf(java.util.Objects.requireNonNull(data));
+  }
+
+  public Map<String, Object> data() {
+    return this.data;
   }
 
   public ModelRequest request() {
@@ -170,6 +181,26 @@ public final class MiniClaudeState extends AgentState {
 
   public String workflowSource() {
     return this.scalar(WORKFLOW_SOURCE, String.class, "model");
+  }
+
+  public String continuationText() {
+    return this.scalar(CONTINUATION_TEXT, String.class, "");
+  }
+
+  public int continuationCount() {
+    return this.scalar(CONTINUATION_COUNT, Integer.class, 0);
+  }
+
+  public List<String> discoveredTools() {
+    return this.list(DISCOVERED_TOOLS);
+  }
+
+  public Optional<RecoveryAttachment> recoveryAttachment() {
+    return this.optional(RECOVERY_ATTACHMENT, RecoveryAttachment.class);
+  }
+
+  public Optional<String> compactBoundaryId() {
+    return this.optionalText(COMPACT_BOUNDARY_ID);
   }
 
   private Optional<String> optionalText(String key) {

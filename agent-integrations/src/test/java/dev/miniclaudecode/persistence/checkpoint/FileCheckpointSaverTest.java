@@ -1,11 +1,9 @@
 package dev.miniclaudecode.persistence.checkpoint;
 
+import dev.miniclaudecode.domain.session.SessionId;
 import java.nio.file.Path;
 import java.util.Map;
 import org.assertj.core.api.Assertions;
-import org.bsc.langgraph4j.RunnableConfig;
-import org.bsc.langgraph4j.checkpoint.Checkpoint;
-import org.bsc.langgraph4j.state.AgentState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,28 +11,22 @@ class FileCheckpointSaverTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void restoresTheLatestCheckpointFromANewSaverInstance() throws Exception {
-    RunnableConfig config = RunnableConfig.builder().threadId("session-1").build();
-    Checkpoint checkpoint =
-        Checkpoint.builder()
-            .id("checkpoint-1")
-            .state(Map.of("value", "saved"))
-            .nodeId("await_approval")
-            .nextNodeId("execute_tools")
-            .build();
+  void restoresTheLatestCheckpointFromANewSaverInstance() {
+    SessionId session = SessionId.of("session-1");
     FileCheckpointSaver<FileCheckpointSaverTest.TestState> first =
         new FileCheckpointSaver<>(this.temporaryDirectory, FileCheckpointSaverTest.TestState::new);
-    first.put(config, checkpoint);
+    first.save(session, Map.of("value", "saved"));
     FileCheckpointSaver<FileCheckpointSaverTest.TestState> restored =
         new FileCheckpointSaver<>(this.temporaryDirectory, FileCheckpointSaverTest.TestState::new);
-    Checkpoint loaded = (Checkpoint) restored.get(config).orElseThrow();
-    Assertions.assertThat(loaded.getState().get("value")).isEqualTo("saved");
-    Assertions.assertThat(loaded.getNextNodeId()).contains(new CharSequence[] {"execute_tools"});
+    TestState loaded = restored.get(session).orElseThrow();
+    Assertions.assertThat(loaded.data().get("value")).isEqualTo("saved");
+    restored.release(session);
+    Assertions.assertThat(restored.get(session)).isEmpty();
   }
 
-  private static final class TestState extends AgentState {
+  private record TestState(Map<String, Object> data) {
     private TestState(Map<String, Object> data) {
-      super(data);
+      this.data = Map.copyOf(data);
     }
   }
 }

@@ -3,6 +3,7 @@ package dev.miniclaudecode.runtime.node;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
 import dev.miniclaudecode.domain.session.AgentStatus;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.output.OutputProtocol;
 import dev.miniclaudecode.runtime.output.OutputProtocolRegistry;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
@@ -12,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 /** Feeds a bounded format correction back to the model instead of guessing terminal output. */
 public final class RepairOutputNode implements AsyncNodeAction<MiniClaudeState> {

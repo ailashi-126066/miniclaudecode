@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "23"
           cache: maven
       - name: Verify unit, CLI E2E, integration and distribution build
         shell: bash
@@ -29,6 +29,10 @@ jobs:
         run: |
           java -jar agent-cli/target/mini-claude-code.jar --version
           java -jar agent-cli/target/mini-claude-code.jar --help
+          mkdir -p target/fat-jar-smoke-home
+          java -Duser.home=target/fat-jar-smoke-home \
+            -jar agent-cli/target/mini-claude-code.jar \
+            index -w agent-rag/src/test/resources/tree-sitter-smoke
       - name: Smoke test distribution archives
         shell: bash
         run: |

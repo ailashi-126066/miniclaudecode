@@ -133,8 +133,25 @@ public final class LangChainDocumentChunker implements DocumentChunker {
     return List.copyOf(regions);
   }
 
+  /**
+   * Whether a line opens a new structural region.
+   *
+   * <p>Markdown headings count at every level. Matching only {@code "# "} meant a document using
+   * {@code ##}/{@code ###} — which is most of them, since an H1 is usually the title — produced a
+   * single region for the whole file and was cut purely on the recursive splitter's token windows,
+   * so sections were shredded across chunk boundaries and every chunk inherited the same title as
+   * its heading.
+   */
   private static boolean isStructureMarker(String line) {
-    return line.startsWith("# ") || line.startsWith("[page ") || line.startsWith("[sheet: ");
+    return isMarkdownHeading(line) || line.startsWith("[page ") || line.startsWith("[sheet: ");
+  }
+
+  private static boolean isMarkdownHeading(String line) {
+    int level = 0;
+    while (level < line.length() && line.charAt(level) == '#') {
+      level++;
+    }
+    return level >= 1 && level <= 6 && level < line.length() && line.charAt(level) == ' ';
   }
 
   private static int findOffset(String content, String segment, int searchFrom) {
@@ -156,9 +173,7 @@ public final class LangChainDocumentChunker implements DocumentChunker {
     String latest = "";
     for (String line : content.substring(0, Math.min(offset, content.length())).lines().toList()) {
       String trimmed = line.trim();
-      if (trimmed.startsWith("# ")
-          || trimmed.startsWith("[page ")
-          || trimmed.startsWith("[sheet: ")) {
+      if (isStructureMarker(trimmed)) {
         latest = trimmed;
       }
     }
@@ -169,9 +184,7 @@ public final class LangChainDocumentChunker implements DocumentChunker {
     return content
         .lines()
         .map(String::trim)
-        .filter(
-            line ->
-                line.startsWith("# ") || line.startsWith("[page ") || line.startsWith("[sheet: "))
+        .filter(LangChainDocumentChunker::isStructureMarker)
         .findFirst()
         .orElse("");
   }

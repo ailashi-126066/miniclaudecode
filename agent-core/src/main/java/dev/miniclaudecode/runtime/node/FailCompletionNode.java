@@ -1,6 +1,7 @@
 package dev.miniclaudecode.runtime.node;
 
 import dev.miniclaudecode.domain.session.AgentStatus;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.CompletionRequirements;
 import dev.miniclaudecode.runtime.output.EngineeringReportValidator;
 import dev.miniclaudecode.runtime.output.RagCitationValidator;
@@ -8,7 +9,6 @@ import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 /** Converts an exhausted completion gate into an explicit terminal failure. */
 public final class FailCompletionNode implements AsyncNodeAction<MiniClaudeState> {

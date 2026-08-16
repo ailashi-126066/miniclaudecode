@@ -43,11 +43,26 @@ public final class WorkspaceScanner {
       Set.of(
           "class", "jar", "war", "zip", "gz", "png", "jpg", "jpeg", "gif", "ico", "exe", "dll",
           "so", "dylib", "woff", "woff2", "ttf", "mp3", "mp4");
+  private static final long DEFAULT_MAXIMUM_FILE_BYTES = 2L * 1024 * 1024;
+
+  /**
+   * Documents get a far larger budget than source files.
+   *
+   * <p>One 2 MiB limit governed both, which is generous for a source file and small for a real PDF
+   * or spreadsheet — so the format support in {@link MultiFormatDocumentExtractor} mostly never ran
+   * on actual documents, and the skip was silent. The asymmetry is the point: a 2 MiB source file
+   * is machine-generated and worth skipping, while a 20 MiB PDF is exactly the manual someone
+   * wanted indexed. Extraction reduces it to text before chunking, so the index cost tracks the
+   * prose, not the file size.
+   */
+  private static final long DEFAULT_MAXIMUM_DOCUMENT_BYTES = 32L * 1024 * 1024;
+
   private final long maximumFileBytes;
+  private final long maximumDocumentBytes;
   private final DocumentTextExtractor documentExtractor;
 
   public WorkspaceScanner() {
-    this(2097152L);
+    this(DEFAULT_MAXIMUM_FILE_BYTES);
   }
 
   public WorkspaceScanner(long maximumFileBytes) {
@@ -55,13 +70,21 @@ public final class WorkspaceScanner {
   }
 
   public WorkspaceScanner(long maximumFileBytes, DocumentTextExtractor documentExtractor) {
-    if (maximumFileBytes < 1L) {
-      throw new IllegalArgumentException("maximumFileBytes must be positive");
-    } else {
-      this.maximumFileBytes = maximumFileBytes;
-      this.documentExtractor =
-          Objects.requireNonNull(documentExtractor, "documentExtractor must not be null");
+    this(
+        maximumFileBytes,
+        Math.max(maximumFileBytes, DEFAULT_MAXIMUM_DOCUMENT_BYTES),
+        documentExtractor);
+  }
+
+  public WorkspaceScanner(
+      long maximumFileBytes, long maximumDocumentBytes, DocumentTextExtractor documentExtractor) {
+    if (maximumFileBytes < 1L || maximumDocumentBytes < maximumFileBytes) {
+      throw new IllegalArgumentException("invalid scanner size limits");
     }
+    this.maximumFileBytes = maximumFileBytes;
+    this.maximumDocumentBytes = maximumDocumentBytes;
+    this.documentExtractor =
+        Objects.requireNonNull(documentExtractor, "documentExtractor must not be null");
   }
 
   public List<WorkspaceScanner.ScannedFile> scan(Path workspace) throws IOException {
@@ -127,10 +150,12 @@ public final class WorkspaceScanner {
       Map<String, FileFingerprintStore.FileFingerprint> known,
       List<WorkspaceScanner.ScannedFile> files)
       throws IOException {
+    boolean extractable = this.documentExtractor.supports(file);
+    long sizeLimit = extractable ? this.maximumDocumentBytes : this.maximumFileBytes;
     if (!attributes.isRegularFile()
         || attributes.isSymbolicLink()
-        || attributes.size() > this.maximumFileBytes
-        || (knownBinary(file) && !this.documentExtractor.supports(file))) {
+        || attributes.size() > sizeLimit
+        || (knownBinary(file) && !extractable)) {
       return;
     }
     String path = portable(root.relativize(file));

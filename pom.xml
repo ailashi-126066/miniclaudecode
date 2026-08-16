@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>MiniClaudeCode</name>
-    <description>A Java 21 modular coding-agent runtime.</description>
+    <description>A Java 23 modular coding-agent runtime.</description>
 
     <modules>
         <module>agent-core</module>
@@ -23,16 +23,27 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>23</maven.compiler.release>
         <langchain4j.version>1.18.0</langchain4j.version>
-        <langgraph4j.version>1.8.20</langgraph4j.version>
         <lucene.version>10.5.0</lucene.version>
         <javaparser.version>3.28.2</javaparser.version>
+        <tree-sitter.version>0.26.3</tree-sitter.version>
+        <tree-sitter-c.version>0.24.1</tree-sitter-c.version>
+        <tree-sitter-cpp.version>0.23.4</tree-sitter-cpp.version>
+        <tree-sitter-c-sharp.version>0.23.1</tree-sitter-c-sharp.version>
+        <tree-sitter-go.version>0.25.0</tree-sitter-go.version>
+        <tree-sitter-javascript.version>0.25.0</tree-sitter-javascript.version>
+        <tree-sitter-python.version>0.25.0</tree-sitter-python.version>
+        <tree-sitter-ruby.version>0.23.1</tree-sitter-ruby.version>
+        <tree-sitter-rust.version>0.24.0</tree-sitter-rust.version>
+        <tree-sitter-typescript.version>0.23.2</tree-sitter-typescript.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <poi.version>5.5.1</poi.version>
         <jsoup.version>1.22.2</jsoup.version>
         <sqlite.version>3.50.3.0</sqlite.version>
         <jline.version>3.30.15</jline.version>
+        <tui4j.version>0.3.3</tui4j.version>
+        <commons-lang3.version>3.20.0</commons-lang3.version>
         <picocli.version>4.7.7</picocli.version>
         <jackson.version>2.21.1</jackson.version>
         <jtokkit.version>1.1.0</jtokkit.version>
@@ -66,13 +77,6 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>org.bsc.langgraph4j</groupId>
-                <artifactId>langgraph4j-bom</artifactId>
-                <version>${langgraph4j.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
                 <version>${junit.version}</version>
@@ -100,6 +104,61 @@
                 <groupId>com.github.javaparser</groupId>
                 <artifactId>javaparser-symbol-solver-core</artifactId>
                 <version>${javaparser.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter</artifactId>
+                <version>${tree-sitter.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-c</artifactId>
+                <version>${tree-sitter-c.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-cpp</artifactId>
+                <version>${tree-sitter-cpp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-c-sharp</artifactId>
+                <version>${tree-sitter-c-sharp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-go</artifactId>
+                <version>${tree-sitter-go.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-javascript</artifactId>
+                <version>${tree-sitter-javascript.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-python</artifactId>
+                <version>${tree-sitter-python.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-ruby</artifactId>
+                <version>${tree-sitter-ruby.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-rust</artifactId>
+                <version>${tree-sitter-rust.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-typescript</artifactId>
+                <version>${tree-sitter-typescript.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.bonede</groupId>
+                <artifactId>tree-sitter-tsx</artifactId>
+                <version>${tree-sitter-typescript.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.pdfbox</groupId>
@@ -140,6 +199,11 @@
                 <version>1.28.0</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.google.errorprone</groupId>
                 <artifactId>error_prone_annotations</artifactId>
                 <version>2.47.0</version>
@@ -148,6 +212,11 @@
                 <groupId>org.jline</groupId>
                 <artifactId>jline</artifactId>
                 <version>${jline.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.williamcallahan</groupId>
+                <artifactId>tui4j</artifactId>
+                <version>${tui4j.version}</version>
             </dependency>
             <dependency>
                 <groupId>info.picocli</groupId>
@@ -285,7 +354,7 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[21,)</version>
+                                    <version>[23,)</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
                                     <version>[3.9.0,)</version>

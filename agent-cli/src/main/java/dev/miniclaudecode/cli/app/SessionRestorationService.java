@@ -40,7 +40,8 @@ final class SessionRestorationService {
         maximumTurn + 1L,
         List.copyOf(messages),
         restoreApproval(sessionId, events),
-        restoreProgress(events));
+        restoreProgress(events),
+        restoreTaskSummary(events));
   }
 
   private static Optional<PendingApproval> restoreApproval(
@@ -105,11 +106,29 @@ final class SessionRestorationService {
     return value instanceof Number number ? Math.max(0, number.intValue()) : 0;
   }
 
+  private static String restoreTaskSummary(List<AgentEvent> events) {
+    List<?> latest = List.of();
+    for (AgentEvent event : events) {
+      if (event.type() == AgentEventType.TASK_UPDATED
+          && event.payload().get("items") instanceof List<?> items) {
+        latest = items;
+      }
+    }
+    long completed =
+        latest.stream()
+            .filter(Map.class::isInstance)
+            .map(Map.class::cast)
+            .filter(item -> "done".equalsIgnoreCase(String.valueOf(item.get("status"))))
+            .count();
+    return completed + "/" + latest.size();
+  }
+
   record RestoredSession(
       long nextTurn,
       List<AgentMessage> messages,
       Optional<PendingApproval> pendingApproval,
-      RestoredProgress progress) {}
+      RestoredProgress progress,
+      String taskSummary) {}
 
   record PendingApproval(
       ApprovalRequest request, String preview, TurnId turn, SessionId graphThread) {}

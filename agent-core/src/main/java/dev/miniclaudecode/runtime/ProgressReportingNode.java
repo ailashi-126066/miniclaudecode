@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 /** Adds best-effort progress notifications around a real graph node. */
 final class ProgressReportingNode implements AsyncNodeAction<MiniClaudeState> {

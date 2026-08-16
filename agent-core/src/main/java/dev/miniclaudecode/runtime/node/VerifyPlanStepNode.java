@@ -6,6 +6,7 @@ import dev.miniclaudecode.domain.session.AgentStatus;
 import dev.miniclaudecode.planning.Plan;
 import dev.miniclaudecode.planning.PlanStep;
 import dev.miniclaudecode.planning.StepEvidence;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.CompletionRequirements;
 import dev.miniclaudecode.runtime.PlanProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
@@ -18,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 /** Deterministic evidence gate; semantic acceptance remains stated in the active step prompt. */
 public final class VerifyPlanStepNode implements AsyncNodeAction<MiniClaudeState> {

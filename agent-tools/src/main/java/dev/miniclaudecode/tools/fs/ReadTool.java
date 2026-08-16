@@ -7,6 +7,7 @@ import dev.miniclaudecode.domain.tool.ToolCall;
 import dev.miniclaudecode.domain.tool.ToolDescriptor;
 import dev.miniclaudecode.domain.tool.ToolEffect;
 import dev.miniclaudecode.domain.tool.ToolResult;
+import dev.miniclaudecode.tools.diff.FileHashes;
 import dev.miniclaudecode.tools.internal.TextFiles;
 import dev.miniclaudecode.tools.internal.ToolArguments;
 import dev.miniclaudecode.tools.internal.ToolResults;
@@ -90,6 +91,9 @@ public final class ReadTool implements AgentTool {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("path", this.resolver.relativeDisplay(file));
         metadata.put("startLine", startLine);
+        metadata.put("endLine", startLine + Math.max(0, output.lines().toList().size() - 1));
+        metadata.put("contentHash", "sha256:" + FileHashes.sha256(bytes));
+        metadata.put("hashedBytes", bytes.length);
         metadata.put("fileTruncated", fileTruncated);
         ToolResult result =
             ToolResults.completed(call, output, metadata, this.resultStore, this.inlineByteLimit);

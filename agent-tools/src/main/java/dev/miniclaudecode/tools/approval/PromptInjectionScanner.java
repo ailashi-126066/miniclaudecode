@@ -11,8 +11,16 @@ import java.util.regex.Pattern;
  * Extracts suspicious instruction signals from untrusted tool content.
  *
  * <p>This deliberately does not classify content as benign or malicious. It records the source and
- * observable signals for the central agent to assess in task context. Strong signals only request
- * elevated approval for later consequential actions in the same turn.
+ * observable signals for the central agent to assess in task context. Only the strong signals
+ * request elevated approval for later consequential actions in the same turn.
+ *
+ * <p>Weak signals no longer combine into an escalation. Counting them did: {@code
+ * prompt-disclosure} matches the phrase "system prompt" and {@code tool-coercion} matches "must
+ * run", both of which are ordinary vocabulary in any repository that talks about LLMs — including
+ * this one, whose own test fixtures and docs tripped the pair and then forced approval on every
+ * write, command and fetch for the rest of the turn. An escalation that fires on a project's own
+ * documentation trains users to approve without reading, which costs more than the two weak signals
+ * were ever worth.
  */
 public final class PromptInjectionScanner {
   private static final List<Signal> SIGNALS =
@@ -68,9 +76,6 @@ public final class PromptInjectionScanner {
         matches.add(signal.name());
         elevatedApproval |= signal.requiresElevatedApproval();
       }
-    }
-    if (matches.size() >= 2) {
-      elevatedApproval = true;
     }
     return new Finding(normalizedSource, matches, elevatedApproval);
   }

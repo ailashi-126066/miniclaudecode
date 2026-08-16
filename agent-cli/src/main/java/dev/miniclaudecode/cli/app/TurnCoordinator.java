@@ -1,6 +1,6 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
+import dev.miniclaudecode.cli.TurnEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.model.ModelRequest;
@@ -13,7 +13,7 @@ import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.persistence.ledger.JsonToolExecutionLedger;
 import dev.miniclaudecode.planning.Plan;
 import dev.miniclaudecode.planning.PlanStep;
-import dev.miniclaudecode.runtime.AgentGraphFactory;
+import dev.miniclaudecode.runtime.AgentLoop;
 import dev.miniclaudecode.runtime.AgentThreadRunner;
 import dev.miniclaudecode.runtime.LedgeredToolExecutor;
 import dev.miniclaudecode.runtime.PlanProgressListener;
@@ -39,7 +39,8 @@ final class TurnCoordinator {
     this.clock = clock;
   }
 
-  ModelRequest request(ApplicationSession.TurnSelection selected, List<AgentMessage> messages) {
+  ModelRequest request(
+      SessionId sessionId, ApplicationSession.TurnSelection selected, List<AgentMessage> messages) {
     ProviderProfile profile = components.config().providers().get(selected.provider());
     if (profile == null) {
       throw new IllegalArgumentException("unknown provider profile: " + selected.provider());
@@ -48,7 +49,7 @@ final class TurnCoordinator {
         selected.provider(),
         selected.model(),
         messages,
-        components.tools().descriptors(),
+        components.tools().descriptors(sessionId),
         selected.thinking(),
         profile.maxOutputTokens(),
         requestAttributes(profile));
@@ -58,7 +59,7 @@ final class TurnCoordinator {
       SessionId sessionId,
       TurnId turn,
       CancellationToken cancellationToken,
-      Consumer<RenderEvent> renderer,
+      Consumer<TurnEvent> renderer,
       Consumer<UsageReported> usageObserver,
       TurnProgressListener progressListener) {
     AuditedModelClient model =
@@ -80,7 +81,8 @@ final class TurnCoordinator {
             cancellationToken,
             renderer,
             clock,
-            Map.of("planningEnabled", components.config().planning().enabled()));
+            Map.of("planningEnabled", components.config().planning().enabled()),
+            components.permissionRules());
     Path sessionRoot =
         components.layout().sessionWorkspaceRoot(components.workspace()).resolve(sessionId.value());
     JsonToolExecutionLedger ledger =
@@ -93,14 +95,15 @@ final class TurnCoordinator {
                 .resolve(components.layout().workspaceHash(components.workspace())),
             MiniClaudeState::new);
     return new AgentThreadRunner(
-        new AgentGraphFactory(
+        new AgentLoop(
             model,
             new LedgeredToolExecutor(executor, ledger, clock),
             new TurnLimits(24, 64),
-            checkpoint,
             cancellationToken,
             progressListener,
-            planProgressListener(sessionId, turn)));
+            planProgressListener(sessionId, turn),
+            List.of()),
+        checkpoint);
   }
 
   private PlanProgressListener planProgressListener(SessionId sessionId, TurnId turn) {

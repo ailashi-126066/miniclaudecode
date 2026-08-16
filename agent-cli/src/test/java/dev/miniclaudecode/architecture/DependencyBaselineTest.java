@@ -9,11 +9,12 @@ class DependencyBaselineTest {
 
   private static final Map<String, String> REQUIRED_TYPES =
       Map.of(
-          "LangGraph4j", "org.bsc.langgraph4j.StateGraph",
+          "Explicit AgentLoop", "dev.miniclaudecode.runtime.AgentLoop",
           "LangChain4j", "dev.langchain4j.model.chat.StreamingChatModel",
           "Lucene", "org.apache.lucene.index.IndexWriter",
           "JavaParser", "com.github.javaparser.JavaParser",
-          "JLine", "org.jline.terminal.TerminalBuilder");
+          "Tree-sitter", "org.treesitter.TSParser",
+          "TUI4J", "com.williamcallahan.tui4j.compat.bubbletea.Program");
 
   @Test
   void resolvesFrameworkBaseline() {

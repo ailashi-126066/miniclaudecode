@@ -1,10 +1,12 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress;
+import dev.miniclaudecode.cli.TurnEvent;
+import dev.miniclaudecode.cli.TurnEvent.Progress;
 import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalDecision.Choice;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
+import dev.miniclaudecode.domain.approval.PermissionRule;
+import dev.miniclaudecode.domain.approval.PermissionRuleStore;
 import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
@@ -20,7 +22,7 @@ import dev.miniclaudecode.domain.tool.ToolResult.Status;
 import dev.miniclaudecode.runtime.PlanExecutionContext;
 import dev.miniclaudecode.runtime.ToolExecutor;
 import dev.miniclaudecode.tools.approval.PromptInjectionScanner;
-import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.registry.AgentToolRegistry;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -30,32 +32,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 final class RegistryToolExecutor implements ToolExecutor {
-  private final DefaultToolRegistry registry;
+  private final AgentToolRegistry registry;
   private final SessionId sessionId;
   private final TurnId turnId;
   private final Path workspace;
   private final EventSink audit;
   private final CancellationToken cancellationToken;
-  private final Consumer<RenderEvent> renderer;
+  private final Consumer<TurnEvent> renderer;
   private final Clock clock;
   private final Map<String, Object> fixedAttributes;
+  private final PermissionRuleStore mcpRules;
+  private final Set<String> mcpTurnAllowances = ConcurrentHashMap.newKeySet();
   private final PromptInjectionScanner injectionScanner = new PromptInjectionScanner();
   private volatile boolean elevatedApprovalRequired;
 
   RegistryToolExecutor(
-      DefaultToolRegistry registry,
+      AgentToolRegistry registry,
       SessionId sessionId,
       TurnId turnId,
       Path workspace,
       EventSink audit,
       CancellationToken cancellationToken,
-      Consumer<RenderEvent> renderer,
+      Consumer<TurnEvent> renderer,
       Clock clock) {
     this(
         registry,
@@ -66,19 +72,45 @@ final class RegistryToolExecutor implements ToolExecutor {
         cancellationToken,
         renderer,
         clock,
-        Map.of());
+        Map.of(),
+        PermissionRuleStore.NONE);
   }
 
   RegistryToolExecutor(
-      DefaultToolRegistry registry,
+      AgentToolRegistry registry,
       SessionId sessionId,
       TurnId turnId,
       Path workspace,
       EventSink audit,
       CancellationToken cancellationToken,
-      Consumer<RenderEvent> renderer,
+      Consumer<TurnEvent> renderer,
       Clock clock,
       Map<String, Object> fixedAttributes) {
+    this(
+        registry,
+        sessionId,
+        turnId,
+        workspace,
+        audit,
+        cancellationToken,
+        renderer,
+        clock,
+        fixedAttributes,
+        PermissionRuleStore.NONE);
+  }
+
+  RegistryToolExecutor(
+      AgentToolRegistry registry,
+      SessionId sessionId,
+      TurnId turnId,
+      Path workspace,
+      EventSink audit,
+      CancellationToken cancellationToken,
+      Consumer<TurnEvent> renderer,
+      Clock clock,
+      Map<String, Object> fixedAttributes,
+      PermissionRuleStore mcpRules) {
+    this.mcpRules = Objects.requireNonNull(mcpRules, "mcpRules must not be null");
     this.registry = Objects.requireNonNull(registry, "registry must not be null");
     this.sessionId = Objects.requireNonNull(sessionId, "sessionId must not be null");
     this.turnId = Objects.requireNonNull(turnId, "turnId must not be null");
@@ -140,7 +172,18 @@ final class RegistryToolExecutor implements ToolExecutor {
               Optional.empty(),
               Map.of()));
     } else {
-      AgentTool tool = this.registry.require(call.qualifiedName());
+      AgentTool tool;
+      try {
+        tool = this.registry.require(this.sessionId, call.qualifiedName());
+      } catch (IllegalArgumentException unavailable) {
+        return CompletableFuture.completedFuture(
+            new ToolResult(
+                call.toolCallId(),
+                Status.FAILED,
+                Objects.requireNonNullElse(unavailable.getMessage(), "tool is not available"),
+                Optional.empty(),
+                Map.of("recoverable", true, "toolSearchRequired", true)));
+      }
       if (!Boolean.FALSE.equals(this.fixedAttributes.get("planningEnabled"))
           && tool.descriptor().effect().requiresPlan()
           && (planContext.isEmpty()
@@ -281,9 +324,20 @@ final class RegistryToolExecutor implements ToolExecutor {
         payload.put("preview", text);
       }
     }
+    if (result.metadata().get("discoveredTools") instanceof List<?> discovered) {
+      payload.put("discoveredTools", List.copyOf(discovered));
+    }
     this.emit(type, Map.copyOf(payload));
   }
 
+  /**
+   * Gates MCP tool calls behind approval, honouring the turn and permanent scopes the menu offers.
+   *
+   * <p>The target of an MCP rule is the qualified tool name, not the arguments: a server the user
+   * has decided to trust is trusted for that tool, and pinning the argument JSON would re-prompt on
+   * every distinct query, which is what made "always allow" meaningless here before. Turn
+   * allowances stay in memory keyed by session and turn so they cannot widen into a persisted rule.
+   */
   private Optional<ToolResult> authorizeMcp(
       AgentTool tool,
       ToolCall call,
@@ -291,13 +345,20 @@ final class RegistryToolExecutor implements ToolExecutor {
       Optional<ApprovalDecision> approvalDecision) {
     if (!tool.descriptor().namespace().startsWith("mcp.")) {
       return Optional.empty();
-    } else if (approvalDecision.isEmpty()) {
+    }
+    String target = call.qualifiedName();
+    if (approvalDecision.isEmpty()) {
+      if (this.mcpTurnAllowances.contains(mcpTurnKey(target))
+          || this.mcpRules.list().stream()
+              .anyMatch(rule -> rule.matches(this.workspace.toString(), target, target))) {
+        return Optional.empty();
+      }
       ApprovalRequest request =
           new ApprovalRequest(
               UUID.randomUUID(),
               call,
               RiskLevel.HIGH,
-              call.qualifiedName(),
+              target,
               "Remote MCP tools can access external systems; approve this invocation",
               Optional.empty(),
               Optional.empty(),
@@ -306,30 +367,47 @@ final class RegistryToolExecutor implements ToolExecutor {
           new ToolResult(
               call.toolCallId(),
               Status.APPROVAL_REQUIRED,
-              "Approval required for MCP tool " + call.qualifiedName(),
+              "Approval required for MCP tool " + target,
               Optional.empty(),
               Map.of("approvalRequest", request)));
-    } else {
-      ApprovalDecision decision = approvalDecision.orElseThrow();
-      boolean matches =
-          pendingApproval
-              .filter(value -> value.toolCall().equals(call))
-              .filter(value -> value.approvalId().equals(decision.approvalId()))
-              .isPresent();
-      if (!matches) {
-        throw new SecurityException("MCP approval does not match this tool call");
-      } else {
-        return decision.choice() == Choice.REJECT
-            ? Optional.of(
-                new ToolResult(
-                    call.toolCallId(),
-                    Status.CANCELLED,
-                    decision.feedback().orElse("MCP tool invocation rejected"),
-                    Optional.empty(),
-                    Map.of()))
-            : Optional.empty();
+    }
+    ApprovalDecision decision = approvalDecision.orElseThrow();
+    boolean matches =
+        pendingApproval
+            .filter(value -> value.toolCall().equals(call))
+            .filter(value -> value.approvalId().equals(decision.approvalId()))
+            .isPresent();
+    if (!matches) {
+      throw new SecurityException("MCP approval does not match this tool call");
+    }
+    if (decision.choice() == Choice.REJECT) {
+      return Optional.of(
+          new ToolResult(
+              call.toolCallId(),
+              Status.CANCELLED,
+              decision.feedback().orElse("MCP tool invocation rejected"),
+              Optional.empty(),
+              Map.of()));
+    }
+    switch (decision.scope()) {
+      case PERMANENT ->
+          this.mcpRules.save(
+              new PermissionRule(
+                  UUID.randomUUID(),
+                  this.workspace.toString(),
+                  target,
+                  target,
+                  Instant.now(this.clock)));
+      case TURN -> this.mcpTurnAllowances.add(mcpTurnKey(target));
+      case ONCE, FILE -> {
+        // FILE is never offered for MCP; both leave no allowance behind.
       }
     }
+    return Optional.empty();
+  }
+
+  private String mcpTurnKey(String target) {
+    return this.sessionId.value() + "\u0000" + this.turnId.value() + "\u0000" + target;
   }
 
   private void emit(AgentEventType type, Map<String, Object> payload) {

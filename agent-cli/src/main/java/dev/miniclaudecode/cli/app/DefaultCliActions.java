@@ -1,19 +1,8 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.AgentCompleter;
 import dev.miniclaudecode.cli.CliActions;
-import dev.miniclaudecode.cli.Repl;
-import dev.miniclaudecode.cli.Repl.TurnOutcome;
-import dev.miniclaudecode.cli.ReplHeader;
 import dev.miniclaudecode.cli.SessionCommandHandler;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Completed;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Error;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Text;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Thinking;
-import dev.miniclaudecode.domain.approval.ApprovalRequest;
-import dev.miniclaudecode.domain.runtime.CancellationToken;
+import dev.miniclaudecode.cli.tui.TuiApplication;
 import dev.miniclaudecode.persistence.config.ProviderProfile;
 import dev.miniclaudecode.persistence.config.UserConfigWriter;
 import dev.miniclaudecode.persistence.path.UserDataLayout;
@@ -35,8 +24,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
 import org.jline.terminal.Terminal;
@@ -60,13 +49,15 @@ public final class DefaultCliActions implements CliActions {
   private final Map<String, String> environment;
   private final PrintWriter output;
   private final PrintWriter error;
+  private final BooleanSupplier interactiveTerminal;
 
   public DefaultCliActions() {
     this(
         UserDataLayout.systemDefault(),
         System.getenv(),
         new PrintWriter(System.out, true, StandardCharsets.UTF_8),
-        new PrintWriter(System.err, true, StandardCharsets.UTF_8));
+        new PrintWriter(System.err, true, StandardCharsets.UTF_8),
+        () -> System.console() != null);
   }
 
   DefaultCliActions(
@@ -74,10 +65,20 @@ public final class DefaultCliActions implements CliActions {
       Map<String, String> environment,
       PrintWriter output,
       PrintWriter error) {
+    this(layout, environment, output, error, () -> System.console() != null);
+  }
+
+  DefaultCliActions(
+      UserDataLayout layout,
+      Map<String, String> environment,
+      PrintWriter output,
+      PrintWriter error,
+      BooleanSupplier interactiveTerminal) {
     this.layout = layout;
     this.environment = Map.copyOf(environment);
     this.output = output;
     this.error = error;
+    this.interactiveTerminal = Objects.requireNonNull(interactiveTerminal);
   }
 
   public int configure() {
@@ -93,6 +94,13 @@ public final class DefaultCliActions implements CliActions {
   }
 
   public int interactive(Path workspace) {
+    if (!this.interactiveTerminal.getAsBoolean()) {
+      this.error.println(
+          "MiniClaudeCode Agent requires an interactive TTY for its full-screen TUI. "
+              + "Run it directly in Windows Terminal, PowerShell, bash, or zsh; "
+              + "use config/index/rag for non-interactive management tasks.");
+      return 2;
+    }
     try (WorkspaceComponents components = this.components(workspace)) {
       AtomicReference<SessionCommandHandler> commands = new AtomicReference<>();
       ApplicationSession session =
@@ -118,64 +126,15 @@ public final class DefaultCliActions implements CliActions {
                   session::redo,
                   this.layout.configFile())
               .withPlanAndMemory(session::plan, session::memory);
+      commandHandler.withCollaboration(session::background, session::teams);
       commands.set(commandHandler);
 
-      try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
-        AgentCompleter completer =
-            new AgentCompleter(
-                components.workspace(),
-                () -> components.providerModels().keySet(),
-                () -> components.providerModels().get(commandHandler.activeProvider()),
-                () -> toolNames(components));
-        Repl.create(
-                terminal,
-                this.layout.historyFile(),
-                completer,
-                commandHandler,
-                session,
-                reader -> this.configurationWizard().run(reader))
-            .withHeader(
-                ReplHeader.render(
-                    terminal,
-                    commandHandler.activeProvider(),
-                    commandHandler.activeModel(),
-                    commandHandler.thinkingEnabled(),
-                    components.workspace().toString()))
-            .run();
-      }
+      new TuiApplication(
+              session, commandHandler, components.workspace().toString(), session::dashboard)
+          .run();
       return 0;
     } catch (RuntimeException | IOException var13) {
       return this.failed(var13);
-    }
-  }
-
-  public int run(Path workspace, String prompt) {
-    try (WorkspaceComponents components = this.components(workspace)) {
-      ProviderProfile profile = components.config().activeProfile();
-      ApplicationSession session =
-          new ApplicationSession(
-              components,
-              () ->
-                  new ApplicationSession.TurnSelection(
-                      components.config().activeProvider(), profile.model(), profile.thinking()),
-              Clock.systemUTC());
-      AtomicReference<ApprovalRequest> approval = new AtomicReference<>();
-      TurnOutcome outcome =
-          session
-              .start(prompt, new CancellationToken(), this::renderNonInteractive)
-              .toCompletableFuture()
-              .join();
-      outcome.approvalRequest().ifPresent(approval::set);
-      if (approval.get() != null) {
-        this.error.println("Approval required: " + approval.get().reason());
-        this.error.println("Target: " + approval.get().target());
-        return 3;
-      }
-      return exitCode(outcome);
-    } catch (CompletionException var11) {
-      return this.failed((Throwable) (var11.getCause() == null ? var11 : var11.getCause()));
-    } catch (RuntimeException | IOException var12) {
-      return this.failed(var12);
     }
   }
 
@@ -299,31 +258,6 @@ public final class DefaultCliActions implements CliActions {
     return new ConfigurationWizard(this.layout.configFile(), new UserConfigWriter());
   }
 
-  private void renderNonInteractive(RenderEvent event) {
-    Objects.requireNonNull(event);
-    switch (event) {
-      case Thinking thinking:
-        this.output.println("thinking> " + thinking.text());
-        break;
-      case Progress ignored:
-        // Progress events are interactive spinner UX only. In non-interactive/automation mode
-        // they are neither output nor an error, so they must not leak to stderr.
-        break;
-      case Text text:
-        this.output.print(text.text());
-        this.output.flush();
-        break;
-      case Error failure:
-        this.error.println("error: " + failure.text());
-        break;
-      case Completed ignored:
-        this.output.println();
-        break;
-      default:
-        throw new MatchException(null, null);
-    }
-  }
-
   private int failed(Throwable exception) {
     this.error.println(
         "MiniClaudeCode: "
@@ -344,18 +278,10 @@ public final class DefaultCliActions implements CliActions {
     }
   }
 
-  static int exitCode(TurnOutcome outcome) {
-    Objects.requireNonNull(outcome, "outcome must not be null");
-    return switch (outcome.status()) {
-      case COMPLETED -> 0;
-      case WAITING_APPROVAL -> 3;
-      case CANCELLED -> 130;
-      case FAILED, RUNNING -> 2;
-    };
-  }
-
   private static List<String> toolNames(WorkspaceComponents components) {
-    return components.tools().descriptors().stream().map(value -> value.qualifiedName()).toList();
+    return components.tools().allDescriptors().stream()
+        .map(value -> value.qualifiedName())
+        .toList();
   }
 
   private static String skills(WorkspaceComponents components) {

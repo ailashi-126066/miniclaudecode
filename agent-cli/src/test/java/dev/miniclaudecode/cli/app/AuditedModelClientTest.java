@@ -1,6 +1,6 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
+import dev.miniclaudecode.cli.TurnEvent;
 import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.message.AgentMessage.UserMessage;
@@ -62,7 +62,7 @@ class AuditedModelClientTest {
         client(
             audit,
             event -> {
-              if (event instanceof RenderEvent.Text text) {
+              if (event instanceof TurnEvent.Text text) {
                 rendered.add(text.text());
               }
             },
@@ -185,7 +185,7 @@ class AuditedModelClientTest {
               throw new IllegalStateException("disk full");
             },
             event -> {
-              if (event instanceof RenderEvent.Text text) {
+              if (event instanceof TurnEvent.Text text) {
                 rendered.add(text.text());
               }
             },
@@ -314,7 +314,7 @@ class AuditedModelClientTest {
 
   private static AuditedModelClient client(
       List<AgentEvent> audit,
-      java.util.function.Consumer<RenderEvent> renderer,
+      java.util.function.Consumer<TurnEvent> renderer,
       ModelStreamEvent... events) {
     return new AuditedModelClient(
         request -> publisher(events),

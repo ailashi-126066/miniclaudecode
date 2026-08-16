@@ -3,6 +3,7 @@ package dev.miniclaudecode.runtime.node.workflow;
 import dev.miniclaudecode.domain.message.AgentMessage;
 import dev.miniclaudecode.domain.message.AgentMessage.SystemMessage;
 import dev.miniclaudecode.planning.PlanStatus;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.node.VerifyPlanStepNode;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.verification.VerificationOutcome;
@@ -15,7 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class VerifyWorkflowNode implements AsyncNodeAction<MiniClaudeState> {
   private static final int MAX_DIRECT_ATTEMPTS = 2;

@@ -1,6 +1,6 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
+import dev.miniclaudecode.cli.TurnEvent;
 import dev.miniclaudecode.cli.app.ApplicationSession.TurnSelection;
 import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
@@ -39,7 +39,7 @@ class SessionResumeE2ETest {
     TurnSelection selection = selection(firstComponents);
     ApplicationSession first =
         new ApplicationSession(firstComponents, () -> selection, Clock.systemUTC());
-    List<RenderEvent> rendered = new ArrayList<>();
+    List<TurnEvent> rendered = new ArrayList<>();
     first
         .start("first prompt", new CancellationToken(), rendered::add)
         .toCompletableFuture()

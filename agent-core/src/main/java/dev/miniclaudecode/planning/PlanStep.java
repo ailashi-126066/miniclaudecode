@@ -34,6 +34,16 @@ public record PlanStep(
     evidence = Objects.requireNonNull(evidence, "evidence must not be null");
   }
 
+  @Override
+  public List<String> dependsOn() {
+    return List.copyOf(this.dependsOn);
+  }
+
+  @Override
+  public List<String> acceptanceCriteria() {
+    return List.copyOf(this.acceptanceCriteria);
+  }
+
   public PlanStep start(int maximumAttempts) {
     if (status != PlanStepStatus.PENDING && status != PlanStepStatus.FAILED) {
       throw new IllegalStateException("only pending or failed steps can start");

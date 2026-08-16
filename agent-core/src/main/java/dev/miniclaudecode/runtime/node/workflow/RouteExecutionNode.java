@@ -1,5 +1,6 @@
 package dev.miniclaudecode.runtime.node.workflow;
 
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.route.ResponseRouter;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.workflow.ExecutionMode;
@@ -8,7 +9,6 @@ import dev.miniclaudecode.runtime.workflow.TaskComplexityRouter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class RouteExecutionNode implements AsyncNodeAction<MiniClaudeState> {
   private final ResponseRouter responseRouter;

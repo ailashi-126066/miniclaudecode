@@ -94,8 +94,7 @@ class ApprovalResumeGraphTest {
       FakeModelClient model, ToolExecutor executor, Path checkpoints) {
     FileCheckpointSaver<MiniClaudeState> saver =
         new FileCheckpointSaver<>(checkpoints, MiniClaudeState::new);
-    return new AgentThreadRunner(
-        new AgentGraphFactory(model, executor, new TurnLimits(4, 8), saver));
+    return new AgentThreadRunner(new AgentLoop(model, executor, new TurnLimits(4, 8)), saver);
   }
 
   private static ToolExecutor approvalAwareExecutor(

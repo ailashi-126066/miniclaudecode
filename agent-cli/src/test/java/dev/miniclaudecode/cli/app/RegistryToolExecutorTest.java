@@ -4,6 +4,8 @@ import dev.miniclaudecode.domain.approval.ApprovalDecision;
 import dev.miniclaudecode.domain.approval.ApprovalDecision.Choice;
 import dev.miniclaudecode.domain.approval.ApprovalDecision.Scope;
 import dev.miniclaudecode.domain.approval.ApprovalRequest;
+import dev.miniclaudecode.domain.approval.PermissionRule;
+import dev.miniclaudecode.domain.approval.PermissionRuleStore;
 import dev.miniclaudecode.domain.approval.RiskLevel;
 import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
@@ -131,11 +133,108 @@ class RegistryToolExecutorTest {
     Assertions.assertThat(result.metadata()).containsEntry("planGate", "denied");
   }
 
+  @Test
+  void mcpTurnAndPermanentScopesStopTheRepeatedPromptingPerCall() {
+    final AtomicInteger invocations = new AtomicInteger();
+    InMemoryRuleStore rules = new InMemoryRuleStore();
+    RegistryToolExecutor executor = this.executor(mcpTool(invocations), rules);
+    ToolCall call = new ToolCall("mcp-1", "mcp.demo:search", "{\"q\":\"first\"}");
+    Optional<PlanExecutionContext> plan =
+        Optional.of(
+            new PlanExecutionContext(
+                UUID.randomUUID(), "step-1", Set.of(ToolEffect.EXTERNAL_EFFECT)));
+
+    ApprovalRequest request =
+        (ApprovalRequest)
+            run(executor, call, Optional.empty(), Optional.empty(), plan)
+                .metadata()
+                .get("approvalRequest");
+    ApprovalDecision turn = decision(request, Scope.TURN);
+    Assertions.assertThat(
+            run(executor, call, Optional.of(request), Optional.of(turn), plan).status())
+        .isEqualTo(Status.COMPLETED);
+
+    // A different query on the same approved tool must not prompt again: the rule is keyed by tool,
+    // not by argument JSON, which is what made "always allow" meaningless before.
+    ToolCall second = new ToolCall("mcp-2", "mcp.demo:search", "{\"q\":\"second\"}");
+    Assertions.assertThat(run(executor, second, Optional.empty(), Optional.empty(), plan).status())
+        .isEqualTo(Status.COMPLETED);
+    Assertions.assertThat(invocations).hasValue(2);
+
+    // A fresh turn drops the in-memory allowance; PERMANENT is what survives, on disk.
+    RegistryToolExecutor laterTurn = this.executor(mcpTool(invocations), rules);
+    ApprovalRequest reprompt =
+        (ApprovalRequest)
+            run(laterTurn, call, Optional.empty(), Optional.empty(), plan)
+                .metadata()
+                .get("approvalRequest");
+    Assertions.assertThat(reprompt).isNotNull();
+    run(
+        laterTurn,
+        call,
+        Optional.of(reprompt),
+        Optional.of(decision(reprompt, Scope.PERMANENT)),
+        plan);
+    Assertions.assertThat(rules.list()).hasSize(1);
+
+    RegistryToolExecutor afterPermanent = this.executor(mcpTool(invocations), rules);
+    Assertions.assertThat(
+            run(afterPermanent, call, Optional.empty(), Optional.empty(), plan).status())
+        .isEqualTo(Status.COMPLETED);
+  }
+
+  private static ToolResult run(
+      RegistryToolExecutor executor,
+      ToolCall call,
+      Optional<ApprovalRequest> request,
+      Optional<ApprovalDecision> decision,
+      Optional<PlanExecutionContext> plan) {
+    return executor
+        .execute(List.of(call), request, decision, plan)
+        .toCompletableFuture()
+        .join()
+        .getFirst();
+  }
+
+  private static ApprovalDecision decision(ApprovalRequest request, Scope scope) {
+    return new ApprovalDecision(
+        request.approvalId(),
+        Choice.ALLOW,
+        scope,
+        Optional.empty(),
+        Instant.parse("2026-07-21T00:00:00Z"));
+  }
+
+  private static AgentTool mcpTool(AtomicInteger invocations) {
+    return new AgentTool() {
+      public ToolDescriptor descriptor() {
+        return new ToolDescriptor(
+            "mcp.demo", "search", "search", "{\"type\":\"object\"}", RiskLevel.HIGH);
+      }
+
+      public CompletionStage<ToolResult> execute(ToolCall call, ToolContext context) {
+        invocations.incrementAndGet();
+        return CompletableFuture.completedFuture(
+            new ToolResult(
+                call.toolCallId(), Status.COMPLETED, "found", Optional.empty(), Map.of()));
+      }
+    };
+  }
+
   private RegistryToolExecutor executor(AgentTool tool) {
     return this.executor(tool, EventSink.NOOP);
   }
 
   private RegistryToolExecutor executor(AgentTool tool, EventSink audit) {
+    return this.executor(tool, audit, PermissionRuleStore.NONE);
+  }
+
+  private RegistryToolExecutor executor(AgentTool tool, PermissionRuleStore rules) {
+    return this.executor(tool, EventSink.NOOP, rules);
+  }
+
+  private RegistryToolExecutor executor(
+      AgentTool tool, EventSink audit, PermissionRuleStore rules) {
     return new RegistryToolExecutor(
         new DefaultToolRegistry(List.of(tool)),
         SessionId.of("session"),
@@ -144,6 +243,22 @@ class RegistryToolExecutorTest {
         audit,
         new CancellationToken(),
         new ArrayList()::add,
-        Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC));
+        Clock.fixed(Instant.parse("2026-07-21T00:00:00Z"), ZoneOffset.UTC),
+        Map.of(),
+        rules);
+  }
+
+  private static final class InMemoryRuleStore implements PermissionRuleStore {
+    private final List<PermissionRule> rules = new ArrayList<>();
+
+    @Override
+    public List<PermissionRule> list() {
+      return List.copyOf(this.rules);
+    }
+
+    @Override
+    public void save(PermissionRule rule) {
+      this.rules.add(rule);
+    }
   }
 }

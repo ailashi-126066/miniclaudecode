@@ -23,6 +23,8 @@ public sealed interface SlashCommand
         SlashCommand.Skills,
         SlashCommand.PlanView,
         SlashCommand.Memory,
+        SlashCommand.Background,
+        SlashCommand.Team,
         SlashCommand.Config {
   String name();
 
@@ -44,6 +46,20 @@ public sealed interface SlashCommand
     @Override
     public String name() {
       return "compact";
+    }
+  }
+
+  public static record Background() implements SlashCommand {
+    @Override
+    public String name() {
+      return "background";
+    }
+  }
+
+  public static record Team() implements SlashCommand {
+    @Override
+    public String name() {
+      return "team";
     }
   }
 

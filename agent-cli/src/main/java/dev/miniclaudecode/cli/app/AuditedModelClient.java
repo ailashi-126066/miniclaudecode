@@ -1,8 +1,8 @@
 package dev.miniclaudecode.cli.app;
 
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Text;
-import dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Thinking;
+import dev.miniclaudecode.cli.TurnEvent;
+import dev.miniclaudecode.cli.TurnEvent.Text;
+import dev.miniclaudecode.cli.TurnEvent.Thinking;
 import dev.miniclaudecode.domain.event.AgentEvent;
 import dev.miniclaudecode.domain.event.AgentEventType;
 import dev.miniclaudecode.domain.event.EventSink;
@@ -29,7 +29,7 @@ final class AuditedModelClient implements ModelClient {
   private final SessionId sessionId;
   private final TurnId turnId;
   private final EventSink audit;
-  private final Consumer<RenderEvent> renderer;
+  private final Consumer<TurnEvent> renderer;
   private final Clock clock;
   private final Consumer<UsageReported> usageObserver;
 
@@ -38,7 +38,7 @@ final class AuditedModelClient implements ModelClient {
       SessionId sessionId,
       TurnId turnId,
       EventSink audit,
-      Consumer<RenderEvent> renderer,
+      Consumer<TurnEvent> renderer,
       Clock clock) {
     this(delegate, sessionId, turnId, audit, renderer, clock, ignored -> {});
   }
@@ -48,7 +48,7 @@ final class AuditedModelClient implements ModelClient {
       SessionId sessionId,
       TurnId turnId,
       EventSink audit,
-      Consumer<RenderEvent> renderer,
+      Consumer<TurnEvent> renderer,
       Clock clock,
       Consumer<UsageReported> usageObserver) {
     this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
@@ -61,8 +61,7 @@ final class AuditedModelClient implements ModelClient {
   }
 
   public Publisher<ModelStreamEvent> stream(ModelRequest request) {
-    this.renderer.accept(
-        new dev.miniclaudecode.cli.StreamingRenderer.RenderEvent.Progress("Calling model..."));
+    this.renderer.accept(new dev.miniclaudecode.cli.TurnEvent.Progress("Calling model..."));
     return subscriber ->
         this.delegate.stream(request)
             .subscribe(new AuditedModelClient.Observer(subscriber, request.thinkingEnabled()));
@@ -116,7 +115,7 @@ final class AuditedModelClient implements ModelClient {
       // Cancellation is the one terminal signal that bypasses onComplete/onError: the provider
       // bridge stops delivering the moment cancel() lands, so the buffered tail — text the user
       // already saw rendered — would silently vanish from the audit log. Flush on the way out.
-      // (cancel arrives from the REPL's SIGINT thread, hence the synchronized flush/buffer.)
+      // (cancel arrives from the TUI callback thread, hence the synchronized flush/buffer.)
       this.downstream.onSubscribe(
           new Subscription() {
             @Override

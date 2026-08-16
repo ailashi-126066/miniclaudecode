@@ -175,8 +175,7 @@ class CompleteCodingAgentScenarioTest {
       ModelClient model, ToolExecutor executor, Path checkpoints) {
     FileCheckpointSaver<MiniClaudeState> saver =
         new FileCheckpointSaver<>(checkpoints, MiniClaudeState::new);
-    return new AgentThreadRunner(
-        new AgentGraphFactory(model, executor, new TurnLimits(8, 12), saver));
+    return new AgentThreadRunner(new AgentLoop(model, executor, new TurnLimits(8, 12)), saver);
   }
 
   private static ModelClient audited(

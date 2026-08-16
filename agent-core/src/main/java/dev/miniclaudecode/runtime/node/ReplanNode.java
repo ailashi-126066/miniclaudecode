@@ -5,6 +5,7 @@ import dev.miniclaudecode.planning.PlanStep;
 import dev.miniclaudecode.planning.PlanStepStatus;
 import dev.miniclaudecode.planning.PlanningInput;
 import dev.miniclaudecode.planning.TaskPlanner;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.PlanProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -18,7 +19,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 /** Revises only unfinished work; completed steps remain byte-for-byte immutable. */
 public final class ReplanNode implements AsyncNodeAction<MiniClaudeState> {

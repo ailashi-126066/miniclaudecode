@@ -41,6 +41,8 @@ public final class SessionCommandHandler implements SlashCommandHandler {
           "/memory search <query>  Search active long-term memory",
           "/memory export    Export memory as Markdown",
           "/memory clear     Archive all active memory",
+          "/background       Show background Agent tasks and completion notifications",
+          "/team             Show teams, members and task state",
           "/config           Show the user configuration path",
           "/config setup     Run the masked provider configuration wizard",
           "/exit             Save history and exit");
@@ -63,6 +65,8 @@ public final class SessionCommandHandler implements SlashCommandHandler {
       ignored -> "No Plan is available.";
   private java.util.function.Function<SlashCommand.Memory, String> memory =
       ignored -> "Long-term memory is unavailable.";
+  private Supplier<String> background = () -> "(no background agents)";
+  private Supplier<String> teams = () -> "(no teams)";
   private String activeProvider;
   private String activeModel;
   private boolean thinking;
@@ -115,6 +119,13 @@ public final class SessionCommandHandler implements SlashCommandHandler {
     return this;
   }
 
+  public synchronized SessionCommandHandler withCollaboration(
+      Supplier<String> background, Supplier<String> teams) {
+    this.background = Objects.requireNonNull(background, "background must not be null");
+    this.teams = Objects.requireNonNull(teams, "teams must not be null");
+    return this;
+  }
+
   @Override
   public synchronized String execute(SlashCommand command) {
     Objects.requireNonNull(command, "command must not be null");
@@ -144,6 +155,8 @@ public final class SessionCommandHandler implements SlashCommandHandler {
       case SlashCommand.Skills ignored -> skills.get();
       case SlashCommand.PlanView value -> plan.apply(value);
       case SlashCommand.Memory value -> memory.apply(value);
+      case SlashCommand.Background ignored -> background.get();
+      case SlashCommand.Team ignored -> teams.get();
       case SlashCommand.Config config ->
           config.setup()
               ? "Configuration setup is available only in the interactive terminal."

@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 public final class CodeAwareReranker implements Reranker {
   private static final Pattern CAMEL_CASE = Pattern.compile("(?<=[a-z0-9])(?=[A-Z])");
   private static final Pattern NON_TOKEN = Pattern.compile("[^\\p{L}\\p{N}]+");
+  private static final Pattern CJK =
+      Pattern.compile("[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}]");
   private static final Set<String> STOP_WORDS =
       Set.of(
           "a", "an", "and", "are", "as", "at", "be", "before", "by", "can", "did", "do", "does",
@@ -25,6 +27,42 @@ public final class CodeAwareReranker implements Reranker {
           "了", "在", "是", "如何", "怎么", "哪里");
   private static final Set<String> TEST_INTENT =
       Set.of("test", "tests", "testing", "spec", "specification", "fixture", "assertion");
+
+  /** Directory segments that mean "test code" across the common ecosystems. */
+  private static final Set<String> TEST_DIRECTORIES =
+      Set.of("test", "tests", "testing", "spec", "specs", "__tests__", "e2e", "it", "itest");
+
+  /**
+   * Directory segments that mean "shipped code". {@code src} covers Maven, Cargo, npm and Vite
+   * layouts; {@code pkg}, {@code internal} and {@code cmd} are the Go convention; {@code lib} and
+   * {@code app} cover Ruby, Dart, Rails and Next.js.
+   */
+  private static final Set<String> PRODUCTION_DIRECTORIES =
+      Set.of("src", "lib", "app", "pkg", "internal", "cmd", "source");
+
+  /** File-name endings that mean "test file": Java/Kotlin, Go, Python, JS/TS, Ruby, C#. */
+  private static final Set<String> TEST_FILE_SUFFIXES =
+      Set.of(
+          "test.java",
+          "tests.java",
+          "test.kt",
+          "tests.cs",
+          "_test.go",
+          "_test.py",
+          "_test.rb",
+          "_spec.rb",
+          ".test.js",
+          ".test.jsx",
+          ".test.ts",
+          ".test.tsx",
+          ".spec.js",
+          ".spec.jsx",
+          ".spec.ts",
+          ".spec.tsx");
+
+  /** Pytest and unittest discover by prefix rather than suffix. */
+  private static final Set<String> TEST_FILE_PREFIXES = Set.of("test_", "conftest.");
+
   private static final double LEXICAL_WEIGHT = 0.52;
   private static final double FUSION_WEIGHT = 0.43;
   private static final double SOURCE_WEIGHT = 0.05;
@@ -151,20 +189,43 @@ public final class CodeAwareReranker implements Reranker {
     return symbolAffinity(result, targetSymbol(query)) > 0.0;
   }
 
+  /**
+   * Prefers production code for ordinary queries and test code for test-flavoured ones.
+   *
+   * <p>Both sides used to be Maven-only: production meant literally {@code src/main/}, and test
+   * detection ended at {@code *Test.java}. In a Python, Go or JavaScript repository nothing ever
+   * matched the production rule while {@code tests/} still matched the test rule, so this term
+   * could only ever subtract — the one layout-aware signal in the ranker was a pure penalty
+   * generator outside Java. Both lists are now per-ecosystem conventions.
+   */
   private static double sourceAffinity(String path, boolean testIntent) {
-    String normalized = path.replace('\\', '/').toLowerCase(Locale.ROOT);
-    boolean testSource =
-        normalized.contains("/src/test/")
-            || normalized.startsWith("src/test/")
-            || normalized.contains("/test/")
-            || normalized.endsWith("test.java")
-            || normalized.endsWith("tests.java");
-    boolean productionSource =
-        normalized.contains("/src/main/") || normalized.startsWith("src/main/");
+    String normalized = "/" + path.replace('\\', '/').toLowerCase(Locale.ROOT);
+    // Tested first: src/test/java and tests/unit both also match a production directory rule.
+    boolean testSource = isTestSource(normalized);
+    boolean productionSource = !testSource && containsSegment(normalized, PRODUCTION_DIRECTORIES);
     if (testIntent) {
       return testSource ? 1.0 : productionSource ? -0.25 : 0.0;
     }
     return productionSource ? 1.0 : testSource ? -1.0 : 0.0;
+  }
+
+  private static boolean isTestSource(String normalized) {
+    if (containsSegment(normalized, TEST_DIRECTORIES)) {
+      return true;
+    }
+    String name = normalized.substring(normalized.lastIndexOf('/') + 1);
+    return TEST_FILE_SUFFIXES.stream().anyMatch(name::endsWith)
+        || TEST_FILE_PREFIXES.stream().anyMatch(name::startsWith);
+  }
+
+  /** Matches a whole path segment, so {@code contrib/} never counts as {@code lib/}. */
+  private static boolean containsSegment(String normalized, Set<String> segments) {
+    for (String segment : segments) {
+      if (normalized.contains("/" + segment + "/")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String searchable(SearchResult result) {
@@ -187,9 +248,41 @@ public final class CodeAwareReranker implements Reranker {
     return separator < 0 ? List.of() : tokens(value.substring(separator + 1));
   }
 
+  /**
+   * Tokenizes the same way on the query side and the candidate side, so the TF-IDF below compares
+   * like with like.
+   *
+   * <p>CJK runs are expanded into overlapping bigrams to mirror the index analyzer. Without that,
+   * punctuation splitting leaves a whole Chinese phrase as one token and the equality test below
+   * only fires on an exact phrase match — 会话恢复 would score zero against a chunk about 会话恢复失败, so
+   * the 0.52 lexical weight, the largest single term in the ranking, contributed nothing for
+   * Chinese queries.
+   */
   private static List<String> tokens(String value) {
     String split = CAMEL_CASE.matcher(value == null ? "" : value).replaceAll(" ");
     String normalized = NON_TOKEN.matcher(split).replaceAll(" ").toLowerCase(Locale.ROOT).trim();
-    return normalized.isEmpty() ? List.of() : List.of(normalized.split("\\s+"));
+    if (normalized.isEmpty()) {
+      return List.of();
+    }
+    List<String> tokens = new ArrayList<>();
+    for (String token : normalized.split("\\s+")) {
+      if (CJK.matcher(token).find()) {
+        tokens.addAll(bigrams(token));
+      } else {
+        tokens.add(token);
+      }
+    }
+    return List.copyOf(tokens);
+  }
+
+  private static List<String> bigrams(String token) {
+    if (token.length() < 2) {
+      return List.of(token);
+    }
+    List<String> values = new ArrayList<>(token.length() - 1);
+    for (int index = 0; index + 1 < token.length(); index++) {
+      values.add(token.substring(index, index + 2));
+    }
+    return values;
   }
 }

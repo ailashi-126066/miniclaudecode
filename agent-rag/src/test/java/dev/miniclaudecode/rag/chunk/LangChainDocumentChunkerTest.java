@@ -30,6 +30,46 @@ class LangChainDocumentChunkerTest {
   }
 
   @Test
+  void everyMarkdownHeadingLevelOpensItsOwnSection() {
+    // Only `# ` counted before, so a document whose H1 is the title and whose real structure is
+    // `##`/`###` — most documents — became one region cut on token windows, and every chunk
+    // inherited the title as its heading.
+    String content =
+        """
+        # Guide
+
+        Intro paragraph.
+
+        ## Installation
+
+        Install the tool first.
+
+        ### Windows
+
+        Use PowerShell.
+        """;
+
+    var chunks = new LangChainDocumentChunker(400, 20).chunk("docs/guide.md", content);
+
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.role() == CodeChunk.Role.PARENT)
+        .extracting(CodeChunk::symbol)
+        .containsExactly("# Guide", "## Installation", "### Windows");
+  }
+
+  @Test
+  void aHashWithoutASpaceIsNotAHeading() {
+    var chunks =
+        new LangChainDocumentChunker(400, 20)
+            .chunk("notes.md", "# Real heading\n\n#hashtag not a heading\n\nbody text\n");
+
+    Assertions.assertThat(chunks)
+        .filteredOn(chunk -> chunk.role() == CodeChunk.Role.PARENT)
+        .extracting(CodeChunk::symbol)
+        .containsExactly("# Real heading");
+  }
+
+  @Test
   void ignoresControlOnlyContentThatLangChainTreatsAsBlank() {
     var chunks = new LangChainDocumentChunker().chunk("guide.md", "\u0001");
 

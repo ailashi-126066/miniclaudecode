@@ -1,5 +1,6 @@
 package dev.miniclaudecode.rag.search;
 
+import dev.miniclaudecode.rag.index.CodeSearchAnalyzer;
 import dev.miniclaudecode.rag.index.LuceneCodeIndex;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -7,7 +8,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.lucene.analysis.TokenStream;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
@@ -128,9 +128,13 @@ public final class Bm25Retriever {
     }
   }
 
+  /**
+   * Must stay the same analyzer the index was written with ({@link CodeSearchAnalyzer}); querying
+   * CJK bigrams against unigram terms, or the reverse, silently matches nothing.
+   */
   private static List<String> analyze(String value) throws IOException {
     List<String> terms = new ArrayList<>();
-    try (StandardAnalyzer analyzer = new StandardAnalyzer();
+    try (CodeSearchAnalyzer analyzer = new CodeSearchAnalyzer();
         TokenStream tokens = analyzer.tokenStream("query", value)) {
       CharTermAttribute term = tokens.addAttribute(CharTermAttribute.class);
       tokens.reset();

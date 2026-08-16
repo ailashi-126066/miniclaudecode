@@ -5,6 +5,7 @@ import dev.miniclaudecode.planning.Plan;
 import dev.miniclaudecode.planning.PlanScheduler;
 import dev.miniclaudecode.planning.PlanStatus;
 import dev.miniclaudecode.planning.PlanStep;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.PlanProgressListener;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -13,7 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class SelectPlanStepNode implements AsyncNodeAction<MiniClaudeState> {
   private final PlanScheduler scheduler = new PlanScheduler();

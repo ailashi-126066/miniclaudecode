@@ -44,6 +44,8 @@ public final class SlashCommandParser {
       case "skills" -> noArguments(tokens, new SlashCommand.Skills());
       case "plan" -> parsePlan(tokens);
       case "memory" -> parseMemory(tokens);
+      case "background" -> noArguments(tokens, new SlashCommand.Background());
+      case "team" -> noArguments(tokens, new SlashCommand.Team());
       case "config" -> parseConfig(tokens);
       default -> throw new IllegalArgumentException("unknown slash command: /" + name);
     };

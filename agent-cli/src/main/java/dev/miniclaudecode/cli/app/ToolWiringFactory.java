@@ -28,6 +28,7 @@ import dev.miniclaudecode.tools.process.ProcessRunner;
 import dev.miniclaudecode.tools.process.RunCommandTool;
 import dev.miniclaudecode.tools.process.ShellSelector;
 import dev.miniclaudecode.tools.registry.DefaultToolRegistry;
+import dev.miniclaudecode.tools.registry.DeferredToolRegistry;
 import dev.miniclaudecode.tools.result.ReadToolResultTool;
 import dev.miniclaudecode.tools.result.ToolResultStore;
 import dev.miniclaudecode.tools.user.AskUserTool;
@@ -88,7 +89,7 @@ final class ToolWiringFactory {
         new IsolatedWorktreeService(
             workspace, layout.sessionWorkspaceRoot(workspace).resolve("worktrees"));
     tools.add(new WorktreeControlTool(worktrees));
-    tools.add(
+    DelegatedAgentTool delegated =
         new DelegatedAgentTool(
             modelClient,
             new DefaultToolRegistry(delegatedTools),
@@ -96,9 +97,40 @@ final class ToolWiringFactory {
             config.activeProfile(),
             Clock.systemUTC(),
             isolatedTools,
-            worktrees));
+            worktrees);
+    tools.add(delegated);
+    BackgroundAgentManager background =
+        new BackgroundAgentManager(
+            delegated::runBackground,
+            results,
+            layout.sessionWorkspaceRoot(workspace).resolve("background-agents.json"),
+            Clock.systemUTC());
+    tools.add(new BackgroundAgentTool(background));
+    TeamManager teams =
+        new TeamManager(
+            background,
+            layout.sessionWorkspaceRoot(workspace).resolve("teams.json"),
+            Clock.systemUTC());
+    tools.add(new TeamControlTool(teams));
     tools.addAll(extensions.tools());
-    return new Wiring(new DefaultToolRegistry(tools), bullets);
+    List<AgentTool> eager = tools.stream().filter(ToolWiringFactory::isEagerTool).toList();
+    List<AgentTool> deferred = tools.stream().filter(tool -> !isEagerTool(tool)).toList();
+    return new Wiring(
+        new DeferredToolRegistry(eager, deferred), bullets, permissionRules, background, teams);
+  }
+
+  private static boolean isEagerTool(AgentTool tool) {
+    return switch (tool.descriptor().qualifiedName()) {
+      case "workspace:read",
+          "workspace:list",
+          "workspace:glob",
+          "workspace:grep",
+          "planning:request",
+          "user:ask",
+          "result:read" ->
+          true;
+      default -> false;
+    };
   }
 
   private static RunCommandTool commandTool(
@@ -179,5 +211,15 @@ final class ToolWiringFactory {
         .contains(tool.descriptor().qualifiedName());
   }
 
-  record Wiring(DefaultToolRegistry tools, MemoryStore bullets) {}
+  /**
+   * The registry plus the collaborators a turn needs directly. {@code permissionRules} is exposed
+   * because MCP approvals are granted in the CLI executor rather than inside a tool, so it needs
+   * the same persisted rule file that the file and shell tools write to.
+   */
+  record Wiring(
+      DeferredToolRegistry tools,
+      MemoryStore bullets,
+      JsonPermissionRuleStore permissionRules,
+      BackgroundAgentManager background,
+      TeamManager teams) {}
 }

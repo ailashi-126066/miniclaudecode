@@ -1,6 +1,7 @@
 package dev.miniclaudecode.runtime.node;
 
 import dev.miniclaudecode.domain.session.AgentStatus;
+import dev.miniclaudecode.runtime.AsyncNodeAction;
 import dev.miniclaudecode.runtime.retry.RetryPolicy;
 import dev.miniclaudecode.runtime.state.MiniClaudeState;
 import dev.miniclaudecode.runtime.state.StateSchema;
@@ -10,7 +11,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import org.bsc.langgraph4j.action.AsyncNodeAction;
 
 public final class RecoverErrorNode implements AsyncNodeAction<MiniClaudeState> {
   private final RetryPolicy retryPolicy;

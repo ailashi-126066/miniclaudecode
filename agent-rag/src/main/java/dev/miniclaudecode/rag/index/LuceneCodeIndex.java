@@ -25,7 +25,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.IntPoint;
@@ -48,6 +47,16 @@ import org.apache.lucene.util.Bits;
 public final class LuceneCodeIndex {
   private static final ConcurrentHashMap<Path, ReentrantLock> SYNC_LOCKS =
       new ConcurrentHashMap<>();
+
+  /**
+   * Bumped whenever indexed terms change meaning: the analyzer, the chunkers, or the text fed into
+   * {@code search_text}. It is recorded alongside the embedding identity and a mismatch forces a
+   * full rebuild, because terms written by an older pipeline are not comparable with queries
+   * analyzed by the current one — and the failure mode is silent (zero hits), not loud.
+   *
+   * <p>v3: Tree-sitter declaration boundaries for non-Java source files.
+   */
+  public static final String SCHEMA_VERSION = "v3";
 
   public static final String FIELD_DOCUMENT_TYPE = "document_type";
   public static final String FIELD_CHUNK_ID = "chunk_id";
@@ -129,8 +138,9 @@ public final class LuceneCodeIndex {
     // rejects mixed dimensions on one field. When the recorded identity differs from the current
     // model — or is missing, which means the vectors have unknown provenance — drop the whole
     // index so the scan below rebuilds it from scratch. A silent partial mix would corrupt every
-    // subsequent vector search.
-    String identity = this.embeddingIdentity();
+    // subsequent vector search. The schema version rides along for the same reason on the lexical
+    // side: old terms plus a new analyzer produce no hits rather than an error.
+    String identity = this.indexIdentity();
     if (indexExists && !this.recordedEmbeddingIdentity().equals(identity)) {
       this.probeEmbeddingBackendBeforeDestroying();
       deleteTree(lucenePath);
@@ -177,7 +187,7 @@ public final class LuceneCodeIndex {
 
     try (Directory directory = FSDirectory.open(lucenePath)) {
       IndexWriter writer =
-          new IndexWriter(directory, new IndexWriterConfig(new StandardAnalyzer()));
+          new IndexWriter(directory, new IndexWriterConfig(new CodeSearchAnalyzer()));
       boolean completed = false;
 
       try {
@@ -230,6 +240,11 @@ public final class LuceneCodeIndex {
    */
   private void probeEmbeddingBackendBeforeDestroying() {
     this.embeddingModel.embed("embedding backend probe");
+  }
+
+  /** What the on-disk index was built by: lexical schema plus embedding model. */
+  private String indexIdentity() {
+    return SCHEMA_VERSION + "|" + this.embeddingIdentity();
   }
 
   private String embeddingIdentity() {
