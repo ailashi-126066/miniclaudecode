@@ -1,9 +1,0 @@
-#!/bin/sh
-set -eu
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT_DIR=$(dirname -- "$SCRIPT_DIR")
-JAR="$ROOT_DIR/lib/mini-claude-code.jar"
-if [ ! -f "$JAR" ]; then
-  JAR="$ROOT_DIR/agent-cli/target/mini-claude-code.jar"
-fi
-exec java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -jar "$JAR" "$@"

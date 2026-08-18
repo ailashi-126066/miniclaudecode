@@ -1,0 +1,3 @@
+package com.mewcode.memory;
+import static org.junit.jupiter.api.Assertions.*;import java.nio.file.Path;import org.junit.jupiter.api.Test;import org.junit.jupiter.api.io.TempDir;
+class SqliteMemoryStoreTest{@TempDir Path dir;@Test void storesSearchesAndSupersedes(){var store=new SqliteMemoryStore(dir.resolve("memory.db"));store.remember("user","style","Preferred style","Use concise answers");assertEquals(1,store.search("concise",10).size());store.remember("user","style","Preferred style","Use detailed answers");assertEquals(1,store.list().size());assertTrue(store.list().getFirst().content().contains("detailed"));}}

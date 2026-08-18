@@ -1,24 +1,9 @@
+build/
+.gradle/
 target/
-**/target/
+*.jar
 .idea/
-.vscode/
 *.iml
-*.log
-.m2-plan/
-.maven-user/
-
-# Local runtime data
-.mini-claude-code/
-sessions/
-checkpoints/
-tool-results/
-indexes/
-
-# Local secrets and overrides
-.env
-*.local.yaml
-*.local.yml
-
-# OS files
-.DS_Store
-Thumbs.db
+out/
+.mewcode/
+CLAUDE.md

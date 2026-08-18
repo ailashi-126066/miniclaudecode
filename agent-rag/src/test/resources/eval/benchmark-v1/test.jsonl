@@ -1,2 +1,0 @@
-{"query":"cancel an order","relevantChunkIds":["OrderService.java:2:cancelOrder()"]}
-{"query":"refund payment","relevantChunkIds":["PaymentGateway.java:4:refundPayment()"]}

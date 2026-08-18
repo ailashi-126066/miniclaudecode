@@ -1,0 +1,3 @@
+package com.mewcode.rag;
+import static org.junit.jupiter.api.Assertions.*;import java.nio.file.Files;import java.nio.file.Path;import org.junit.jupiter.api.Test;import org.junit.jupiter.api.io.TempDir;
+class RagServiceTest{@TempDir Path dir;@Test void indexesAndFindsJavaSymbol()throws Exception{Path src=dir.resolve("src/App.java");Files.createDirectories(src.getParent());Files.writeString(src,"package demo; class App { String greet(){ return \"hello\"; } }");var rag=new RagService(dir);var report=rag.synchronize();assertTrue(report.files()>0);var response=rag.search("greet hello");assertFalse(response.results().isEmpty());assertTrue(response.results().getFirst().chunk().content().contains("greet"));}}

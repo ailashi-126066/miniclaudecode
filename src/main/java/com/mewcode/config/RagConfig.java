@@ -1,0 +1,2 @@
+package com.mewcode.config;
+public class RagConfig {private boolean enabled=true;private String indexPath=".mewcode/rag-index";private EmbeddingConfig embedding=new EmbeddingConfig();public boolean isEnabled(){return enabled;}public void setEnabled(boolean v){enabled=v;}public String getIndexPath(){return indexPath;}public void setIndexPath(String v){indexPath=v;}public EmbeddingConfig getEmbedding(){return embedding;}public void setEmbedding(EmbeddingConfig v){embedding=v;}}

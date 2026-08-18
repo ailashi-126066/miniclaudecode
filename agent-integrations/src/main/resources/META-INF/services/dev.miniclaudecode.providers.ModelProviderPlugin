@@ -1,3 +1,0 @@
-dev.miniclaudecode.providers.anthropic.AnthropicProviderPlugin
-dev.miniclaudecode.providers.openai.OpenAiCompatibleProviderPlugin
-dev.miniclaudecode.providers.ollama.OllamaProviderPlugin

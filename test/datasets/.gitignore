@@ -1,9 +1,0 @@
-# Downloaded benchmark sources and derived artifacts are local evaluation inputs.
-# Keep manifest.md and this file under version control; do not accidentally commit large corpora.
-sources/
-artifacts/
-raw/
-repos/
-derived/
-indexes/
-reports/

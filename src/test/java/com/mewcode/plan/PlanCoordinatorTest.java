@@ -1,0 +1,3 @@
+package com.mewcode.plan;
+import static org.junit.jupiter.api.Assertions.*;import java.nio.file.Path;import java.util.List;import org.junit.jupiter.api.Test;import org.junit.jupiter.api.io.TempDir;
+class PlanCoordinatorTest{@TempDir Path dir;@Test void verificationGatesCompletion(){var c=new PlanCoordinator(new PlanRepository(dir));c.create("goal",List.of(new PlanState.Step("s1","implement",List.of(),List.of("tests pass"),true,PlanState.StepStatus.PENDING,0,null)));assertThrows(IllegalStateException.class,()->c.complete("s1",List.of(),List.of()));assertEquals(PlanState.Status.COMPLETED,c.complete("s1",List.of("mvn test passed"),List.of("A.java")).status());}}
