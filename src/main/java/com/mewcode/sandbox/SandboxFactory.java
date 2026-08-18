@@ -26,6 +26,9 @@ public class SandboxFactory {
         if (os.contains("linux")) {
             return new BwrapSandbox();
         }
+        if (os.contains("win")) {
+            return new WindowsSandbox();
+        }
         return null;
     }
 }

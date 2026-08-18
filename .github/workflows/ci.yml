@@ -19,31 +19,27 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "23"
+          java-version: "21"
           cache: maven
-      - name: Verify unit, CLI E2E, integration and distribution build
+      - name: Verify unit tests and build
         shell: bash
         run: ./mvnw --batch-mode --no-transfer-progress verify
       - name: Smoke test fat JAR
         shell: bash
         run: |
-          java -jar agent-cli/target/mini-claude-code.jar --version
-          java -jar agent-cli/target/mini-claude-code.jar --help
+          java -jar target/minicode.jar --version
+          java -jar target/minicode.jar --help
           mkdir -p target/fat-jar-smoke-home
           java -Duser.home=target/fat-jar-smoke-home \
-            -jar agent-cli/target/mini-claude-code.jar \
-            index -w agent-rag/src/test/resources/tree-sitter-smoke
-      - name: Smoke test distribution archives
+            -jar target/minicode.jar \
+            index -w src/test
+      - name: Smoke test distribution archive
         shell: bash
         run: |
-          ZIP=agent-cli/target/mini-claude-code-0.1.0-SNAPSHOT-distribution.zip
-          TAR=agent-cli/target/mini-claude-code-0.1.0-SNAPSHOT-distribution.tar.gz
+          ZIP=target/minicode-distribution.zip
           test -s "$ZIP"
-          test -s "$TAR"
-          tar -tzf "$TAR" | grep -q '/lib/mini-claude-code.jar$'
-          mkdir -p target/distribution-smoke
           unzip -q "$ZIP" -d target/distribution-smoke
-          DIST_JAR=$(find target/distribution-smoke -path '*/lib/mini-claude-code.jar' -print -quit)
+          DIST_JAR=$(find target/distribution-smoke -name 'minicode.jar' -print -quit)
           test -n "$DIST_JAR"
           java -jar "$DIST_JAR" --version
           java -jar "$DIST_JAR" --help

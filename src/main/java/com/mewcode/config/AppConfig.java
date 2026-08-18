@@ -20,6 +20,7 @@ public class AppConfig {
 
     private boolean enableCoordinatorMode;
     private RagConfig rag = new RagConfig();
+    private RemoteConfig remote = new RemoteConfig();
 
     public List<ProviderConfig> getProviders() { return providers; }
 
@@ -46,4 +47,6 @@ public class AppConfig {
     public void setEnableCoordinatorMode(boolean enableCoordinatorMode) { this.enableCoordinatorMode = enableCoordinatorMode; }
     public RagConfig getRag() { return rag; }
     public void setRag(RagConfig rag) { this.rag = rag; }
+    public RemoteConfig getRemote() { return remote; }
+    public void setRemote(RemoteConfig remote) { this.remote = remote; }
 }

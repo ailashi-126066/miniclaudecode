@@ -89,11 +89,8 @@ public class MewCode {
         // --remote 模式：启动 HTTP + WebSocket 服务器，不进入 TUI
         if (remoteMode) {
             var server = new RemoteServer(
-                    config.getProviders(),
-                    config.getMcpServers() != null ? config.getMcpServers() : List.of(),
-                    config.getHooks() != null ? config.getHooks() : List.of(),
-                    remoteAddr,
-                    config.isEnableCoordinatorMode()
+                    config,
+                    remoteAddr
             );
             try {
                 server.run();
@@ -105,12 +102,7 @@ public class MewCode {
         }
 
         // TUI 模式（默认）
-        var model = new MewCodeModel(
-                config.getProviders(),
-                config.getMcpServers() != null ? config.getMcpServers() : List.of(),
-                config.getHooks() != null ? config.getHooks() : List.of(),
-                config.isEnableCoordinatorMode()
-        );
+        var model = new MewCodeModel(config);
 
         var program = new Program(model);
 

@@ -13,6 +13,7 @@ import com.mewcode.command.Command;
 import com.mewcode.command.CommandContext;
 import com.mewcode.command.CommandRegistry;
 import com.mewcode.compact.ContextCompactor;
+import com.mewcode.config.AppConfig;
 import com.mewcode.config.HookConfig;
 import com.mewcode.config.McpServerConfig;
 import com.mewcode.config.ProviderConfig;
@@ -59,10 +60,12 @@ public class RemoteServer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     // ── 配置 ──────────────────────────────────────────────────────────
+    private final AppConfig config;
     private final List<ProviderConfig> providers;
     private final List<McpServerConfig> mcpConfigs;
     private final List<HookConfig> hookConfigs;
     private final String addr;
+    private final String authToken;
 
     // ── WebSocket 连接池 ──────────────────────────────────────────────
     private final ReentrantLock connLock = new ReentrantLock();
@@ -105,13 +108,14 @@ public class RemoteServer {
     private volatile String mcpInstructions = "";
     private final boolean enableCoordinatorMode;
 
-    public RemoteServer(List<ProviderConfig> providers, List<McpServerConfig> mcpConfigs,
-                        List<HookConfig> hookConfigs, String addr, boolean enableCoordinatorMode) {
-        this.providers = providers;
-        this.mcpConfigs = mcpConfigs;
-        this.hookConfigs = hookConfigs;
+    public RemoteServer(AppConfig config, String addr) {
+        this.config = config;
+        this.providers = config.getProviders();
+        this.mcpConfigs = config.getMcpServers() != null ? config.getMcpServers() : List.of();
+        this.hookConfigs = config.getHooks() != null ? config.getHooks() : List.of();
         this.addr = addr;
-        this.enableCoordinatorMode = enableCoordinatorMode;
+        this.enableCoordinatorMode = config.isEnableCoordinatorMode();
+        this.authToken = config.getRemote().getAuthToken();
     }
 
     /**
@@ -124,10 +128,37 @@ public class RemoteServer {
         // 连接 MCP 服务器
         initMcpServers();
 
-        // 解析监听地址（格式 ":18888" 或 "0.0.0.0:18888"）
+        // 解析监听地址（格式 ":18888" 或 "127.0.0.1:18888"）
         int port = parsePort(addr);
+        String bindAddress = config.getRemote().getBindAddress();
+
+        // 认证检查
+        boolean authEnabled = config.getRemote().isAuthEnabled();
+        if (authEnabled) {
+            System.out.printf("%n  ⚠️  Authentication enabled with token: %s...%n",
+                    authToken.substring(0, Math.min(8, authToken.length())));
+        } else {
+            System.out.printf("%n  ⚠️  WARNING: No authentication configured! Set remote.authToken in config.yaml%n");
+        }
 
         Javalin app = Javalin.create()
+                .before("/ws", ctx -> {
+                    // WebSocket 认证：检查 Authorization header 或查询参数
+                    if (authEnabled) {
+                        String token = ctx.header("Authorization");
+                        if (token != null && token.startsWith("Bearer ")) {
+                            token = token.substring("Bearer ".length());
+                        }
+                        // 回退到查询参数（WebSocket 客户端可能无法设置 header）
+                        if (token == null) {
+                            token = ctx.queryParam("token");
+                        }
+                        if (token == null || !token.equals(authToken)) {
+                            ctx.status(401).result("Unauthorized");
+                            return;
+                        }
+                    }
+                })
                 .get("/", ctx -> {
                     ctx.contentType("text/html; charset=utf-8");
                     ctx.result(WebContent.INDEX_HTML);
@@ -152,9 +183,13 @@ public class RemoteServer {
                     ws.onClose(ctx -> connections.remove(ctx));
                     ws.onMessage(ctx -> handleWsMessage(ctx, ctx.message()));
                 })
-                .start("0.0.0.0", port);
+                .start(bindAddress, port);
 
-        System.out.printf("%n  Remote UI: http://localhost:%d%n%n", port);
+        System.out.printf("  Remote UI: http://%s:%d%n", bindAddress, port);
+        if (!"127.0.0.1".equals(bindAddress) && !"localhost".equals(bindAddress)) {
+            System.out.printf("  ⚠️  Server exposed on %s - ensure firewall is configured!%n", bindAddress);
+        }
+        System.out.println();
 
         // 阻塞主线程，让服务器持续运行
         Thread.currentThread().join();
@@ -221,8 +256,9 @@ public class RemoteServer {
         registry.register(new com.mewcode.teams.TeamTools.TeamDeleteTool(teamManager));
         registry.register(new com.mewcode.teams.TeamTools.SendMessageTool(teamManager, "lead"));
 
-        // 权限检查器
-        permChecker = new PermissionChecker(PermissionMode.DEFAULT, Path.of(workDir));
+        // 权限检查器：从配置读取模式
+        PermissionMode permMode = parsePermissionMode(config.getPermissionMode());
+        permChecker = new PermissionChecker(permMode, Path.of(workDir));
 
         // 会话和文件历史
         fileHistory = new FileHistory(workDir, sessionId);
@@ -928,6 +964,16 @@ public class RemoteServer {
             case "post_tool_use" -> HookEngine.EventName.POST_TOOL_USE;
             case "shutdown" -> HookEngine.EventName.SHUTDOWN;
             default -> HookEngine.EventName.SESSION_START;
+        };
+    }
+
+    private static PermissionMode parsePermissionMode(String mode) {
+        if (mode == null) return PermissionMode.DEFAULT;
+        return switch (mode.toLowerCase()) {
+            case "sandbox" -> PermissionMode.DEFAULT;
+            case "approve" -> PermissionMode.ACCEPT_EDITS;
+            case "auto" -> PermissionMode.BYPASS;
+            default -> PermissionMode.DEFAULT;
         };
     }
 

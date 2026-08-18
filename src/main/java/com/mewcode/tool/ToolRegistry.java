@@ -122,7 +122,15 @@ public class ToolRegistry {
         reg.register(new com.mewcode.tool.impl.ReadFileTool());
         reg.register(new com.mewcode.tool.impl.WriteFileTool());
         reg.register(new com.mewcode.tool.impl.EditFileTool());
-        reg.register(new com.mewcode.tool.impl.BashTool());
+
+        // 根据操作系统选择命令工具
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) {
+            reg.register(new com.mewcode.tool.impl.PowerShellTool());
+        } else {
+            reg.register(new com.mewcode.tool.impl.BashTool());
+        }
+
         reg.register(new com.mewcode.tool.impl.GlobTool());
         reg.register(new com.mewcode.tool.impl.GrepTool());
         reg.register(new com.mewcode.rag.tool.CodeSearchTool(java.nio.file.Path.of(System.getProperty("user.dir"))));

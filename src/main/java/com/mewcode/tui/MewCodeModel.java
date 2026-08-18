@@ -8,6 +8,7 @@ package com.mewcode.tui;
 import com.mewcode.agent.Agent;
 import com.mewcode.agent.AgentEvent;
 import com.mewcode.command.CommandRegistry;
+import com.mewcode.config.AppConfig;
 import com.mewcode.config.HookConfig;
 import com.mewcode.config.McpServerConfig;
 import com.mewcode.config.ProviderConfig;
@@ -72,6 +73,7 @@ public class MewCodeModel implements Model {
     private static final Duration POLL_INTERVAL = Duration.ofMillis(50);
 
     // ── Provider selection ───────────────────────────────────────────────
+    private final AppConfig config;
     private final List<ProviderConfig> providers;
     private final List<McpServerConfig> mcpServers;
     private final List<HookConfig> hookConfigs;
@@ -222,12 +224,12 @@ public class MewCodeModel implements Model {
     public record AgentEventMessage() implements Message {}
     public record MailboxPollMessage() implements Message {}
 
-    public MewCodeModel(List<ProviderConfig> providers, List<McpServerConfig> mcpServers,
-                        List<HookConfig> hookConfigs, boolean enableCoordinatorMode) {
-        this.providers = providers != null ? providers : List.of();
-        this.mcpServers = mcpServers != null ? mcpServers : List.of();
-        this.hookConfigs = hookConfigs != null ? hookConfigs : List.of();
-        this.enableCoordinatorMode = enableCoordinatorMode;
+    public MewCodeModel(AppConfig config) {
+        this.config = config;
+        this.providers = config.getProviders() != null ? config.getProviders() : List.of();
+        this.mcpServers = config.getMcpServers() != null ? config.getMcpServers() : List.of();
+        this.hookConfigs = config.getHooks() != null ? config.getHooks() : List.of();
+        this.enableCoordinatorMode = config.isEnableCoordinatorMode();
         if (this.providers.size() == 1) {
             this.selectedProvider = this.providers.get(0);
             this.state = AppState.CHAT;
@@ -293,6 +295,16 @@ public class MewCodeModel implements Model {
             case "http"    -> HookEngine.ActionType.HTTP;
             case "agent"   -> HookEngine.ActionType.AGENT;
             default -> HookEngine.ActionType.COMMAND;
+        };
+    }
+
+    private static PermissionMode parsePermissionMode(String mode) {
+        if (mode == null) return PermissionMode.DEFAULT;
+        return switch (mode.toLowerCase()) {
+            case "sandbox" -> PermissionMode.DEFAULT;
+            case "approve" -> PermissionMode.ACCEPT_EDITS;
+            case "auto" -> PermissionMode.BYPASS;
+            default -> PermissionMode.DEFAULT;
         };
     }
 
@@ -538,8 +550,10 @@ public class MewCodeModel implements Model {
             registry.register(new com.mewcode.teams.TeamTools.TeamDeleteTool(teamManager));
             registry.register(new com.mewcode.teams.TeamTools.SendMessageTool(teamManager, "lead"));
 
+            // 权限检查器：从配置读取模式
+            PermissionMode permMode = parsePermissionMode(config.getPermissionMode());
             permChecker = new PermissionChecker(
-                    PermissionMode.DEFAULT, Path.of(workDir));
+                    permMode, Path.of(workDir));
 
             // 初始化 OS 级沙箱
             sandboxInstance = com.mewcode.sandbox.SandboxFactory.create();
