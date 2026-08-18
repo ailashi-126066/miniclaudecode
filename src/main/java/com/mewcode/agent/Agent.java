@@ -7,6 +7,7 @@ import com.mewcode.conversation.ToolResultBlock;
 import com.mewcode.conversation.ToolUseBlock;
 import com.mewcode.hook.HookEngine;
 import com.mewcode.llm.LlmClient;
+import com.mewcode.llm.LlmException;
 import com.mewcode.llm.StreamEvent;
 import com.mewcode.permission.PermissionChecker;
 import com.mewcode.permission.PermissionMode;
@@ -150,6 +151,7 @@ public class Agent {
         boolean maxTokensEscalated = false;
 
         int contextRetries = 0;
+        int rateLimitRetries = 0;
         boolean loopCompleted = false;
 
         try {
@@ -238,6 +240,7 @@ public class Agent {
 
             var tools = iterToolSchemas;
             var streamQueue = client.stream(conv, tools);
+            lastStreamException = null;
 
             // Consume stream events, collect tool calls
             var text = new StringBuilder();
@@ -289,7 +292,7 @@ public class Agent {
                         turnCacheCreation = se.cacheCreationTokens();
                     }
                     case StreamEvent.Error err -> {
-                        lastStreamError = err.message();
+                        lastStreamException = err.exception();
                         putSafe(queue, new AgentEvent.ErrorEvent(err.message()));
                         streamError = true;
                     }
@@ -298,28 +301,40 @@ public class Agent {
                 if (event instanceof StreamEvent.StreamEnd || event instanceof StreamEvent.Error) break;
             }
 
-            // Error recovery
+            // Error recovery: branch on the typed LLM failure instead of
+            // parsing human-readable provider messages.
             if (streamError) {
-                var lastErr = events_drain_last_error(queue);
-                if (lastErr != null && (lastErr.contains("context") || lastErr.contains("too long")
-                        || lastErr.contains("prompt"))) {
+                var error = lastStreamException;
+
+                if (error instanceof LlmException.ContextTooLongException) {
                     if (contextRetries < 3) {
                         contextRetries++;
-                        putSafe(queue, new AgentEvent.RetryEvent("Context too long, compacting...", 0));
-                        // 先裁剪再压缩，确保预算内的结果不会被误压缩
-                        Path forceSessionDir = Paths.get(workDir == null ? "." : workDir, ".mewcode/session");
-                        List<ContentReplacementRecord> forceRecords = ToolResultBudget.apply(conv, forceSessionDir, replacementState);
+                        putSafe(queue, new AgentEvent.RetryEvent(
+                                "Context too long, compacting...", 0));
+                        // Apply the result budget before compacting the context.
+                        Path forceSessionDir = Paths.get(
+                                workDir == null ? "." : workDir,
+                                ".mewcode/session");
+                        List<ContentReplacementRecord> forceRecords =
+                                ToolResultBudget.apply(
+                                        conv, forceSessionDir, replacementState);
                         if (!forceRecords.isEmpty()) {
-                            try { ReplacementRecordsIO.append(forceSessionDir, forceRecords); } catch (Exception ignored) {}
+                            try {
+                                ReplacementRecordsIO.append(forceSessionDir, forceRecords);
+                            } catch (Exception ignored) {
+                            }
                         }
                         int sizeBeforeForce = conv.size();
                         try {
-                            String wdForce = workDir != null ? workDir : System.getProperty("user.dir");
+                            String wdForce = workDir != null
+                                    ? workDir
+                                    : System.getProperty("user.dir");
                             com.mewcode.compact.ContextCompactor.forceCompact(
                                     conv, client, contextWindow, wdForce, sessionId,
                                     recoveryState, iterToolSchemas,
                                     conv.getMessages());
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                         // forceCompact shrinks the conversation (summary + kept
                         // tail), so the prior anchor's message count no longer
                         // lines up; drop it and re-anchor on the next stream.
@@ -331,14 +346,29 @@ public class Agent {
                         continue;
                     }
                 }
-                if (lastErr != null && lastErr.toLowerCase().contains("rate limit")) {
-                    putSafe(queue, new AgentEvent.RetryEvent("Rate limited, waiting 5s...", 5000));
-                    try { Thread.sleep(5000); } catch (InterruptedException e) { break; }
+
+                if (error instanceof LlmException.RateLimitException rateLimit
+                        && rateLimitRetries < 3) {
+                    rateLimitRetries++;
+                    long waitMs = retryDelayMillis(
+                            rateLimit.getRetryAfter(), rateLimitRetries);
+                    putSafe(queue, new AgentEvent.RetryEvent(
+                            "Rate limited, retrying...", waitMs));
+                    try {
+                        Thread.sleep(waitMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
                     continue;
                 }
+
+                // Authentication and unknown errors are not safe to retry.
                 break;
             }
 
+            // A successful stream resets the bounded rate-limit retry budget.
+            rateLimitRetries = 0;
             totalInput += turnInput;
             totalOutput += turnOutput;
             putSafe(queue, new AgentEvent.UsageEvent(totalInput, totalOutput));
@@ -448,10 +478,19 @@ public class Agent {
         }
     }
 
-    private String lastStreamError;
+    private LlmException lastStreamException;
 
-    private String events_drain_last_error(BlockingQueue<AgentEvent> queue) {
-        return lastStreamError;
+    private static long retryDelayMillis(String retryAfter, int attempt) {
+        if (retryAfter != null && !retryAfter.isBlank()) {
+            try {
+                long seconds = Long.parseLong(retryAfter.trim());
+                return Math.max(0L, Math.min(seconds * 1000L, 120_000L));
+            } catch (NumberFormatException ignored) {
+                // Fall through to bounded exponential backoff.
+            }
+        }
+        long backoff = 1_000L << Math.min(Math.max(attempt - 1, 0), 6);
+        return Math.min(backoff, 120_000L);
     }
 
     private static void putSafe(BlockingQueue<AgentEvent> queue, AgentEvent event) {

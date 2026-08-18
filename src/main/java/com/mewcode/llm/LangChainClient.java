@@ -73,7 +73,7 @@ public class LangChainClient implements LlmClient {
                         .build();
                 model.chat(request, handler(queue));
             } catch (Throwable failure) {
-                put(queue, new StreamEvent.Error(classify(failure)));
+                put(queue, new StreamEvent.Error(LlmException.classify(failure)));
             }
         });
         return queue;
@@ -144,13 +144,13 @@ public class LangChainClient implements LlmClient {
                     Map<String, Object> args = JSON.readValue(argsJson, new TypeReference<>() {});
                     put(queue, new StreamEvent.ToolCallComplete(p.id, p.name, args));
                 } catch (Exception e) {
-                    put(queue, new StreamEvent.Error("Invalid tool arguments for " + p.name + ": " + e.getMessage()));
+                    put(queue, new StreamEvent.Error(new LlmException("Invalid tool arguments for " + p.name + ": " + e.getMessage(), e)));
                 }
                 pending.remove(complete.index());
             }
             @Override public synchronized void onCompleteResponse(ChatResponse response) {
                 if (!pending.isEmpty()) {
-                    put(queue, new StreamEvent.Error("Provider left unfinished tool calls"));
+                    put(queue, new StreamEvent.Error(new LlmException("Provider left unfinished tool calls")));
                     return;
                 }
                 int input = response == null || response.tokenUsage() == null || response.tokenUsage().inputTokenCount() == null ? 0 : response.tokenUsage().inputTokenCount();
@@ -158,7 +158,7 @@ public class LangChainClient implements LlmClient {
                 String reason = response == null || response.finishReason() == null ? "end_turn" : response.finishReason().name().toLowerCase();
                 put(queue, new StreamEvent.StreamEnd(reason, input, output));
             }
-            @Override public void onError(Throwable error) { put(queue, new StreamEvent.Error(classify(error))); }
+            @Override public void onError(Throwable error) { put(queue, new StreamEvent.Error(LlmException.classify(error))); }
         };
     }
 
@@ -208,10 +208,6 @@ public class LangChainClient implements LlmClient {
         String result = value.trim();
         while (result.endsWith("/")) result = result.substring(0, result.length() - 1);
         return result;
-    }
-    private static String classify(Throwable failure) {
-        String message = failure == null ? "Unknown provider error" : String.valueOf(failure.getMessage());
-        return message.length() > 500 ? message.substring(0, 500) : message;
     }
     private static void put(BlockingQueue<StreamEvent> queue, StreamEvent event) {
         try { queue.put(event); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }

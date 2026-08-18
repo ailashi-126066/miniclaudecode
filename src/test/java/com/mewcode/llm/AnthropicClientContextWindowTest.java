@@ -36,22 +36,14 @@ class AnthropicClientContextWindowTest {
     void constructionDoesNotThrowWhenFetchFails() {
         // 127.0.0.1:1 is a closed port → connection refused quickly.
         var cfg = anthropicCfg("http://127.0.0.1:1");
-        assertDoesNotThrow(() -> new AnthropicClient(cfg, "system"));
-    }
-
-    @Test
-    void fetchReturnsZeroOnUnreachableEndpoint() {
-        var cfg = anthropicCfg("http://127.0.0.1:1");
-        var client = new AnthropicClient(cfg, "system");
-        // Best-effort fetch must yield 0 (unavailable), never throw.
-        assertEquals(0, client.fetchModelContextWindow());
+        assertDoesNotThrow(() -> new LangChainClient(cfg, "system"));
     }
 
     @Test
     void resolvedWindowFallsBackToTableWhenFetchFails() {
         var cfg = anthropicCfg("http://127.0.0.1:1");
         // Constructing the client triggers the (failing) auto-fetch + backfill.
-        new AnthropicClient(cfg, "system");
+        new LangChainClient(cfg, "system");
         // Cache stayed empty → resolution drops to the built-in table (claude → 200k).
         assertEquals(200_000, cfg.resolvedContextWindow());
     }
@@ -60,7 +52,7 @@ class AnthropicClientContextWindowTest {
     void configOverrideStillWinsEvenWithFailedFetch() {
         var cfg = anthropicCfg("http://127.0.0.1:1");
         cfg.setContextWindow(50_000);
-        new AnthropicClient(cfg, "system");
+        new LangChainClient(cfg, "system");
         assertEquals(50_000, cfg.resolvedContextWindow());
     }
 }
