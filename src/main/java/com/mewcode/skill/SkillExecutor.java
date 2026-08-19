@@ -40,7 +40,10 @@ public final class SkillExecutor {
         return host.runSubAgent(body, seed, skill.meta().model());
     }
 
-    static String substituteArguments(String body, String args) {
+    public static String substituteArguments(String body, String args) {
+        if (body == null) {
+            return null;
+        }
         if (args == null || args.isBlank()) {
             return body;
         }

@@ -42,10 +42,9 @@ class LoadSkillToolTest {
         var result = tool.execute(Map.of("name", "commit"));
 
         assertFalse(result.isError());
-        assertTrue(result.output().contains("# Skill: commit"));
-        assertTrue(result.output().contains("请按照以下步骤生成 commit message"));
+        assertTrue(result.output().contains("Skill \"commit\" activated"));
         assertEquals(1, activatedSkills.size());
-        assertTrue(activatedSkills.get(0).startsWith("commit:"));
+        assertTrue(activatedSkills.get(0).contains("请按照以下步骤生成 commit message"));
     }
 
     @Test

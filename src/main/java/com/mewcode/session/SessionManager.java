@@ -279,35 +279,34 @@ public class SessionManager {
 
     // ---- Session expiry cleanup ----
 
-    /** 过期阈值：30 天 */
-    private static final long EXPIRY_DAYS = 30;
+    /** 过期阈值：14 天 */
+    private static final long EXPIRY_DAYS = 14;
 
     /**
-     * 自动清理超过 30 天的过期 session 文件。
+     * 自动清理超过 14 天的过期工具结果文件。
      * 根据文件的最后修改时间判断是否过期。
      * 失败时静默忽略——清理是尽力而为，不应影响正常流程。
      */
     public static void cleanExpiredSessions(String workDir) {
-        Path baseDir = sessionsDir(workDir);
-        if (!Files.isDirectory(baseDir)) {
-            return;
-        }
-        long cutoffMs = System.currentTimeMillis() - EXPIRY_DAYS * 24 * 60 * 60 * 1000L;
-        try (Stream<Path> paths = Files.list(baseDir)) {
-            paths.filter(p -> p.toString().endsWith(".jsonl"))
-                 .filter(Files::isRegularFile)
-                 .forEach(p -> {
-                     try {
-                         long mtime = Files.getLastModifiedTime(p).toMillis();
-                         if (mtime < cutoffMs) {
-                             Files.deleteIfExists(p);
+        // 清理工具结果目录
+        Path toolResultsDir = Path.of(workDir, ".mewcode", "session", "tool_results");
+        if (Files.isDirectory(toolResultsDir)) {
+            long cutoffMs = System.currentTimeMillis() - EXPIRY_DAYS * 24 * 60 * 60 * 1000L;
+            try (Stream<Path> paths = Files.list(toolResultsDir)) {
+                paths.filter(Files::isRegularFile)
+                     .forEach(p -> {
+                         try {
+                             long mtime = Files.getLastModifiedTime(p).toMillis();
+                             if (mtime < cutoffMs) {
+                                 Files.deleteIfExists(p);
+                             }
+                         } catch (IOException ignored) {
+                             // 单个文件清理失败不影响其它
                          }
-                     } catch (IOException ignored) {
-                         // 单个文件清理失败不影响其它
-                     }
-                 });
-        } catch (IOException ignored) {
-            // 目录不可读时静默忽略
+                     });
+            } catch (IOException ignored) {
+                // 目录不可读时静默忽略
+            }
         }
     }
 

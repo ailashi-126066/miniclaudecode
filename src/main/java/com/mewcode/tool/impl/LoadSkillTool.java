@@ -6,6 +6,7 @@
 package com.mewcode.tool.impl;
 
 import com.mewcode.skill.SkillCatalog;
+import com.mewcode.skill.SkillActivator;
 import com.mewcode.tool.Tool;
 import com.mewcode.tool.ToolCategory;
 import com.mewcode.tool.ToolResult;
@@ -27,11 +28,15 @@ public class LoadSkillTool implements Tool {
             + "instructions. Call this when the user's request matches one of the available "
             + "Skills listed in the system prompt. Pass the Skill name without a leading slash.";
 
-    private SkillCatalog catalog;
+    private SkillActivator activator;
     // (name, body) → 注入对话上下文
     private BiConsumer<String, String> onActivate;
 
-    public void setCatalog(SkillCatalog catalog) { this.catalog = catalog; }
+    public void setCatalog(SkillCatalog catalog) {
+        this.activator = catalog != null ? new SkillActivator(catalog) : null;
+    }
+
+    public void setActivator(SkillActivator activator) { this.activator = activator; }
 
     public void setOnActivate(BiConsumer<String, String> callback) { this.onActivate = callback; }
 
@@ -66,27 +71,19 @@ public class LoadSkillTool implements Tool {
     @Override
     public ToolResult execute(Map<String, Object> args) {
         String name = args.getOrDefault("name", "").toString();
-        if (name.isEmpty()) {
-            return ToolResult.error("name is required");
-        }
-        if (catalog == null) {
+        if (activator == null) {
             return ToolResult.error("LoadSkill not initialized (catalog is null)");
         }
-
-        var skill = catalog.getFull(name);
-        if (skill.isEmpty()) {
-            return ToolResult.error("unknown skill: " + name);
+        try {
+            var activation = activator.activate(name, "");
+            if (onActivate != null) {
+                onActivate.accept(activation.name(), activation.body());
+            }
+            // The full body is already pinned by onActivate. Returning it again
+            // would duplicate a potentially large SOP in the conversation.
+            return ToolResult.success("Skill \"" + activation.name() + "\" activated.");
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ToolResult.error(e.getMessage());
         }
-
-        String body = skill.get().promptBody();
-        if (body == null || body.isEmpty()) {
-            return ToolResult.error("skill \"" + name + "\" has empty body — cannot activate");
-        }
-
-        if (onActivate != null) {
-            onActivate.accept(name, body);
-        }
-
-        return ToolResult.success("# Skill: " + name + "\n\n" + body);
     }
 }

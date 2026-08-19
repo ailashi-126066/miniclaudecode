@@ -81,6 +81,31 @@ public class CommandRegistry {
     }
 
     /**
+     * Removes a command by its canonical name. Aliases and handlers belonging
+     * to the command are removed at the same time.
+     *
+     * @return {@code true} when a command was removed
+     */
+    public boolean unregister(String name) {
+        Command command = commands.stream()
+                .filter(c -> c.name().equals(name))
+                .findFirst()
+                .orElse(null);
+        if (command == null) {
+            return false;
+        }
+
+        commands.remove(command);
+        nameIndex.remove(command.name());
+        handlers.remove(command.name());
+        for (String alias : command.aliases()) {
+            aliasIndex.remove(alias);
+            handlers.remove(alias);
+        }
+        return true;
+    }
+
+    /**
      * 检查命令的名称或别名是否与已注册条目冲突。
      * 动态加载器（如从文件加载的命令）应在 register 前调用此方法，
      * 避免触发 register 的异常。

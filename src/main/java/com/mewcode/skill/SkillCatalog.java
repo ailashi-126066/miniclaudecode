@@ -16,8 +16,8 @@ import java.util.stream.Stream;
 /**
  * Manages skill discovery, loading, and context generation.
  * <p>
- * Phase-1 loading reads only frontmatter (fast startup); {@link #getFull}
- * triggers a phase-2 re-read of the body on each call (hot reload).
+ * Loading reads the frontmatter and body together. {@link #getFull} re-reads
+ * disk-backed Skills on each call so activation sees the latest body.
  * <p>
  * Three-tier loading via {@link #loadCatalog}: builtins → user global
  * ({@code ~/.mewcode/skills/}) → project ({@code .mewcode/skills/}),
@@ -112,8 +112,7 @@ public class SkillCatalog {
     /**
      * Builds a catalog by merging three tiers, with later sources
      * overriding earlier ones by name (project wins over user wins over
-     * builtin). Phase-1: only frontmatter is read; bodies stay empty
-     * until {@link #getFull} is called.
+     * builtin).
      */
     public static SkillCatalog loadCatalog(String workDir) {
         SkillCatalog c = new SkillCatalog();

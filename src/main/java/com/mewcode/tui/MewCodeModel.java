@@ -27,6 +27,7 @@ import com.mewcode.prompt.PlanModePrompt;
 import com.mewcode.prompt.PromptBuilder;
 import com.mewcode.session.SessionManager;
 import com.mewcode.skill.SkillCatalog;
+import com.mewcode.skill.SkillActivator;
 import com.mewcode.plan.PlanFile;
 import com.mewcode.subagent.AgentTool;
 import com.mewcode.subagent.SubAgentProgress;
@@ -136,6 +137,8 @@ public class MewCodeModel implements Model {
     // ── Advanced features ─────────────────────────────────────────────
     private McpManager mcpManager;
     private SkillCatalog skillCatalog;
+    private SkillActivator skillActivator;
+    private final Set<String> registeredSkillCommands = new java.util.HashSet<>();
     private TaskList taskList;
     private MemoryManager memoryManager;
     private MemoryConsolidator memoryConsolidator;
@@ -662,6 +665,7 @@ public class MewCodeModel implements Model {
             }
 
             skillCatalog = SkillCatalog.loadCatalog(workDir);
+            skillActivator = new SkillActivator(skillCatalog);
 
             // InstallSkill 工具：从 URL 下载并安装 skill
             var installSkillTool = new com.mewcode.tool.impl.InstallSkillTool();
@@ -676,7 +680,7 @@ public class MewCodeModel implements Model {
 
             // LoadSkill 工具：按名称激活 skill，注入完整 SOP 到对话上下文
             var loadSkillTool = new com.mewcode.tool.impl.LoadSkillTool();
-            loadSkillTool.setCatalog(skillCatalog);
+            loadSkillTool.setActivator(skillActivator);
             loadSkillTool.setOnActivate((name, body) -> {
                 if (conversation != null) {
                     conversation.addSystemReminder("<skill-name>" + name + "</skill-name>\n" + body);
@@ -697,9 +701,7 @@ public class MewCodeModel implements Model {
 
     private void wireSkillsToAgent() {
         if (skillCatalog == null || cmdRegistry == null) return;
-        for (var meta : skillCatalog.list()) {
-            registerSkillCommand(meta.name());
-        }
+        syncSkillCommands();
     }
 
     private String buildSkillSection(String workDir) {
@@ -711,7 +713,7 @@ public class MewCodeModel implements Model {
         sb.append("## Available Skills\n\n");
         sb.append("Skills are installed at: ").append(skillsDir).append("\n");
         sb.append("When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n\n");
-        sb.append("Only Skill names and one-line descriptions are listed below. To activate a Skill on demand call the LoadSkill tool with {name: \"<skill-name>\"}. After activation the Skill's full SOP gets pinned to the environment context, and any tools the Skill declares get registered. Users can also invoke a Skill directly with /<name>.\n\n");
+        sb.append("Only Skill names and one-line descriptions are listed below. To activate a Skill on demand call the LoadSkill tool with {name: \"<skill-name>\"}. After activation the Skill's full SOP gets pinned to the environment context. Users can also invoke a Skill directly with /<name>.\n\n");
         sb.append("If the user pastes a Skill URL (skills.sh, github.com tree URL, or raw SKILL.md URL) and asks to install / add / get it, call the InstallSkill tool with {url: \"<url>\"} — the new Skill becomes available immediately afterwards.\n\n");
         for (var meta : metas) {
             var desc = meta.description();
@@ -735,10 +737,24 @@ public class MewCodeModel implements Model {
         if (!skillCatalog.needsReload()) return;
         String workDir = System.getProperty("user.dir");
         skillCatalog.reload(workDir);
-        for (var meta : skillCatalog.list()) {
-            registerSkillCommand(meta.name());
-        }
+        syncSkillCommands();
         client.setSystemPrompt(rebuildSystemPrompt(workDir));
+    }
+
+    private void syncSkillCommands() {
+        if (skillCatalog == null || cmdRegistry == null) return;
+        Set<String> available = skillCatalog.list().stream()
+                .map(SkillCatalog.SkillMeta::name)
+                .collect(java.util.stream.Collectors.toSet());
+        for (String name : new java.util.HashSet<>(registeredSkillCommands)) {
+            if (!available.contains(name)) {
+                cmdRegistry.unregister(name);
+                registeredSkillCommands.remove(name);
+            }
+        }
+        for (String name : available) {
+            registerSkillCommand(name);
+        }
     }
 
     private void registerSkillCommand(String name) {
@@ -750,12 +766,8 @@ public class MewCodeModel implements Model {
         var cmd = new com.mewcode.command.Command(name, meta.description() + " [skill]",
                               new String[]{}, com.mewcode.command.Command.CommandType.PROMPT, false);
 
-        String captured = name;
-        cmdRegistry.register(cmd, ctx -> {
-            var s = skillCatalog.get(captured);
-            if (s.isEmpty()) return "[skill error] not found: " + captured;
-            return s.get().promptBody();
-        });
+        cmdRegistry.register(cmd, ctx -> "");
+        registeredSkillCommands.add(name);
     }
 
     private static final java.util.regex.Pattern ANSI_RE =
@@ -1249,8 +1261,20 @@ public class MewCodeModel implements Model {
                 yield UpdateResult.from(this);
             }
             case PROMPT -> {
-                boolean isSkill = cmd.description() != null && cmd.description().endsWith("[skill]");
-                String prompt = cmdRegistry.execute(cmd.name(), buildCommandContext(args));
+                boolean isSkill = registeredSkillCommands.contains(cmd.name());
+                String prompt = null;
+                if (isSkill) {
+                    try {
+                        var activation = skillActivator.activate(cmd.name(), args);
+                        conversation.addSystemReminder("<skill-name>" + activation.name()
+                                + "</skill-name>\n" + activation.body());
+                    } catch (IllegalArgumentException | IllegalStateException e) {
+                        chatMessages.add(new ChatMessage("error", "Skill error: " + e.getMessage()));
+                        yield UpdateResult.from(this);
+                    }
+                } else {
+                    prompt = cmdRegistry.execute(cmd.name(), buildCommandContext(args));
+                }
 
                 String displayText = "/" + cmd.name();
                 if (args != null && !args.isEmpty()) displayText += " " + args;
@@ -1263,7 +1287,7 @@ public class MewCodeModel implements Model {
                 if (prompt != null && !prompt.isBlank()) {
                     conversation.addUserMessage(prompt);
                 }
-                if (args != null && !args.isEmpty()) {
+                if (!isSkill && args != null && !args.isEmpty()) {
                     conversation.addUserMessage(args);
                 }
 
@@ -1314,7 +1338,7 @@ public class MewCodeModel implements Model {
                     if (skillCatalog == null) return 0;
                     String wd = System.getProperty("user.dir");
                     skillCatalog.reload(wd);
-                    for (var meta : skillCatalog.list()) registerSkillCommand(meta.name());
+                    syncSkillCommands();
                     if (client != null) client.setSystemPrompt(rebuildSystemPrompt(wd));
                     return skillCatalog.list().size();
                 },
