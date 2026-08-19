@@ -174,8 +174,8 @@ public class LangChainClient implements LlmClient {
                         .text(r.content()).isError(r.isError()).build());
             } else if ("assistant".equals(m.getRole())) {
                 var builder = AiMessage.builder().text(m.getContent() == null ? "" : m.getContent());
-                if (m.getThinkingBlocks() != null && !m.getThinkingBlocks().isEmpty())
-                    builder.thinking(m.getThinkingBlocks().stream().map(t -> t.thinking()).reduce("", String::concat));
+                // NOTE: thinking 块不能发送回 API（Anthropic API 不接受请求中的 thinking）
+                // thinking 块仅用于显示给用户，维护对话历史时必须过滤掉
                 if (m.getToolUses() != null) builder.toolExecutionRequests(m.getToolUses().stream().map(t -> ToolExecutionRequest.builder()
                         .id(t.toolUseId()).name(t.toolName()).arguments(writeJson(t.arguments())).build()).toList());
                 out.add(builder.build());

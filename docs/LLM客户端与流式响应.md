@@ -1290,80 +1290,159 @@ conv.addToolResults(results);
 **转换逻辑**：
 
 ```java
-// LangChainClient.java
+// LangChainClient.java:165-187
+// 位置：LangChainClient.java 私有方法
+// 被调用于：doStream() 方法中准备 API 请求前
+// 作用：将 MiniCode 内部的 Message 列表转换为 LangChain4j 的 ChatMessage 列表
 private static List<ChatMessage> toMessages(
-    List<Message> source,
-    String systemPrompt
+    List<Message> source,        // MiniCode 内部格式的对话历史
+    String systemPrompt          // 系统提示词
 ) {
-    var result = new ArrayList<ChatMessage>();
+    List<ChatMessage> out = new ArrayList<>();
     
     // 1. 添加系统消息（如果有）
-    if (!systemPrompt.isEmpty()) {
-        result.add(SystemMessage.from(systemPrompt));
+    if (!systemPrompt.isBlank()) {
+        out.add(SystemMessage.from(systemPrompt));
     }
     
-    // 2. 遍历对话历史
-    for (var msg : source) {
-        if ("user".equals(msg.getRole())) {
-            // 用户消息
-            result.add(UserMessage.from(msg.getContent()));
+    // 2. 构建工具名称映射表
+    // 为什么需要：ToolExecutionResultMessage 需要同时提供 toolUseId 和 toolName
+    // 但 ToolResultBlock 只存储了 toolUseId，所以先收集映射关系
+    Map<String, String> toolNames = new HashMap<>();
+    for (Message m : source) {
+        if (m.getToolUses() != null) {
+            m.getToolUses().forEach(t -> 
+                toolNames.put(t.toolUseId(), t.toolName())
+            );
+        }
+    }
+    
+    // 3. 遍历对话历史，逐条转换消息
+    for (Message m : source) {
+        // 3.1 处理工具结果消息（优先级最高）
+        if (m.getToolResults() != null && !m.getToolResults().isEmpty()) {
+            for (var r : m.getToolResults()) {
+                out.add(ToolExecutionResultMessage.builder()
+                    .id(r.toolUseId())
+                    .toolName(toolNames.getOrDefault(r.toolUseId(), "tool"))
+                    .text(r.content())
+                    .isError(r.isError())
+                    .build());
+            }
             
-        } else if ("assistant".equals(msg.getRole())) {
-            // 助手消息
+        // 3.2 处理 AI 助手消息
+        } else if ("assistant".equals(m.getRole())) {
             var builder = AiMessage.builder()
-                    .text(msg.getContent());
+                .text(m.getContent() == null ? "" : m.getContent());
             
-            // 如果有工具调用
-            if (msg.getToolUses() != null) {
-                for (var tu : msg.getToolUses()) {
-                    builder.toolCall(ToolExecutionRequest.builder()
-                            .id(tu.toolUseId())
-                            .name(tu.toolName())
-                            .arguments(toJson(tu.arguments()))
-                            .build());
-                }
+            // ⚠️ 关键过滤：thinking 块不能发送回 API
+            // Anthropic API 的限制：
+            //   - 响应中可以包含 thinking 块（Extended Thinking 功能）
+            //   - 请求中不能包含 thinking 块（会报错）
+            // thinking 块仅用于显示给用户，维护对话历史时必须过滤掉
+            
+            // 添加工具调用请求（如果有）
+            if (m.getToolUses() != null) {
+                builder.toolExecutionRequests(
+                    m.getToolUses().stream()
+                        .map(t -> ToolExecutionRequest.builder()
+                            .id(t.toolUseId())
+                            .name(t.toolName())
+                            .arguments(writeJson(t.arguments()))
+                            .build())
+                        .toList()
+                );
             }
             
-            result.add(builder.build());
+            out.add(builder.build());
+            
+        // 3.3 处理用户消息（默认情况）
+        } else {
+            out.add(UserMessage.from(
+                m.getContent() == null ? "" : m.getContent()
+            ));
         }
     }
     
-    // 3. 添加工具结果
-    for (var msg : source) {
-        if (msg.getToolResults() != null) {
-            for (var tr : msg.getToolResults()) {
-                result.add(ToolExecutionResultMessage.from(
-                    tr.toolUseId(),
-                    tr.toolName(),
-                    tr.content()
-                ));
-            }
-        }
-    }
-    
-    return result;
+    return out;
 }
 ```
+
+**为什么这样设计**：
+
+1. **工具名称映射表的必要性**：
+   - LangChain4j 的 `ToolExecutionResultMessage` 需要 `toolName`
+   - 但我们的 `ToolResultBlock` 只有 `toolUseId`
+   - 必须从前面的 `ToolUseBlock` 中查找对应的工具名称
+
+2. **thinking 块的特殊处理**：
+   - Anthropic API 在响应中返回 thinking 块（用户可见）
+   - 但在后续请求中不能包含 thinking 块（API 限制）
+   - 如果发送回去会导致 `400 Bad Request`
+
+3. **消息顺序的重要性**：
+   - 系统消息必须在最前面
+   - 工具结果必须紧跟在对应的工具调用之后
+   - LangChain4j 会验证消息顺序的合法性
 
 **转换示例**：
 
 ```java
 // 输入：MiniCode 内部格式
 List<Message> source = [
-    Message(role="user", content="创建 hello.txt"),
-    Message(role="assistant", content="好的", 
-            toolUses=[ToolUseBlock(id="tool_1", name="WriteFile", ...)])
+    Message(
+        role="user", 
+        content="创建 hello.txt"
+    ),
+    Message(
+        role="assistant", 
+        content="好的，我来创建文件", 
+        toolUses=[
+            ToolUseBlock(
+                id="tool_1", 
+                name="WriteFile",
+                arguments={"path": "hello.txt", "content": "Hello"}
+            )
+        ],
+        thinkingBlocks=[
+            ThinkingBlock(thinking="用户想创建文件，我应该调用 WriteFile")
+        ]
+    ),
+    Message(
+        role="user",
+        toolResults=[
+            ToolResultBlock(
+                toolUseId="tool_1",
+                content="文件创建成功",
+                isError=false
+            )
+        ]
+    )
 ];
 
 // 输出：LangChain4j 格式
 List<ChatMessage> result = [
-    SystemMessage("You are a helpful assistant"),  // systemPrompt
+    SystemMessage("You are a helpful assistant"),
+    
     UserMessage("创建 hello.txt"),
+    
     AiMessage(
-        text="好的",
-        toolCalls=[
-            ToolExecutionRequest(id="tool_1", name="WriteFile", ...)
+        text="好的，我来创建文件",
+        toolExecutionRequests=[
+            ToolExecutionRequest(
+                id="tool_1", 
+                name="WriteFile",
+                arguments="{\"path\":\"hello.txt\",\"content\":\"Hello\"}"
+            )
         ]
+        // 注意：thinkingBlocks 被过滤掉了！
+    ),
+    
+    ToolExecutionResultMessage(
+        id="tool_1",
+        toolName="WriteFile",  // 从前面的映射表中查找
+        text="文件创建成功",
+        isError=false
     )
 ];
 ```
@@ -1507,7 +1586,6 @@ toToolSpecs(tools)
 model.chat(request, handler)
     ↓ 发送给 LangChain4j
 LangChain4j 发送给 LLM API
-```
 ```
 
 ---
@@ -1665,7 +1743,6 @@ put(queue, new StreamEvent.TextDelta("好"))
 BlockingQueue<StreamEvent>
     ↓ Agent 消费
 Agent.agentLoop() 收到 TextDelta("好")
-```
 ```
 
 **这是核心转换点**：
@@ -1900,9 +1977,47 @@ TUI / Remote / Print
 
 ---
 
-## 错误分类 ✅ 已完全实现
+## 错误分类 
 
 当前项目已实现完整的类型化错误处理系统，包括异常分类、流式事件传递和 Agent 自动恢复策略。
+
+**文件位置**：`src/main/java/com/mewcode/llm/LlmException.java`
+
+**核心方法**：`public static LlmException classify(Throwable failure)`
+
+**调用位置**：
+1. `LangChainClient.java:116` - LangChain4j 回调错误时调用
+2. `LangChainClient.java:239` - doStream() 异常兜底时调用  
+3. `Agent.java:304` - 收到 StreamEvent.Error 后提取异常对象
+
+**调用链路**：
+```
+LangChain4j 底层通信
+    ↓ 发生错误（网络/API/超时）
+LangChain4j 抛出异常
+    ↓
+LangChainClient.onError(Throwable error)  (第116行)
+    ↓
+LlmException.classify(error)  ← 在这里分类异常
+    ↓
+返回分类后的异常：
+  - AuthenticationException (401/403)
+  - RateLimitException (429)
+  - ContextTooLongException (413/文本匹配)
+  - NetworkException (IO错误)
+  - LlmException (其他)
+    ↓
+put(queue, new StreamEvent.Error(分类后的异常))
+    ↓
+Agent.agentLoop() 收到 StreamEvent.Error  (第304行)
+    ↓
+var error = err.exception();  // 获取类型化异常
+    ↓
+根据异常类型执行不同策略：
+  - ContextTooLongException → 压缩上下文重试
+  - RateLimitException → 等待后重试
+  - AuthenticationException → 不重试，报错
+```
 
 ### 异常体系定义
 
@@ -1931,154 +2046,779 @@ public class LlmException extends RuntimeException {
 
 ### 智能错误分类
 
-`LlmException.classify()` 方法自动将底层异常转换为语义化类型：
+`LlmException.classify()` 方法自动将底层异常转换为语义化类型。这个方法按照**优先级顺序**检查异常，一旦匹配就返回分类结果。
+
+**完整实现**：
 
 ```java
+// LlmException.java
 public static LlmException classify(Throwable failure) {
+    // ========== 步骤 0: null 检查 ==========
     if (failure == null) {
         return new LlmException("Unknown LLM error");
     }
+    // 含义：如果传入的异常为 null，返回一个通用错误
+    // 场景：防御性编程，避免空指针异常
     
-    // 1. 已经是 LlmException，直接返回
+    
+    // ========== 步骤 1: 已经是 LlmException，直接返回 ==========
     LlmException existing = findCause(failure, LlmException.class);
     if (existing != null) {
         return existing;
     }
+    // 含义：如果异常链中已经包含 LlmException（或其子类），直接返回它
+    // 场景：避免重复分类，保留原始的类型信息
+    // 例子：
+    //   原始异常：RateLimitException("Rate limited")
+    //   被包装成：CompletionException(cause=RateLimitException)
+    //   findCause() 找到内部的 RateLimitException，直接返回
     
-    // 2. 识别 LangChain4j 语义异常类型
+    
+    // ========== 步骤 2: 识别 LangChain4j 语义异常类型 ==========
+    
+    // 2.1 认证异常
     if (hasCause(failure, dev.langchain4j.exception.AuthenticationException.class)) {
         return new AuthenticationException("Authentication failed: " + message, failure);
     }
+    // 含义：检查异常链中是否有 LangChain4j 的 AuthenticationException
+    // 场景：API Key 错误、权限不足
+    // 例子：
+    //   LangChain4j 抛出：dev.langchain4j.exception.AuthenticationException
+    //   转换成我们的：com.mewcode.llm.LlmException.AuthenticationException
     
+    // 2.2 限流异常
     if (hasCause(failure, dev.langchain4j.exception.RateLimitException.class)) {
         return new RateLimitException(
             "Rate limited: " + message,
-            extractRetryAfter(message),
+            extractRetryAfter(message),  // 从错误消息提取重试时间
             failure
         );
     }
+    // 含义：检查异常链中是否有 LangChain4j 的 RateLimitException
+    // 场景：请求过于频繁，触发 API 限流（HTTP 429）
+    // 特殊处理：提取 Retry-After 时间（例如 "60 秒后重试"）
+    // 例子：
+    //   错误消息："Rate limit exceeded. Retry after 60 seconds"
+    //   extractRetryAfter() 提取出 "60"
+    //   后续 Agent 可以等待 60 秒后自动重试
     
-    // 3. 识别网络异常
+    
+    // ========== 步骤 3: 识别网络异常 ==========
     if (hasCause(failure, IOException.class) 
             || hasCause(failure, SocketTimeoutException.class)) {
         return new NetworkException("Network error: " + message, failure);
     }
+    // 含义：检查异常链中是否有网络相关异常
+    // 场景：
+    //   - IOException：网络断开、DNS 解析失败、连接被拒绝
+    //   - SocketTimeoutException：请求超时
+    // 例子：
+    //   ConnectException: Connection refused (服务器未启动)
+    //   UnknownHostException: DNS 解析失败
+    //   SocketTimeoutException: Read timed out (服务器响应慢)
     
-    // 4. 解析 HTTP 状态码
+    
+    // ========== 步骤 4: 解析 HTTP 状态码 ==========
     HttpException http = findCause(failure, HttpException.class);
     int status = http != null ? http.statusCode() : extractStatus(message);
     
     if (status > 0) {
         return classifyHttpError(status, message, extractRetryAfter(message), failure);
     }
+    // 含义：尝试获取 HTTP 状态码，根据状态码分类
+    // 两种获取方式：
+    //   1. 从 HttpException 对象中直接读取（http.statusCode()）
+    //   2. 从错误消息文本中提取（extractStatus(message)）
+    // 如果成功获取到状态码（> 0），调用 classifyHttpError() 分类：
+    //   - 401/403 → AuthenticationException
+    //   - 429 → RateLimitException
+    //   - 413 → ContextTooLongException
+    //   - 其他 → LlmException（通用 API 错误）
+    // 例子：
+    //   错误消息："HTTP 401 Unauthorized: Invalid API Key"
+    //   extractStatus() 提取出 401
+    //   classifyHttpError() 返回 AuthenticationException
     
-    // 5. 文本模式匹配
+    
+    // ========== 步骤 5: 文本模式匹配 ==========
     if (isContextTooLong(message.toLowerCase())) {
         return new ContextTooLongException("Context too long: " + message, failure);
     }
+    // 含义：如果前面的方法都没匹配，检查错误消息文本是否包含"上下文过长"关键词
+    // 场景：有些 API 返回 400 或其他状态码，但错误文本说明是上下文过长
+    // isContextTooLong() 检查以下关键词：
+    //   - "prompt is too long"
+    //   - "context length"
+    //   - "context window"
+    //   - "maximum context"
+    //   - "too many tokens"
+    //   - "max tokens"
+    // 例子：
+    //   错误消息："Request failed: prompt is too long, exceeds maximum context"
+    //   包含 "prompt is too long" → 返回 ContextTooLongException
     
-    // 6. 兜底：返回基类
+    
+    // ========== 步骤 6: 兜底 ==========
     return new LlmException("Unexpected LLM error: " + message, failure);
+    // 含义：如果所有分类规则都不匹配，返回基类 LlmException
+    // 场景：未知错误、新类型错误、无法分类的错误
+    // 例子：
+    //   LangChain4j 新增了一种异常，我们还没适配
+    //   或者是 LLM 返回了意外的错误格式
+}
+```
+
+**优先级顺序为什么重要？**
+
+```
+假设错误消息是："HTTP 429 Rate limited. Retry after 60 seconds"
+
+按顺序检查：
+1. ❌ 不是 null
+2. ❌ 不是已有的 LlmException
+3. ✅ 是 LangChain4j 的 RateLimitException → 返回！
+
+如果把步骤 5（文本匹配）放在前面：
+5. ✅ 消息包含 "rate" 关键词 → 错误地返回通用 LlmException
+3. 永远不会执行 → 丢失了 Retry-After 信息！
+
+所以顺序是：精确匹配 → 类型匹配 → 状态码 → 文本匹配 → 兜底
+```
+
+**关键辅助方法**：
+
+```java
+// 查找异常链中是否有指定类型
+private static <T extends Throwable> T findCause(
+    Throwable failure, 
+    Class<T> type
+) {
+    Throwable current = failure;
+    while (current != null) {
+        if (type.isInstance(current)) {
+            return type.cast(current);  // 找到了，返回
+        }
+        current = current.getCause();  // 继续往下找
+    }
+    return null;  // 没找到
+}
+// 例子：
+//   异常链：RuntimeException 
+//            → CompletionException 
+//              → IOException
+//   findCause(root, IOException.class) 会遍历整个链，返回 IOException
+
+// 检查异常链中是否有指定类型（只判断有无，不返回对象）
+private static <T extends Throwable> boolean hasCause(
+    Throwable failure,
+    Class<T> type
+) {
+    return findCause(failure, type) != null;
 }
 ```
 
 **HTTP 状态码分类**：
 
+这是 `classify()` 方法在**步骤 4**中调用的辅助方法。当从异常中成功提取到 HTTP 状态码后，通过这个方法根据状态码返回对应的异常类型。
+
+**调用位置**：`LlmException.java` 的 `classify()` 方法第 4 步
 ```java
-static LlmException classifyHttpError(int status, String body, 
-                                       String retryAfter, Throwable cause) {
+// 在 classify() 方法中：
+// 步骤 4: 解析 HTTP 状态码
+HttpException http = findCause(failure, HttpException.class);
+int status = http != null ? http.statusCode() : extractStatus(message);
+
+if (status > 0) {
+    // ⭐ 调用这个方法
+    return classifyHttpError(status, message, extractRetryAfter(message), failure);
+}
+```
+
+**方法实现**：
+```java
+// LlmException.java
+static LlmException classifyHttpError(
+    int status,        // HTTP 状态码（如 401、429、413）
+    String body,       // 错误消息体
+    String retryAfter, // Retry-After 值（如果有）
+    Throwable cause    // 原始异常
+) {
     return switch (status) {
         case 401, 403 -> new AuthenticationException(
             "Authentication failed (HTTP " + status + "): " + body, cause);
+        // 401 Unauthorized: API Key 无效
+        // 403 Forbidden: 权限不足
         
         case 429 -> new RateLimitException(
             "Rate limited (HTTP 429): " + body, retryAfter, cause);
+        // 429 Too Many Requests: 请求过于频繁
+        // 特殊：保留 retryAfter 参数，Agent 可以据此等待后重试
         
         case 413 -> new ContextTooLongException(
             "Context too long: " + body, cause);
+        // 413 Payload Too Large: 请求体太大（通常是上下文过长）
         
         default -> new LlmException(
             "API error (HTTP " + status + "): " + body, cause);
+        // 其他状态码: 400、500、502、503 等
+        // 返回通用的 LlmException
     };
 }
 ```
 
-**文本模式匹配**：
+**为什么步骤 4 不和前面的步骤冲突？**
+
+关键在于 LangChain4j 的异常设计：**它既抛出语义化异常，又包含 HTTP 状态码**。
+
+**场景 1：LangChain4j 已经分类好的异常**
+```
+LangChain4j 收到 HTTP 429 响应
+    ↓
+LangChain4j 内部识别这是限流
+    ↓
+抛出：dev.langchain4j.exception.RateLimitException
+    ↓
+我们的 classify() 检查：
+    步骤 2: hasCause(..., dev.langchain4j.exception.RateLimitException.class)
+    ✅ 匹配！直接返回我们的 RateLimitException
+    步骤 4: 永远不会执行
+```
+
+**场景 2：LangChain4j 没有分类，只有 HTTP 状态码**
+```
+LangChain4j 收到 HTTP 413 响应
+    ↓
+LangChain4j 没有专门的 PayloadTooLargeException
+    ↓
+抛出：dev.langchain4j.exception.HttpException(statusCode=413)
+    ↓
+我们的 classify() 检查：
+    步骤 2: hasCause(..., dev.langchain4j.exception.RateLimitException.class)
+    ❌ 不匹配（不是 RateLimitException）
+    步骤 3: hasCause(..., IOException.class)
+    ❌ 不匹配（不是 IOException）
+    步骤 4: 从 HttpException 提取状态码 413
+    ✅ 匹配！调用 classifyHttpError(413, ...) 返回 ContextTooLongException
+```
+
+**步骤 2 vs 步骤 4 的职责分工**：
+
+| 步骤 | 处理什么 | 例子 |
+|-----|---------|------|
+| **步骤 2** | LangChain4j **已经分类好**的语义异常 | `dev.langchain4j.exception.RateLimitException` <br> `dev.langchain4j.exception.AuthenticationException` |
+| **步骤 4** | LangChain4j **没有专门分类**的 HTTP 错误 | `HttpException(statusCode=413)` <br> `HttpException(statusCode=500)` |
+
+**为什么这样设计？**
+
+1. **优先信任 LangChain4j 的分类**（步骤 2）
+   - LangChain4j 可能从响应头提取了更多信息
+   - 例如 `RateLimitException` 可能包含精确的 `Retry-After` 值
+
+2. **兜底处理未分类的状态码**（步骤 4）
+   - LangChain4j 不可能为每个状态码都定义异常类
+   - 我们通过状态码自己分类
+
+**实际例子对比**：
 
 ```java
-private static boolean isContextTooLong(String lower) {
-    return lower.contains("prompt is too long")
-        || lower.contains("context length")
-        || lower.contains("context window")
-        || lower.contains("maximum context")
-        || lower.contains("too many tokens")
-        || lower.contains("max tokens");
+// 例子 1: LangChain4j 已分类
+异常链：
+  dev.langchain4j.exception.RateLimitException: "Rate limited"
+    ↓ 原因
+  HttpException(statusCode=429)
+
+classify() 执行：
+  步骤 2: ✅ 发现 RateLimitException，立即返回（保留 LangChain4j 的分类）
+  步骤 4: ❌ 不执行
+
+// 例子 2: LangChain4j 未分类
+异常链：
+  HttpException(statusCode=413): "Payload too large"
+
+classify() 执行：
+  步骤 2: ❌ 没有 RateLimitException（LangChain4j 没有 PayloadTooLargeException）
+  步骤 3: ❌ 不是网络异常
+  步骤 4: ✅ 发现状态码 413，调用 classifyHttpError() 返回 ContextTooLongException
+```
+
+**总结**：
+- 步骤 2 和步骤 4 **不冲突**
+- 步骤 2 处理"LangChain4j 已经分类好的"
+- 步骤 4 处理"LangChain4j 没有分类，只有状态码的"
+- 它们是**互补**的，不是**重复**的
+
+因为不同的 HTTP 状态码代表不同的错误类型，需要返回不同的异常类：
+
+| HTTP 状态码 | 含义 | 返回的异常类型 | Agent 处理策略 |
+|------------|------|---------------|---------------|
+| 401 | Unauthorized | `AuthenticationException` | ❌ 不重试，提示检查 API Key |
+| 403 | Forbidden | `AuthenticationException` | ❌ 不重试，提示检查权限 |
+| 429 | Too Many Requests | `RateLimitException` | ✅ 等待后重试（最多3次） |
+| 413 | Payload Too Large | `ContextTooLongException` | ✅ 压缩上下文后重试（最多3次） |
+| 400/500/502... | 其他错误 | `LlmException` | ❌ 不重试 |
+
+**实际调用示例**：
+
+```
+LangChain4j 收到 HTTP 429 响应
+    ↓
+抛出异常（消息包含 "HTTP 429 Rate limited. Retry after 60 seconds"）
+    ↓
+LangChainClient.onError() 捕获
+    ↓
+调用 LlmException.classify(exception)
+    ↓ 步骤 1-3 不匹配
+    ↓ 步骤 4: 从消息中提取状态码 429
+    ↓
+调用 classifyHttpError(429, "Rate limited...", "60", exception)
+    ↓ switch (429)
+    ↓ case 429 -> new RateLimitException(..., "60", ...)
+    ↓
+返回 RateLimitException（包含 retryAfter="60"）
+    ↓
+Agent 收到后等待 60 秒，然后重试
+```
+**文本模式匹配**：
+
+这是 `classify()` 方法在**步骤 5**中调用的辅助方法。当前面的所有步骤都不匹配时，通过检查错误消息文本是否包含特定关键词来判断是否是上下文过长错误。
+
+**为什么需要文本匹配？**
+
+因为不是所有 LLM API 都返回标准的 HTTP 413 状态码。有些 API 返回 400 或 500，但错误消息中包含"上下文过长"的关键词。
+
+**调用位置**：`LlmException.java` 的 `classify()` 方法第 5 步
+```java
+// 在 classify() 方法中：
+// 步骤 5: 文本模式匹配
+if (isContextTooLong(message.toLowerCase())) {
+    return new ContextTooLongException("Context too long: " + message, failure);
 }
 ```
 
+**方法实现**：
+```java
+// LlmException.java
+private static boolean isContextTooLong(String lower) {
+    // lower 参数是小写的错误消息
+    return lower.contains("prompt is too long")      // OpenAI 风格
+        || lower.contains("context length")          // 通用关键词
+        || lower.contains("context window")          // Anthropic 风格
+        || lower.contains("maximum context")         // 通用关键词
+        || lower.contains("too many tokens")         // 通用关键词
+        || lower.contains("max tokens");             // 通用关键词
+}
+```
+
+**实际例子**：
+
+```
+场景 1: Ollama 本地模型
+错误消息："Error: prompt is too long, maximum context is 4096 tokens"
+    ↓
+步骤 2: ❌ 不是 LangChain4j 的语义异常
+步骤 3: ❌ 不是网络异常
+步骤 4: ❌ 没有 HTTP 状态码（本地 API）
+步骤 5: ✅ 消息包含 "prompt is too long" 和 "maximum context"
+    ↓
+返回 ContextTooLongException
+
+场景 2: 某些自定义 API
+错误消息："Request failed: input exceeds max tokens limit (8192)"
+    ↓
+步骤 2-4: ❌ 都不匹配
+步骤 5: ✅ 消息包含 "max tokens"
+    ↓
+返回 ContextTooLongException
+```
+
+---
+
 **Retry-After 提取**：
 
+这个方法从错误消息文本中提取重试等待时间。LLM API 限流时通常会在响应中包含 `Retry-After` 信息。
+
+**调用位置**：
+1. `classify()` 方法步骤 2 - 处理 LangChain4j 的 `RateLimitException`
+2. `classify()` 方法步骤 4 - 处理 HTTP 429 状态码
+
+**方法实现**：
 ```java
+// LlmException.java
 static String extractRetryAfter(String message) {
     // 匹配 "Retry-After: 7" 或 "retry after 7 seconds"
+    // (?i) 表示大小写不敏感
     Pattern pattern = Pattern.compile(
         "(?i)retry[- ]after\\s*[:=]\\s*(\\d+)(?:\\s*seconds?)?"
     );
     Matcher matcher = pattern.matcher(message);
-    return matcher.find() ? matcher.group(1) : "";
+    return matcher.find() ? matcher.group(1) : "";  // 返回数字部分，如 "60"
 }
 ```
+
+**匹配的格式**：
+- `"Retry-After: 60"` → 提取 `"60"`
+- `"retry after 60 seconds"` → 提取 `"60"`
+- `"Retry-After=60"` → 提取 `"60"`
+- `"retry-after: 60s"` → 提取 `"60"`
+
+**如何使用提取的值**：
+
+```java
+// 在 Agent.java 中
+if (error instanceof LlmException.RateLimitException rateLimit) {
+    String retryAfter = rateLimit.getRetryAfter();  // 例如 "60"
+    
+    long waitMs;
+    if (retryAfter != null && !retryAfter.isBlank()) {
+        long seconds = Long.parseLong(retryAfter);
+        waitMs = seconds * 1000;  // 60 秒 = 60000 毫秒
+    } else {
+        waitMs = 指数退避算法;  // 如果没有提取到，使用默认策略
+    }
+    
+    Thread.sleep(waitMs);  // 等待后重试
+}
+```
+---
 
 ### 流式事件传递
 
-`StreamEvent.Error` 现在保留完整的类型化异常对象：
+这一步是**将类型化异常包装成流式事件**，通过队列传递给 Agent。
 
-```java
-record Error(LlmException exception) implements StreamEvent {
+**为什么需要这一步？**
+
+因为 LLM 的错误和正常响应（文本、工具调用）都要通过**同一个队列**传递给 Agent。所以错误也必须包装成 `StreamEvent`。
+
+**文件位置**：`src/main/java/com/mewcode/llm/StreamEvent.java`
+
+**完整调用链**：
+
+```
+LangChain4j 抛出异常
+    ↓
+LangChainClient.onError(Throwable error)
+    ↓
+LlmException.classify(error)  ← 步骤 1: 分类异常
+    ↓ 返回 RateLimitException / ContextTooLongException / ...
+new StreamEvent.Error(分类后的异常)  ← 步骤 2: 包装成事件
+    ↓
+put(queue, error事件)  ← 步骤 3: 放入队列
+    ↓
+队列：[TextDelta("好"), TextDelta("的"), Error(RateLimitException), ...]
+    ↓
+Agent.agentLoop() 消费队列
+    ↓
+case StreamEvent.Error err -> {
+    LlmException exception = err.exception();  ← 步骤 4: 提取异常对象
     
-    public Error {
-        Objects.requireNonNull(exception, "exception must not be null");
-    }
-    
-    // 兼容构造函数（用于本地错误）
-    public Error(String message) {
-        this(new LlmException(message == null ? "Unknown LLM error" : message));
-    }
-    
-    // 兼容方法（返回消息文本）
-    public String message() {
-        return exception.getMessage();
+    if (exception instanceof RateLimitException) {
+        // 执行重试逻辑
     }
 }
 ```
 
-**使用位置**：
+**StreamEvent.Error 的定义**：
 
 ```java
-// 在回调中
+// StreamEvent.java
+public sealed interface StreamEvent {
+    // ... 其他事件类型
+    
+    /**
+     * 错误事件：保留完整的类型化异常对象
+     */
+    record Error(LlmException exception) implements StreamEvent {
+        
+        // 主构造函数：要求异常不能为 null
+        public Error {
+            Objects.requireNonNull(exception, "exception must not be null");
+        }
+        
+        // 兼容构造函数（用于本地错误，如 JSON 解析失败）
+        public Error(String message) {
+            this(new LlmException(message == null ? "Unknown LLM error" : message));
+        }
+        
+        // 兼容方法（返回消息文本，用于日志打印）
+        public String message() {
+            return exception.getMessage();
+        }
+    }
+}
+```
+
+**三个使用位置**：
+
+**位置 1：LangChain4j 回调错误**
+
+**作用**：捕获 LangChain4j 在 HTTP 请求、SSE 解析、网络通信过程中发生的错误。
+
+**什么时候触发**：
+- 网络连接失败
+- HTTP 返回 401/403/429/413/500 等错误状态码
+- SSE 流被中断
+- API 返回格式错误
+
+```java
+// LangChainClient.java:116
+private StreamingChatResponseHandler handler(BlockingQueue<StreamEvent> queue) {
+    return new StreamingChatResponseHandler() {
+        @Override
+        public void onError(Throwable error) {
+            // ⭐ LangChain4j 调用这个方法通知错误
+            // error 可能是：
+            //   - dev.langchain4j.exception.RateLimitException (HTTP 429)
+            //   - dev.langchain4j.exception.AuthenticationException (HTTP 401)
+            //   - HttpException (其他 HTTP 错误)
+            //   - IOException (网络错误)
+            
+            put(queue, new StreamEvent.Error(
+                LlmException.classify(error)  // 先分类成我们的异常类型，再包装成事件
+            ));
+        }
+    };
+}
+```
+
+**例子**：
+```
+用户请求 → LangChainClient.stream() → LangChain4j 发送 HTTP 请求
+    ↓
+LLM API 返回 HTTP 429 Too Many Requests
+    ↓
+LangChain4j 抛出 dev.langchain4j.exception.RateLimitException
+    ↓
+触发 onError(RateLimitException)
+    ↓
+classify() 分类成 com.mewcode.llm.LlmException.RateLimitException
+    ↓
+包装成 StreamEvent.Error
+    ↓
+放入队列 → Agent 收到 → 等待后重试
+```
+
+---
+
+**位置 2：doStream() 异常兜底**
+
+**作用**：捕获 `doStream()` 方法内部的代码错误，防止虚拟线程因未捕获异常而终止。
+
+**什么时候触发**：
+- `buildModel()` 创建模型失败（协议配置错误）
+- `toMessages()` 转换消息失败（数据格式问题）
+- `toToolSpecs()` 转换工具失败（JSON Schema 错误）
+- 任何其他意外的运行时异常
+
+```java
+// LangChainClient.java:230-240
 @Override
-public void onError(Throwable error) {
-    put(queue, new StreamEvent.Error(LlmException.classify(error)));
-}
-
-// 在异常兜底中
-catch (Throwable failure) {
-    put(queue, new StreamEvent.Error(LlmException.classify(failure)));
-}
-
-// 本地解析错误
-catch (JsonProcessingException e) {
-    put(queue, new StreamEvent.Error(
-        "Invalid tool arguments: " + e.getMessage()
-    ));
+public BlockingQueue<StreamEvent> stream(...) {
+    var queue = new LinkedBlockingQueue<StreamEvent>(64);
+    
+    Thread.ofVirtual().start(() -> {
+        try {
+            doStream(conv, tools, queue);  // ← 调用实际工作方法
+        } catch (Exception e) {
+            // ⭐ 如果 doStream() 内部抛出异常（非 LangChain4j 回调的）
+            // 例如：
+            //   - buildModel() 抛出 IllegalArgumentException (未知协议)
+            //   - toMessages() 抛出 NullPointerException (数据异常)
+            //   - 队列操作抛出 InterruptedException
+            
+            put(queue, new StreamEvent.Error(
+                LlmException.classify(e)  // 先分类，再包装
+            ));
+        }
+    });
+    
+    return queue;
 }
 ```
+
+**例子**：
+```
+用户配置了错误的协议：protocol: "unknown"
+    ↓
+Agent 调用 client.stream()
+    ↓
+虚拟线程启动，执行 doStream()
+    ↓
+buildModel() 中 switch 找不到匹配的 case
+    ↓
+抛出 IllegalArgumentException("Unknown protocol: unknown")
+    ↓
+被 catch 捕获，调用 classify() 分类
+    ↓
+包装成 StreamEvent.Error
+    ↓
+放入队列 → Agent 收到 → 提示用户检查配置
+```
+
+**为什么需要这个兜底？**
+
+如果不捕获，虚拟线程会因为异常而终止，但主线程（Agent）不知道发生了什么，会一直阻塞在 `queue.poll()` 等待事件，直到超时。
+
+---
+
+**位置 3：本地解析错误**
+
+**作用**：捕获本地处理数据时的错误（与 LLM API 无关）。
+
+**什么时候触发**：
+- 工具参数 JSON 格式错误
+- LLM 返回了无效的 JSON
+- 本地数据验证失败
+
+```java
+// LangChainClient.java (handler 方法内部)
+@Override
+public void onCompleteToolCall(CompleteToolCall complete) {
+    try {
+        // ⭐ 尝试将工具参数从 JSON 字符串解析成 Map
+        // complete.arguments() 是 LLM 返回的，例如：
+        //   正常："{"file_path": "hello.txt", "content": "hello"}"
+        //   错误："{file_path: hello.txt}"  (缺少引号，JSON 格式错误)
+        
+        Map<String, Object> args = parseJson(complete.arguments());
+        
+        put(queue, new StreamEvent.ToolCallComplete(
+            complete.id(),
+            complete.name(),
+            args
+        ));
+    } catch (JsonProcessingException e) {
+        // ⭐ 本地解析失败，不是 LLM API 的错误
+        // 这是我们自己的代码处理数据时失败了
+        
+        put(queue, new StreamEvent.Error(
+            "Invalid tool arguments: " + e.getMessage()  // 使用字符串构造函数
+        ));
+    }
+}
+
+private static Map<String, Object> parseJson(String json) throws JsonProcessingException {
+    return MAPPER.readValue(json, new TypeReference<>() {});
+}
+```
+
+**例子**：
+```
+LLM 返回工具调用：
+{
+  "id": "tool_1",
+  "name": "WriteFile",
+  "arguments": "{file_path: hello.txt}"  ← JSON 格式错误（缺少引号）
+}
+    ↓
+LangChain4j 触发 onCompleteToolCall()
+    ↓
+我们调用 parseJson("{file_path: hello.txt}")
+    ↓
+Jackson 抛出 JsonProcessingException: Unexpected character ('f' (code 102))
+    ↓
+catch 捕获，包装成 StreamEvent.Error
+    ↓
+放入队列 → Agent 收到 → 提示 "Invalid tool arguments: Unexpected character"
+```
+
+**为什么使用字符串构造函数？**
+
+因为这不是 LLM API 的错误（HTTP/网络），而是我们本地代码处理数据失败，不需要分类成 `RateLimitException` 或 `NetworkException`，直接用通用的 `LlmException` 即可。
+
+---
+
+**三种错误的对比**：
+
+| 位置 | 错误来源 | 触发时机 | 构造函数 | 例子 |
+|-----|---------|---------|---------|------|
+| **位置 1** | LangChain4j 底层通信 | HTTP 错误、网络错误 | `Error(classify(error))` | HTTP 429 限流 |
+| **位置 2** | doStream() 内部代码 | 配置错误、空指针 | `Error(classify(error))` | 未知协议配置 |
+| **位置 3** | 本地数据解析 | JSON 格式错误 | `Error("message")` | LLM 返回的 JSON 格式不对 |
+
+**共同点**：都通过同一个队列传递错误，保证了错误和正常事件的顺序一致。
+---
+
+**为什么有两个构造函数？**
+
+| 构造函数 | 用途 | 调用位置 |
+|---------|------|---------|
+| `Error(LlmException exception)` | LLM API 错误（已经分类好的） | LangChain4j 回调、doStream() 兜底 |
+| `Error(String message)` | 本地错误（不需要分类的） | JSON 解析失败、本地验证失败 |
+
+**旧设计 vs 新设计**：
+
+```java
+// ❌ 旧设计：只保存错误消息字符串
+record Error(String message) implements StreamEvent {}
+
+// Agent 使用时：
+case StreamEvent.Error err -> {
+    if (err.message().contains("rate limit")) {  // 字符串匹配，容易出错
+        // 重试逻辑
+    }
+}
+
+// ✅ 新设计：保存完整的异常对象
+record Error(LlmException exception) implements StreamEvent {}
+
+// Agent 使用时：
+case StreamEvent.Error err -> {
+    if (err.exception() instanceof RateLimitException rateLimit) {  // 类型安全
+        String retryAfter = rateLimit.getRetryAfter();  // 可以访问结构化数据
+        // 重试逻辑
+    }
+}
+```
+
+**核心优势**：
+
+1. **类型安全**：编译器保证不会误判异常类型
+2. **结构化数据**：可以访问 `retryAfter`、`statusCode` 等字段
+3. **统一处理**：错误和正常事件走同一个队列，保证顺序
+
+---
 
 ### Agent 自动恢复策略
+
+当 Agent 从队列中收到 `StreamEvent.Error` 事件后，会根据异常类型自动执行不同的恢复策略。
+
+**文件位置**：`src/main/java/com/mewcode/agent/Agent.java`
+
+**方法位置**：`agentLoop()` 方法内的错误处理部分（第 304-368 行）
+
+**调用链路**：
+
+```
+LangChain4j 抛出异常
+    ↓
+LangChainClient 分类异常
+    ↓
+包装成 StreamEvent.Error 放入队列
+    ↓
+Agent.agentLoop() 消费队列
+    ↓
+case StreamEvent.Error err -> {
+    var error = err.exception();  ← 提取类型化异常
+    
+    // 根据异常类型执行不同策略
+    if (error instanceof ContextTooLongException) {
+        // 策略 1: 压缩上下文重试
+    } else if (error instanceof RateLimitException) {
+        // 策略 2: 等待后重试
+    } else {
+        // 策略 3/4: 不重试，报错
+        break;
+    }
+}
+```
 
 Agent 根据异常类型自动执行恢复策略：
 
 #### 1. 上下文过长恢复
+
+**触发条件**：收到 `ContextTooLongException`（上下文超过模型限制）
+
+**代码位置**：`Agent.java:309-342`
 
 ```java
 if (error instanceof LlmException.ContextTooLongException) {
@@ -2174,96 +2914,6 @@ break;
 - 正确分类为 `NetworkException`
 - 当前版本不自动重试
 - 预留扩展点，未来可增加有限重试（2-3 次）
-
-### 实现状态
-
-- ✅ **异常类型已定义**（4 种语义化类型）
-- ✅ **HTTP 状态码分类**（401、403、413、429）
-- ✅ **文本模式匹配**（识别上下文过长关键词）
-- ✅ **Retry-After 提取**（从响应消息中解析）
-- ✅ **Agent 自动重试**（上下文压缩、限流退避）
-- ✅ **完整测试覆盖**（17 个测试验证所有场景）
-
-### 类型安全的错误处理
-
-从字符串匹配升级到类型判断：
-
-```java
-// ❌ 旧方式（字符串匹配，易出错）
-switch (event) {
-    case StreamEvent.Error err -> {
-        if (err.message().contains("rate limit")) {
-            // 重试逻辑
-        } else if (err.message().contains("context")) {
-            // 压缩逻辑
-        }
-    }
-}
-
-// ✅ 新方式（类型安全，编译器保证）
-switch (event) {
-    case StreamEvent.Error err -> {
-        var exception = err.exception();
-        
-        if (exception instanceof LlmException.RateLimitException rateLimit) {
-            String retryAfter = rateLimit.getRetryAfter();
-            // Retry-After 是结构化数据，不是字符串解析
-        }
-        
-        if (exception instanceof LlmException.ContextTooLongException) {
-            // 类型明确，不会误判
-        }
-    }
-}
-```
-
-### 向后兼容性
-
-所有现有代码无需修改即可继续工作：
-
-```java
-// 兼容旧代码
-StreamEvent.Error error1 = new StreamEvent.Error("error message");
-String msg = error1.message();  // 仍然有效
-
-// 新代码可使用类型化异常
-LlmException exception = new LlmException.RateLimitException("limited", "5");
-StreamEvent.Error error2 = new StreamEvent.Error(exception);
-LlmException typed = error2.exception();  // 获取类型化异常
-```
-
-### 测试覆盖
-
-完整的测试套件验证所有错误处理场景：
-
-**LlmExceptionTest.java**（11 个测试）：
-- ✅ HTTP 状态码分类（401、403、413、429）
-- ✅ Retry-After 提取和解析
-- ✅ 文本模式匹配（"prompt is too long"、"context window"）
-- ✅ LangChain4j 异常包装
-- ✅ CompletionException 解包
-- ✅ StreamEvent.Error 兼容性
-
-**AgentErrorRecoveryTest.java**（6 个测试）：
-- ✅ 上下文过长触发压缩和重试
-- ✅ 限流使用 Retry-After 或指数退避
-- ✅ 认证错误不重试
-- ✅ 网络错误不重试（当前行为）
-- ✅ 指数退避算法验证
-- ✅ Retry-After 解析验证
-
-**测试结果**：
-```
-Tests run: 144
-Failures: 0
-Errors: 0
-Skipped: 1
-BUILD SUCCESS
-```
-
----
-
-**详细技术报告**：参见 [docs/错误处理改进完成报告.md](错误处理改进完成报告.md)
 
 ---
 
@@ -2514,3 +3164,315 @@ StreamingChatResponseHandler 接收
    - 上层代码完全不需要改
 
 **这就是现代 Java + LangChain4j 的力量：用更少的代码，更强的类型约束，更高的并发能力，实现流式 LLM 通信！** 🚀
+
+---
+
+## 端到端完整流程图
+
+从用户输入到 LLM 响应的完整数据流：
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. 用户层                                                            │
+└─────────────────────────────────────────────────────────────────────┘
+    用户输入："创建 hello.txt 文件"
+        ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 2. Agent 层 (src/main/java/com/mewcode/agent/Agent.java)            │
+└─────────────────────────────────────────────────────────────────────┘
+    Agent.agentLoop()
+        ↓ 调用
+    client.stream(conv, tools)  ← 传入对话历史和工具定义
+        ↓ 返回
+    BlockingQueue<StreamEvent> queue  ← 获得事件队列
+        ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 3. LLM 客户端层 (src/main/java/com/mewcode/llm/LangChainClient.java)│
+└─────────────────────────────────────────────────────────────────────┘
+    LangChainClient.stream()
+        ↓ 创建虚拟线程
+    Thread.ofVirtual().start(() -> doStream(...))
+        ↓
+    doStream() 方法：
+        ├─ buildModel(snapshot)  ← 根据协议创建 LangChain4j 模型
+        │   └─ switch (protocol) {
+        │       case "anthropic" → AnthropicStreamingChatModel
+        │       case "openai" → OpenAiStreamingChatModel
+        │       case "ollama" → OllamaStreamingChatModel
+        │   }
+        ├─ toMessages(conv)  ← 转换对话历史
+        ├─ toToolSpecs(tools)  ← 转换工具定义
+        └─ model.chat(request, handler(queue))  ← 发送请求 + 注册回调
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 4. LangChain4j 层 (第三方库)                                         │
+└─────────────────────────────────────────────────────────────────────┘
+    LangChain4j 底层通信：
+        ├─ 构建 HTTP 请求（POST /v1/messages）
+        ├─ 设置请求头（Authorization、Content-Type、Accept: text/event-stream）
+        ├─ 发送 JSON 请求体
+        └─ 建立 SSE (Server-Sent Events) 连接
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 5. LLM API 层 (Anthropic / OpenAI / Ollama)                         │
+└─────────────────────────────────────────────────────────────────────┘
+    LLM API 接收请求
+        ↓ 处理
+    开始生成响应（流式）
+        ↓ SSE 流
+    发送事件：
+        ├─ event: message_start
+        ├─ event: content_block_start
+        ├─ event: content_block_delta  ← 文本片段："好"
+        ├─ event: content_block_delta  ← 文本片段："的"
+        ├─ event: content_block_delta  ← 文本片段："，"
+        ├─ event: content_block_stop
+        └─ event: message_stop
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 6. LangChain4j 解析层                                                │
+└─────────────────────────────────────────────────────────────────────┘
+    LangChain4j 接收 SSE 事件
+        ↓ 解析
+    触发回调：
+        ├─ onPartialResponse("好")  ← 文本片段
+        ├─ onPartialResponse("的")
+        ├─ onPartialResponse("，")
+        ├─ onPartialToolCall(...)  ← 工具调用
+        ├─ onCompleteToolCall(...)
+        ├─ onCompleteResponse(...)  ← 流结束
+        └─ onError(...)  ← 错误（如果发生）
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 7. 回调适配器层 (LangChainClient.handler())                          │
+└─────────────────────────────────────────────────────────────────────┘
+    StreamingChatResponseHandler.onPartialResponse("好")
+        ↓ 转换
+    new StreamEvent.TextDelta("好")
+        ↓ 放入队列
+    queue.put(StreamEvent.TextDelta("好"))
+        ↓
+    同样处理其他事件：
+        ├─ onPartialThinking → StreamEvent.ThinkingDelta
+        ├─ onCompleteThinking → StreamEvent.ThinkingComplete
+        ├─ onPartialToolCall → StreamEvent.ToolCallStart
+        ├─ onCompleteToolCall → StreamEvent.ToolCallComplete
+        ├─ onCompleteResponse → StreamEvent.StreamEnd
+        └─ onError → StreamEvent.Error(LlmException.classify(error))
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 8. 事件队列 (BlockingQueue<StreamEvent>)                            │
+└─────────────────────────────────────────────────────────────────────┘
+    队列内容：
+        [TextDelta("好"), TextDelta("的"), TextDelta("，"), 
+         ToolCallStart("tool_1", "WriteFile"), 
+         ToolCallComplete("tool_1", "WriteFile", {file_path: "hello.txt"}),
+         StreamEnd("end_turn", 100, 50, 0, 0)]
+            ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 9. Agent 消费层 (Agent.agentLoop())                                  │
+└─────────────────────────────────────────────────────────────────────┘
+    while (true) {
+        StreamEvent event = queue.poll(timeout);
+        
+        switch (event) {
+            case TextDelta td -> {
+                text.append(td.text());  ← 累积文本
+                putSafe(queue, new AgentEvent.StreamText(td.text()));  ← 转发给 TUI
+            }
+            
+            case ToolCallStart start -> {
+                // 记录工具调用开始
+            }
+            
+            case ToolCallComplete call -> {
+                // 执行工具
+                var result = toolRegistry.execute(call.toolName(), call.arguments());
+                conv.addToolResult(call.toolId(), result);
+            }
+            
+            case StreamEnd end -> {
+                // 保存对话、更新统计
+                return;  ← 结束循环
+            }
+            
+            case Error err -> {
+                var exception = err.exception();
+                
+                if (exception instanceof ContextTooLongException) {
+                    // 压缩上下文，重试
+                    ToolResultBudget.apply(conv, ...);
+                    ContextCompactor.forceCompact(conv, ...);
+                    continue;  ← 重新发起请求
+                }
+                
+                if (exception instanceof RateLimitException rateLimit) {
+                    // 等待后重试
+                    long waitMs = retryDelayMillis(rateLimit.getRetryAfter(), ...);
+                    Thread.sleep(waitMs);
+                    continue;  ← 重新发起请求
+                }
+                
+                // 其他错误：不重试
+                break;  ← 结束循环
+            }
+        }
+    }
+        ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 10. TUI 层 (src/main/java/com/mewcode/tui/MewCodeModel.java)        │
+└─────────────────────────────────────────────────────────────────────┘
+    收到 AgentEvent.StreamText("好")
+        ↓
+    终端实时显示："好"
+        ↓
+    收到 AgentEvent.StreamText("的")
+        ↓
+    终端追加显示："好的"
+        ↓
+    收到 AgentEvent.StreamText("，")
+        ↓
+    终端追加显示："好的，"
+        ↓
+    ...（逐字显示完整响应）
+        ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 11. 用户看到完整响应                                                 │
+└─────────────────────────────────────────────────────────────────────┘
+    终端输出：
+    "好的，我来创建 hello.txt 文件。
+    
+    [Tool: WriteFile]
+    file_path: hello.txt
+    content: Hello, World!
+    
+    文件创建成功！"
+```
+
+---
+
+## 错误处理流程
+
+当 LLM API 返回错误时的完整处理流程：
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 错误场景 1: HTTP 429 限流错误                                        │
+└─────────────────────────────────────────────────────────────────────┘
+    LLM API 返回：HTTP 429 "Rate limited. Retry after 60 seconds"
+        ↓
+    LangChain4j 抛出：dev.langchain4j.exception.RateLimitException
+        ↓
+    LangChainClient.onError(RateLimitException)
+        ↓
+    LlmException.classify(error)  ← 分类异常
+        └─ 步骤 2: 检测到 LangChain4j 的 RateLimitException
+        └─ 返回：com.mewcode.llm.LlmException.RateLimitException(retryAfter="60")
+        ↓
+    new StreamEvent.Error(RateLimitException)  ← 包装成事件
+        ↓
+    queue.put(error事件)
+        ↓
+    Agent 收到 StreamEvent.Error
+        ↓
+    if (exception instanceof RateLimitException rateLimit) {
+        waitMs = 60秒 * 1000 = 60000毫秒
+        Thread.sleep(60000);
+        continue;  ← 重新发起请求
+    }
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ 错误场景 2: 上下文过长                                               │
+└─────────────────────────────────────────────────────────────────────┘
+    LLM API 返回：HTTP 413 "Request entity too large: prompt exceeds max tokens"
+        ↓
+    LangChain4j 抛出：HttpException(statusCode=413)
+        ↓
+    LangChainClient.onError(HttpException)
+        ↓
+    LlmException.classify(error)
+        └─ 步骤 4: 从 HttpException 提取状态码 413
+        └─ classifyHttpError(413, ...) 返回：ContextTooLongException
+        ↓
+    new StreamEvent.Error(ContextTooLongException)
+        ↓
+    queue.put(error事件)
+        ↓
+    Agent 收到 StreamEvent.Error
+        ↓
+    if (exception instanceof ContextTooLongException) {
+        ToolResultBudget.apply(...);  ← 裁剪工具结果
+        ContextCompactor.forceCompact(...);  ← 压缩上下文
+        conv.injectLongTermMemory(...);  ← 重新注入记忆
+        continue;  ← 重新发起请求
+    }
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ 错误场景 3: 认证失败                                                 │
+└─────────────────────────────────────────────────────────────────────┘
+    LLM API 返回：HTTP 401 "Invalid API Key"
+        ↓
+    LangChain4j 抛出：dev.langchain4j.exception.AuthenticationException
+        ↓
+    LangChainClient.onError(AuthenticationException)
+        ↓
+    LlmException.classify(error)
+        └─ 步骤 2: 检测到 LangChain4j 的 AuthenticationException
+        └─ 返回：com.mewcode.llm.LlmException.AuthenticationException
+        ↓
+    new StreamEvent.Error(AuthenticationException)
+        ↓
+    queue.put(error事件)
+        ↓
+    Agent 收到 StreamEvent.Error
+        ↓
+    // 不是 RateLimitException，也不是 ContextTooLongException
+    break;  ← 不重试，直接报错给用户
+        ↓
+    用户看到错误提示："Authentication failed (HTTP 401): Invalid API Key"
+```
+
+---
+
+## 流程描述
+
+这个系统采用**生产者-消费者模式**，通过**队列**实现异步流式通信：
+
+### 核心特点
+
+1. **异步非阻塞**
+   - Agent 调用 `client.stream()` 立即返回一个队列，不阻塞主线程
+   - LangChain4j 在虚拟线程中处理 HTTP 请求和 SSE 解析
+   - Agent 通过 `queue.poll()` 消费事件，可以随时中断
+
+2. **事件驱动**
+   - LLM 的响应被分解成多个小事件（文本片段、工具调用、流结束）
+   - 每个事件独立处理，实现真正的流式体验
+   - 错误也是一种事件，统一通过队列传递
+
+3. **三层转换**
+   - **LangChain4j 层**：`onPartialResponse` / `onError` 等回调
+   - **StreamEvent 层**：`TextDelta` / `Error` 等统一事件类型
+   - **AgentEvent 层**：`StreamText` / `ErrorEvent` 等上层事件
+
+4. **类型安全的错误处理**
+   - 错误从底层到上层经过两次转换：
+     - `Throwable` → `LlmException`（classify 分类）
+     - `LlmException` → `StreamEvent.Error`（包装成事件）
+   - Agent 通过 `instanceof` 判断异常类型，编译器保证类型安全
+   - 可以访问结构化数据（如 `retryAfter`），不需要解析字符串
+
+5. **自动恢复机制**
+   - 上下文过长：自动裁剪 + 压缩 + 重试（最多 3 次）
+   - 限流错误：智能等待 + 重试（优先使用 Retry-After，否则指数退避）
+   - 认证错误：不重试，直接报错
+   - 用户无感知，系统自动处理常见错误
+
+### 为什么这样设计？
+
+- **统一抽象**：一个 `LangChainClient` 支持所有协议（Anthropic、OpenAI、Ollama），新增协议只需修改 `buildModel()`
+- **解耦合**：Agent 不知道底层用的是什么 LLM API，LangChainClient 不知道上层如何使用事件
+- **可测试**：每一层都可以独立测试，队列可以 mock，事件可以构造
+- **易扩展**：新增事件类型（如 `ImageDelta`）不影响现有代码
+
+这就是现代 Java 的力量：**用类型系统保证正确性，用虚拟线程提升并发，用队列实现解耦，用事件驱动实现流式体验**！
