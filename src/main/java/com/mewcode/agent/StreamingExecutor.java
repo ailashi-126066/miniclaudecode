@@ -17,7 +17,6 @@ import com.mewcode.tool.ToolExecutionRecord;
 import com.mewcode.tool.JsonlToolExecutionLedger;
 import com.mewcode.tool.MutationPreview;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -200,7 +199,10 @@ public class StreamingExecutor {
 
         if (tool.effect().sideEffect()) record(call, tool, result.isError() ? ToolExecutionRecord.Status.FAILED : ToolExecutionRecord.Status.COMPLETED, argsHash, preview, result.output());
 
-        snapshotForRecovery(call, result);
+        if ("ReadFile".equals(call.toolName())) {
+            recordReadPathForRecovery(call, result);
+        }
+        recordValidationForRecovery(call, result);
 
         String output = result.output();
         if (output.length() > ToolRegistry.MAX_OUTPUT_CHARS) {
@@ -228,25 +230,29 @@ public class StreamingExecutor {
     }
 
     /**
-     * Capture what ReadFile just returned so the compact recovery block
-     * can replay it after a Layer 2 summary wipes the transcript.
-     * Re-reads from disk to keep the snapshot independent of how the tool
-     * formats its output (e.g. line-number prefixes).
+     * Record the path of a successful ReadFile call. The compact recovery block
+     * later lists these paths so the model can re-read exact current content.
      */
-    private void snapshotForRecovery(ToolCallInfo call, ToolResult result) {
+    private void recordReadPathForRecovery(ToolCallInfo call, ToolResult result) {
         if (recoveryState == null || result.isError()) return;
-        if (!"ReadFile".equals(call.toolName())) return;
         Object pathObj = call.args() == null ? null : call.args().get("file_path");
         if (!(pathObj instanceof String) || ((String) pathObj).isEmpty()) return;
-        String path = (String) pathObj;
-        try {
-            String content = Files.readString(Path.of(path));
-            recoveryState.recordFileRead(path, content);
-        } catch (IOException ignored) {
-            // Best-effort snapshot; if the file vanished between the tool
-            // call and now, just skip — the model has the tool output it
-            // already saw.
-        }
+        recoveryState.recordFileRead((String) pathObj);
+    }
+
+    /** Records actual test/build/lint output so a later compact does not lose verification status. */
+    private void recordValidationForRecovery(ToolCallInfo call, ToolResult result) {
+        if (recoveryState == null || !("Bash".equals(call.toolName()) || "PowerShell".equals(call.toolName()))) return;
+        Object commandObj = call.args() == null ? null : call.args().get("command");
+        if (!(commandObj instanceof String command) || !isValidationCommand(command)) return;
+        String output = result.output() == null ? "" : result.output();
+        if (output.length() > 2_000) output = output.substring(0, 2_000) + "\n… (output truncated)";
+        recoveryState.recordValidation(command, !result.isError(), output);
+    }
+
+    private static boolean isValidationCommand(String command) {
+        String lower = command.toLowerCase(java.util.Locale.ROOT);
+        return lower.matches("(?s).*\\b(test|verify|verification|check|lint|compile|build|package|pytest|jest|mvn|gradle)\\b.*");
     }
 
     private static String extractContent(String toolName, Map<String, Object> args) {

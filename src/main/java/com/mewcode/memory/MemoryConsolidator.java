@@ -44,7 +44,6 @@ public class MemoryConsolidator {
 
     private final String workDir;
     private final Path memDir;
-    private final Path userMemDir;
     private final int minHours;
     private final int minSessions;
     private long lastScanAt;
@@ -55,8 +54,7 @@ public class MemoryConsolidator {
 
     public MemoryConsolidator(String workDir, int minHours, int minSessions) {
         this.workDir = workDir;
-        this.memDir = Path.of(workDir, ".mewcode", "memory");
-        this.userMemDir = Path.of(System.getProperty("user.home"), ".mewcode", "memory");
+        this.memDir = Path.of(System.getProperty("user.home"), ".mewcode", "memory");
         this.minHours = minHours;
         this.minSessions = minSessions;
     }
@@ -104,9 +102,7 @@ public class MemoryConsolidator {
     private void run(LlmClient client, ConversationManager conversation,
                      String protocol, List<String> sessionIds) {
         Path transcriptDir = Path.of(workDir, ".mewcode", "sessions");
-        String prompt = buildConsolidationPrompt(
-                memDir.toString(), userMemDir.toString(),
-                transcriptDir.toString(), sessionIds);
+        String prompt = buildConsolidationPrompt(memDir.toString(), transcriptDir.toString(), sessionIds);
 
         // 构建子 Agent 的工具注册表
         ToolRegistry registry = new ToolRegistry();
@@ -230,44 +226,37 @@ public class MemoryConsolidator {
 
     // --- Prompt ---
 
-    private String buildConsolidationPrompt(
-            String memDirStr, String userMemDirStr,
-            String transcriptDir, List<String> sessionIds) {
+    private String buildConsolidationPrompt(String memDirStr, String transcriptDir, List<String> sessionIds) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Dream: Memory Consolidation\n\n");
         sb.append("You are performing a dream — a reflective pass over your memory files. ");
         sb.append("Synthesize what you've learned recently into durable, well-organized ");
         sb.append("memories so that future sessions can orient quickly.\n\n");
-        sb.append(String.format("Project memory directory: `%s`\n", memDirStr));
-        sb.append(String.format("User memory directory: `%s`\n", userMemDirStr));
-        sb.append("The memory directory already exists — write to it directly.\n\n");
+        sb.append(String.format("User memory directory: `%s`\n", memDirStr));
+        sb.append("Only user.md and feedback.md are durable-memory files. Project knowledge belongs in AGENTS.md, MEWCODE.md, docs, or source.\n\n");
         sb.append(String.format("Session transcripts: `%s` (large JSONL files — grep narrowly, don't read whole files)\n\n", transcriptDir));
         sb.append("---\n\n");
         sb.append("## Phase 1 — Orient\n\n");
         sb.append("- `ls` the memory directory to see what already exists\n");
-        sb.append(String.format("- Read `%s` to understand the current index\n", ENTRYPOINT_NAME));
-        sb.append("- Skim existing topic files so you improve them rather than creating duplicates\n\n");
+        sb.append("- Read `user.md` and `feedback.md` before changing them\n");
+        sb.append("- Update an existing `## memory-name` section rather than creating a new file\n\n");
         sb.append("## Phase 2 — Gather recent signal\n\n");
         sb.append("Look for new information worth persisting:\n\n");
         sb.append("1. **Existing memories that drifted** — facts that contradict something you see in the codebase now\n");
         sb.append("2. **Transcript search** — if you need specific context, grep the JSONL transcripts for narrow terms\n\n");
+        sb.append("For ACE memories, keep Evidence, Inference, and Verification separate. ");
+        sb.append("Use verified evidence to refine an inference; do not promote an unverified inference to a fact.\n\n");
         sb.append("Don't exhaustively read transcripts. Look only for things you already suspect matter.\n\n");
         sb.append("## Phase 3 — Consolidate\n\n");
-        sb.append("For each thing worth remembering, write or update a memory file. ");
-        sb.append("Each memory file uses YAML frontmatter with name, description, and metadata.type fields, ");
-        sb.append("followed by a Markdown body.\n\n");
+        sb.append("For each thing worth remembering, append or update a `## memory-name` section in user.md or feedback.md. ");
+        sb.append("Keep its `### ACE` section: Evidence, Inference, and Verification stay separate before the durable-memory conclusion.\n\n");
         sb.append("Focus on:\n");
         sb.append("- Merging new signal into existing topic files rather than creating near-duplicates\n");
         sb.append("- Converting relative dates (\"yesterday\", \"last week\") to absolute dates\n");
         sb.append("- Deleting contradicted facts — if today's investigation disproves an old memory, fix it at the source\n\n");
         sb.append("## Phase 4 — Prune and index\n\n");
-        sb.append(String.format("Update `%s` so it stays under %d lines AND under ~25KB. ", ENTRYPOINT_NAME, MAX_ENTRYPOINT_LINES));
-        sb.append("It's an **index**, not a dump — each entry should be one line under ~150 characters: ");
-        sb.append("`- [Title](file.md) — one-line hook`. Never write memory content directly into it.\n\n");
-        sb.append("- Remove pointers to memories that are now stale, wrong, or superseded\n");
-        sb.append("- Demote verbose entries: if an index line is over ~200 chars, shorten the line, move the detail\n");
-        sb.append("- Add pointers to newly important memories\n");
-        sb.append("- Resolve contradictions — if two files disagree, fix the wrong one\n\n");
+        sb.append("Keep user.md and feedback.md concise. Merge duplicate sections and remove stale claims.\n");
+        sb.append("Resolve contradictions inside the existing section instead of adding another file.\n\n");
         sb.append("---\n\n");
         sb.append("**Tool constraints for this run:** Bash is restricted to read-only commands ");
         sb.append("(`ls`, `find`, `grep`, `cat`, `stat`, `wc`, `head`, `tail`, and similar). ");

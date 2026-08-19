@@ -75,7 +75,6 @@ public final class ContextCompactor {
 
     /** Recovery limits applied to the attachment block appended after a Layer 2 summary. */
     public static final int RECOVERY_FILE_LIMIT = 5;
-    public static final int RECOVERY_TOKENS_PER_FILE = 5_000;
     public static final int RECOVERY_SKILLS_BUDGET = 25_000;
     public static final int RECOVERY_TOKENS_PER_SKILL = 5_000;
     private static final double RECOVERY_CHARS_PER_TOKEN = 3.5;
@@ -522,21 +521,27 @@ public final class ContextCompactor {
         // 按 API 轮次从最老的开始丢弃，最多重试 MAX_PTL_RETRIES 次。
         String summaryText = requestSummaryWithPTLRetry(client, toSummarize, toolSchemas);
 
+        // Build the attachment before persisting the boundary: it carries plan,
+        // verification, approval, and file-read state for both this compacted
+        // conversation and a later session resume.
+        refreshPlanForRecovery(recovery, workDir);
+        String attachment = buildRecoveryAttachment(recovery, toolSchemas);
+
         // Persist a compact_boundary record so a later resume can rebuild this
         // compacted state (summary + kept tail) instead of replaying the full
         // pre-compaction transcript. Append-only: the original prefix messages
         // stay in the file but won't be replayed past this boundary. The kept tail
         // is inlined as role+content text (matching how the session log already
         // stores messages — text only, no tool blocks). The boundary stores the
-        // pure summary text, not the recovery attachment, since the recovery
-        // snapshots are an in-memory rebuild aid unavailable on resume. Skipped
+        // summary plus recovery attachment, so resume keeps structured operational
+        // state as well as the recent tail. Skipped
         // when sessionId/workDir is null/blank (tests, one-shot callers).
         if (workDir != null && !workDir.isBlank() && sessionId != null && !sessionId.isBlank()) {
             List<SessionManager.KeepMessage> keepRecords = new ArrayList<>(toKeep.size());
             for (Message m : toKeep) {
                 keepRecords.add(new SessionManager.KeepMessage(m.getRole(), nullSafe(m.getContent())));
             }
-            SessionManager.saveCompactBoundary(workDir, sessionId, summaryText, keepRecords);
+            SessionManager.saveCompactBoundary(workDir, sessionId, summaryText, attachment, keepRecords);
         }
 
         String content = "本次会话延续自之前的对话，因上下文空间不足进行了压缩。以下是早期对话的摘要：\n\n" + summaryText;
@@ -547,7 +552,6 @@ public final class ContextCompactor {
             content += "\n\n如果你需要压缩前的具体细节（代码片段、报错信息等），请用 ReadFile 读取完整会话记录："
                     + Path.of(workDir, ".mewcode", "sessions", sessionId + ".jsonl");
         }
-        String attachment = buildRecoveryAttachment(recovery, toolSchemas);
         if (!attachment.isEmpty()) {
             content += "\n\n---\n\n" + attachment;
         }
@@ -572,7 +576,7 @@ public final class ContextCompactor {
      * summary user message. Returns "" when there is nothing worth
      * emitting so the caller can keep the summary clean.
      *
-     * @param state        per-agent snapshots of recent file reads + skills
+     * @param state        per-agent records of recent file reads + skills
      * @param toolSchemas  the schemas the agent will send on the next request
      */
     public static String buildRecoveryAttachment(RecoveryState state,
@@ -580,19 +584,52 @@ public final class ContextCompactor {
         var sb = new StringBuilder();
 
         if (state != null) {
+            var plan = state.snapshotPlan();
+            if (plan != null) {
+                sb.append("## Active plan\n\n")
+                  .append("Plan file: ").append(plan.path()).append("\n\n")
+                  .append(truncateByTokens(plan.content(), 3_000)).append("\n\n");
+            }
+
+            var validations = state.snapshotValidations();
+            if (!validations.isEmpty()) {
+                sb.append("## Recent verification\n\n");
+                for (var validation : validations) {
+                    sb.append("- [").append(validation.passed() ? "passed" : "failed").append("] ")
+                      .append(validation.command()).append("\n");
+                    if (!validation.output().isBlank()) {
+                        sb.append("  Output: ").append(validation.output().replace("\n", "\n  ")).append("\n");
+                    }
+                }
+                sb.append('\n');
+            }
+
+            var approvals = state.snapshotApprovals();
+            if (!approvals.isEmpty()) {
+                sb.append("## Permission decisions\n\n");
+                for (var approval : approvals) {
+                    sb.append("- ").append(approval.toolName()).append(": ")
+                      .append(approval.decision());
+                    if (!approval.description().isBlank()) {
+                        sb.append(" — ").append(firstLine(approval.description()));
+                    }
+                    sb.append('\n');
+                }
+                sb.append('\n');
+            }
+        }
+
+        if (state != null) {
             var files = state.snapshotFiles(RECOVERY_FILE_LIMIT);
             if (!files.isEmpty()) {
                 sb.append("## Recently read files\n\n")
-                  .append("These snapshots are what the file-reading tool last returned. ")
-                  .append("Re-open with the tool if you need the current bytes.\n\n");
+                  .append("These files were read earlier in the session. ")
+                  .append("Use ReadFile to get their current content.\n\n");
                 for (var f : files) {
-                    String body = truncateByTokens(f.content(), RECOVERY_TOKENS_PER_FILE);
-                    sb.append("### ").append(f.path())
-                      .append("  (read ").append(RECOVERY_TS.format(f.timestamp())).append(")\n\n")
-                      .append("```\n").append(body);
-                    if (!body.endsWith("\n")) sb.append('\n');
-                    sb.append("```\n\n");
+                    sb.append("- ").append(f.path())
+                      .append(" (read ").append(RECOVERY_TS.format(f.timestamp())).append(")\n");
                 }
+                sb.append('\n');
             }
         }
 
@@ -644,6 +681,21 @@ public final class ContextCompactor {
           .append("For exact code, error strings, or user-typed text, re-read the source rather than ")
           .append("guess from the summary.\n");
         return sb.toString();
+    }
+
+    /** Reads the project-owned plan at compact time; the disk file remains the source of truth. */
+    private static void refreshPlanForRecovery(RecoveryState state, String workDir) {
+        if (state == null || workDir == null || workDir.isBlank()) return;
+        Path planPath = Path.of(workDir, ".mewcode", "plans", "active.md");
+        try {
+            if (Files.isRegularFile(planPath)) {
+                state.recordPlan(planPath.toString(), Files.readString(planPath));
+            } else {
+                state.clearPlan();
+            }
+        } catch (IOException ignored) {
+            // Keep the last successfully captured plan if this read transiently fails.
+        }
     }
 
     private static int approxTokens(String s) {

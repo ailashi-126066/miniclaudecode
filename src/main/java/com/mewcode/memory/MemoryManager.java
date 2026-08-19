@@ -19,43 +19,27 @@ import java.util.concurrent.BlockingQueue;
 import java.util.stream.Stream;
 
 /**
- * 记忆管理器，使用独立 .md 文件 + MEMORY.md 索引的统一存储格式。
+ * 记忆管理器，以独立的 Markdown 文件和 MEMORY.md 索引作为唯一存储格式。
  *
- * <p>存储结构：
- * <ul>
- *   <li>用户级 (~/.mewcode/memory/)：存放 type=user / type=feedback 的记忆文件</li>
- *   <li>项目级 (.mewcode/memory/)：存放 type=project / type=reference 的记忆文件</li>
- * </ul>
- *
- * <p>每条记忆是一个独立的 .md 文件，包含 YAML frontmatter（name, description, type）。
- * 每个目录下有一个 MEMORY.md 索引文件，用一行指针格式 `- [Title](file.md) — description`
- * 汇总该目录下的所有记忆。
+ * <p>存储结构：用户级 {@code ~/.mewcode/memory/} 中只有 {@code user.md} 与
+ * {@code feedback.md} 两个类别文件。项目规则与知识由 AGENTS.md、MEWCODE.md、docs 和源码承载，
+ * 不再维护项目级记忆副本。
  */
 public class MemoryManager {
 
-    /** MEMORY.md 索引文件名 */
-    private static final String ENTRYPOINT_NAME = "MEMORY.md";
     private static final int EXTRACTION_INTERVAL = 1;
     private static final String MEMORY_DIR = ".mewcode/memory";
 
-    // user/feedback 跟随用户；project/reference 跟随项目
+    /** Only user-scoped categories remain. Each category maps to one Markdown file. */
     private static final Set<String> USER_TYPES = Set.of("user", "feedback");
-    private static final Set<String> PROJECT_TYPES = Set.of("project", "reference");
 
     private final Path userMemDirPath;
-    private final Path projectMemDirPath;
-    private final SqliteMemoryStore userStore;
-    private final SqliteMemoryStore projectStore;
     private int turnCount;
 
     public MemoryManager(String workDir) {
-        this.projectMemDirPath = Path.of(workDir, MEMORY_DIR);
         this.userMemDirPath = Path.of(System.getProperty("user.home"), MEMORY_DIR);
-        this.userStore = new SqliteMemoryStore(Path.of(System.getProperty("user.home"), ".mewcode", "memory.db"));
-        this.projectStore = new SqliteMemoryStore(Path.of(workDir, ".mewcode", "memory.db"));
-        // 确保目录存在，让 Agent 的 Write 工具可以直接写入
+        // Ensure the user memory directory exists for category files.
         ensureDir(userMemDirPath);
-        ensureDir(projectMemDirPath);
     }
 
     // ---- Directory accessors (for memory recall) ----
@@ -65,38 +49,18 @@ public class MemoryManager {
         return userMemDirPath;
     }
 
-    /** 返回项目级记忆目录（.mewcode/memory/） */
-    public Path projectMemDir() {
-        return projectMemDirPath;
-    }
-
-    /** 返回项目级 MEMORY.md 的路径 */
-    public Path entrypointPath() {
-        return projectMemDirPath.resolve(ENTRYPOINT_NAME);
-    }
-
-    /** 返回用户级 MEMORY.md 的路径 */
-    public Path userEntrypointPath() {
-        return userMemDirPath.resolve(ENTRYPOINT_NAME);
-    }
-
     // ---- Accessors ----
 
     /**
      * 返回所有记忆的摘要行，格式为 "[type] name — description"。
-     * 扫描两个目录下的 .md 文件（不含 MEMORY.md），按文件名排序。
+     * 直接读取 user.md 与 feedback.md 的条目标题和描述，Markdown 是唯一数据源。
      */
     public List<String> getMemories() {
-        var sqlite = new ArrayList<String>();
-        for (var entry : userStore.list()) sqlite.add("[" + entry.type() + "] " + entry.name() + " — " + entry.description());
-        for (var entry : projectStore.list()) sqlite.add("[" + entry.type() + "] " + entry.name() + " — " + entry.description());
-        if (!sqlite.isEmpty()) return List.copyOf(sqlite);
-        var files = loadAll();
         var out = new ArrayList<String>();
-        for (var f : files) {
-            String typeTag = f.type().isEmpty() ? "?" : f.type();
-            String desc = f.description().isEmpty() ? f.filename() : f.description();
-            out.add("[%s] %s — %s".formatted(typeTag, f.name(), desc));
+        for (String type : USER_TYPES) {
+            for (CategoryEntry entry : readCategoryEntries(type)) {
+                out.add("[%s] %s — %s".formatted(type, entry.name(), entry.description()));
+            }
         }
         return out;
     }
@@ -110,10 +74,9 @@ public class MemoryManager {
      * 清除两个目录下的所有 .md 文件（包括 MEMORY.md）。
      */
     public void clear() {
-        userStore.clear();
-        projectStore.clear();
-        clearDir(userMemDirPath);
-        clearDir(projectMemDirPath);
+        for (String type : USER_TYPES) {
+            try { Files.deleteIfExists(categoryPath(type)); } catch (IOException ignored) {}
+        }
     }
 
     // ---- Memory file record ----
@@ -128,7 +91,6 @@ public class MemoryManager {
     List<MemoryFile> loadAll() {
         var out = new ArrayList<MemoryFile>();
         out.addAll(loadDir(userMemDirPath));
-        out.addAll(loadDir(projectMemDirPath));
         return out;
     }
 
@@ -141,7 +103,7 @@ public class MemoryManager {
             mdFiles = stream.filter(Files::isRegularFile)
                     .filter(p -> {
                         String n = p.getFileName().toString();
-                        return n.endsWith(".md") && !n.equals(ENTRYPOINT_NAME);
+                        return USER_TYPES.contains(n.replaceFirst("\\.md$", ""));
                     })
                     .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                     .toList();
@@ -168,61 +130,19 @@ public class MemoryManager {
         return out;
     }
 
-    private static void clearDir(Path dir) {
-        if (dir == null || !Files.isDirectory(dir)) {
-            return;
-        }
-        try (Stream<Path> stream = Files.list(dir)) {
-            stream.filter(Files::isRegularFile)
-                  .filter(p -> p.getFileName().toString().endsWith(".md"))
-                  .forEach(p -> {
-                      try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                  });
-        } catch (IOException ignored) {}
-    }
-
     // ---- Build system-reminder section ----
 
     /**
-     * 构建记忆系统的 system-reminder 部分，包含 MEMORY.md 索引内容。
-     * 确保两个目录都存在后读取各自的 MEMORY.md。
+     * Builds a small reminder pointing at the two user-memory category files.
      */
     public String buildSystemReminder() {
-        var stored = new ArrayList<SqliteMemoryStore.Entry>();
-        stored.addAll(userStore.list()); stored.addAll(projectStore.list());
-        if (!stored.isEmpty()) {
-            var text = new StringBuilder("# auto memory\n\n");
-            stored.stream().limit(20).forEach(e -> text.append("## ").append(e.name()).append(" [").append(e.type()).append("]\n").append(e.content()).append("\n\n"));
-            return text.toString().strip();
-        }
         ensureDir(userMemDirPath);
-        ensureDir(projectMemDirPath);
 
-        var sb = new StringBuilder();
-        sb.append("# auto memory\n\n");
-
-        // 用户级 MEMORY.md
-        appendEntrypoint(sb, "User-level", userMemDirPath);
-        sb.append("\n\n");
-        // 项目级 MEMORY.md
-        appendEntrypoint(sb, "Project-level", projectMemDirPath);
-
+        var paths = USER_TYPES.stream().map(this::categoryPath).filter(Files::isRegularFile).toList();
+        if (paths.isEmpty()) return "";
+        var sb = new StringBuilder("# auto memory\n\n");
+        for (Path path : paths) sb.append("- ").append(path).append('\n');
         return sb.toString();
-    }
-
-    private static void appendEntrypoint(StringBuilder sb, String scopeLabel, Path memDir) {
-        Path ep = memDir.resolve(ENTRYPOINT_NAME);
-        sb.append("## %s %s (`%s`)\n\n".formatted(scopeLabel, ENTRYPOINT_NAME, ep));
-        try {
-            String content = Files.readString(ep).strip();
-            if (!content.isEmpty()) {
-                sb.append(content);
-            } else {
-                sb.append("This %s is currently empty.".formatted(ENTRYPOINT_NAME));
-            }
-        } catch (IOException e) {
-            sb.append("This %s is currently empty.".formatted(ENTRYPOINT_NAME));
-        }
     }
 
     // ---- Extraction via LLM ----
@@ -232,24 +152,7 @@ public class MemoryManager {
      */
     private String scanExistingMemories() {
         var entries = new ArrayList<String>();
-        for (Path dir : List.of(userMemDirPath, projectMemDirPath)) {
-            if (!Files.isDirectory(dir)) continue;
-            try (Stream<Path> files = Files.list(dir)) {
-                files.filter(f -> f.toString().endsWith(".md") && !f.getFileName().toString().equals(ENTRYPOINT_NAME))
-                     .sorted()
-                     .forEach(f -> {
-                         try {
-                             String content = Files.readString(f);
-                             // 简单解析 frontmatter
-                             String type = extractField(content, "type");
-                             String desc = extractField(content, "description");
-                             if (type.isEmpty()) type = "?";
-                             if (desc.isEmpty()) desc = f.getFileName().toString();
-                             entries.add("- [%s] %s: %s".formatted(type, f.getFileName(), desc));
-                         } catch (IOException ignored) {}
-                     });
-            } catch (IOException ignored) {}
-        }
+        for (String memory : getMemories()) entries.add("- " + memory);
         return String.join("\n", entries);
     }
 
@@ -267,6 +170,14 @@ public class MemoryManager {
         for (int i = start; i < messages.size(); i++) {
             var msg = messages.get(i);
             sb.append('[').append(msg.getRole()).append("]: ").append(msg.getContent()).append('\n');
+            if (msg.getToolResults() != null) {
+                for (var result : msg.getToolResults()) {
+                    String output = result.content() == null ? "" : result.content();
+                    if (output.length() > 1_000) output = output.substring(0, 1_000) + "…";
+                    sb.append("[tool_result ").append(result.toolUseId()).append("]: ")
+                      .append(output).append('\n');
+                }
+            }
         }
 
         // 扫描已有记忆做去重
@@ -280,17 +191,22 @@ public class MemoryManager {
                 "Analyze the conversation below and extract memories worth saving.\n\n"
                 + "For each memory, output in this exact format:\n"
                 + "MEMORY_NAME: <kebab-case-name>\n"
-                + "MEMORY_TYPE: <user|feedback|project|reference>\n"
+                + "MEMORY_TYPE: <user|feedback>\n"
                 + "MEMORY_DESC: <one-line description>\n"
-                + "MEMORY_BODY: <content>\n"
+                + "ACE_EVIDENCE: <one-line observed fact, user statement, or tool output>\n"
+                + "ACE_INFERENCE: <one-line conclusion derived from the evidence>\n"
+                + "ACE_VERIFICATION: <one-line command/outcome that validates it, or NONE>\n"
+                + "MEMORY_BODY: <one-line durable fact to remember>\n"
                 + "---\n\n"
                 + "Types:\n"
-                + "- user/feedback → save to " + userMemDirPath + "\n"
-                + "- project/reference → save to " + projectMemDirPath + "\n\n"
+                + "- user: user preferences, role, and long-term habits\n"
+                + "- feedback: corrections and validated collaboration rules\n\n"
                 + "What NOT to save:\n"
                 + "- Code patterns derivable from reading the project\n"
                 + "- Git history, debugging solutions\n"
                 + "- Ephemeral task details\n\n"
+                + "Keep evidence, inference, and verification distinct. Never present an unverified inference as evidence. "
+                + "Only save verification that comes from an actual tool result in this conversation.\n\n"
                 + "If nothing is worth saving, output NONE." + manifestSection + "\n\n"
                 + "Conversation:\n" + sb
         );
@@ -321,10 +237,14 @@ public class MemoryManager {
             String desc = extractField(block, "MEMORY_DESC");
             String body = extractField(block, "MEMORY_BODY");
             if (name.isEmpty() || body.isEmpty()) continue;
-            if (!USER_TYPES.contains(type) && !PROJECT_TYPES.contains(type)) type = "reference";
+            if (!USER_TYPES.contains(type)) continue;
 
-            Path targetDir = USER_TYPES.contains(type) ? userMemDirPath : projectMemDirPath;
-            writeMemoryFile(targetDir, name, type, desc, body);
+            var ace = new AceBullet(
+                    extractField(block, "ACE_EVIDENCE"),
+                    extractField(block, "ACE_INFERENCE"),
+                    extractField(block, "ACE_VERIFICATION"));
+
+            writeMemoryFile(name, type, desc, ace.render(body));
         }
     }
 
@@ -336,30 +256,44 @@ public class MemoryManager {
     /**
      * 将一条记忆写为独立的 .md 文件，并在 MEMORY.md 索引中追加指针。
      */
-    private void writeMemoryFile(Path dir, String name, String type, String description, String body) {
-        (USER_TYPES.contains(type) ? userStore : projectStore).remember(type, name, description, body);
-        ensureDir(dir);
-        String filename = name + ".md";
-        Path filePath = dir.resolve(filename);
-
-        String fileContent = "---\nname: %s\ndescription: %s\nmetadata:\n  type: %s\n---\n\n%s\n"
-                .formatted(name, description, type, body);
+    private void writeMemoryFile(String name, String type, String description, String body) {
+        Path filePath = categoryPath(type);
+        String entry = "## %s\n\nDescription: %s\n\n%s\n".formatted(name, description, body.strip());
         try {
-            Files.writeString(filePath, fileContent);
+            String existing = Files.isRegularFile(filePath) ? Files.readString(filePath) : categoryHeader(type);
+            String updated = replaceCategoryEntry(existing, name, entry);
+            if (!existing.equals(updated)) Files.writeString(filePath, updated);
         } catch (IOException e) {
             return;
         }
-
-        // 更新 MEMORY.md 索引
-        Path entrypoint = dir.resolve(ENTRYPOINT_NAME);
-        String pointer = "- [%s](%s) — %s\n".formatted(name, filename, description);
-        try {
-            String existing = Files.exists(entrypoint) ? Files.readString(entrypoint) : "";
-            if (!existing.contains(filename)) {
-                Files.writeString(entrypoint, existing + pointer);
-            }
-        } catch (IOException ignored) {}
     }
+
+    private Path categoryPath(String type) { return userMemDirPath.resolve(type + ".md"); }
+
+    private static String categoryHeader(String type) {
+        String title = "user".equals(type) ? "User memories" : "Feedback memories";
+        return "---\nname: %s\ndescription: %s\nmetadata:\n  type: %s\n---\n\n# %s\n\n"
+                .formatted(type, title, type, title);
+    }
+
+    private static String replaceCategoryEntry(String source, String name, String entry) {
+        String pattern = "(?ms)^## " + java.util.regex.Pattern.quote(name) + "\\R.*?(?=^## |\\z)";
+        if (java.util.regex.Pattern.compile(pattern).matcher(source).find()) return source.replaceFirst(pattern, entry);
+        return source.stripTrailing() + "\n\n" + entry;
+    }
+
+    private List<CategoryEntry> readCategoryEntries(String type) {
+        Path path = categoryPath(type);
+        if (!Files.isRegularFile(path)) return List.of();
+        try {
+            var matcher = java.util.regex.Pattern.compile("(?m)^## ([^\\r\\n]+)\\R+Description: ([^\\r\\n]*)").matcher(Files.readString(path));
+            var entries = new ArrayList<CategoryEntry>();
+            while (matcher.find()) entries.add(new CategoryEntry(matcher.group(1).strip(), matcher.group(2).strip()));
+            return entries;
+        } catch (IOException ignored) { return List.of(); }
+    }
+
+    private record CategoryEntry(String name, String description) {}
 
     /**
      * 按 `### <type>` 分组解析 LLM 提取输出。

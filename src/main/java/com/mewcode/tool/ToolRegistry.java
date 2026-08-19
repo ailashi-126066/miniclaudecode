@@ -134,7 +134,7 @@ public class ToolRegistry {
         reg.register(new com.mewcode.tool.impl.GlobTool());
         reg.register(new com.mewcode.tool.impl.GrepTool());
         reg.register(new com.mewcode.rag.tool.CodeSearchTool(java.nio.file.Path.of(System.getProperty("user.dir"))));
-        reg.register(new com.mewcode.memory.MemorySearchTool(java.nio.file.Path.of(System.getProperty("user.dir"))));
+        reg.register(new com.mewcode.memory.MemorySearchTool());
         var plans = new com.mewcode.plan.PlanCoordinator(new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(System.getProperty("user.dir"))));
         reg.register(new com.mewcode.plan.PlanTools.Create(plans));
         reg.register(new com.mewcode.plan.PlanTools.Complete(plans));

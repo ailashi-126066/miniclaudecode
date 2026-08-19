@@ -70,13 +70,12 @@ public final class MemoryRecall {
     // ── Main entry point ───────────────────────────────────────────────
 
     /**
-     * Scans both directories, filters already-surfaced paths, asks the
+     * Scans the user-memory directory, filters already-surfaced paths, asks the
      * selector to pick up to 5 relevant filenames, and returns the
      * corresponding absolute paths + mtimes.
      *
      * @param query            the user's query text
      * @param userMemDir       user-level memory dir (may be null)
-     * @param projectMemDir    project-level memory dir (may be null)
      * @param recentTools      recently-used tool names (may be null)
      * @param alreadySurfaced  paths shown in prior turns (may be null)
      * @param selector         the side-query function
@@ -85,7 +84,6 @@ public final class MemoryRecall {
     public static List<RelevantMemory> findRelevantMemories(
             String query,
             Path userMemDir,
-            Path projectMemDir,
             List<String> recentTools,
             Set<String> alreadySurfaced,
             SelectorFn selector) {
@@ -95,9 +93,6 @@ public final class MemoryRecall {
         List<MemoryScanner.MemoryHeader> all = new ArrayList<>();
         if (userMemDir != null) {
             all.addAll(MemoryScanner.scanMemoryFiles(userMemDir, "user"));
-        }
-        if (projectMemDir != null) {
-            all.addAll(MemoryScanner.scanMemoryFiles(projectMemDir, "project"));
         }
 
         // Filter already-surfaced memories.

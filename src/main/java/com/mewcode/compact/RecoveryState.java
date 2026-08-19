@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Per-agent snapshots that need to survive Layer 2 compaction.
+ * Per-agent file-read metadata that needs to survive Layer 2 compaction.
  *
  * <p>Compact wipes the working transcript; without these records the
  * model would forget which files it had just read and which skill SOPs it
@@ -26,23 +26,35 @@ import java.util.Map;
  */
 public final class RecoveryState {
 
-    /** Snapshot of what a file-reading tool last returned. */
-    public record FileReadRecord(String path, String content, Instant timestamp) {}
+    /** Path and time of a successful file read. File content is not retained. */
+    public record FileReadRecord(String path, Instant timestamp) {}
 
     /** Snapshot of the SOP body delivered to the model when a skill ran. */
     public record SkillInvocationRecord(String name, String body, Instant timestamp) {}
+
+    /** Current structured plan captured immediately before compaction. */
+    public record PlanRecord(String path, String content, Instant timestamp) {}
+
+    /** A command that checked, tested, built, or linted the workspace. */
+    public record ValidationRecord(String command, boolean passed, String output, Instant timestamp) {}
+
+    /** A user decision made for a permission request. */
+    public record ApprovalRecord(String toolName, String decision, String description, Instant timestamp) {}
 
     private final Object lock = new Object();
     private final Map<String, FileReadRecord> files = new HashMap<>();
 
     private final Map<String, SkillInvocationRecord> skills = new HashMap<>();
+    private PlanRecord plan;
+    private final List<ValidationRecord> validations = new ArrayList<>();
+    private final List<ApprovalRecord> approvals = new ArrayList<>();
 
-    /** Overwrites any prior record for the same path so the latest snapshot wins. */
-    public void recordFileRead(String path, String content) {
+    /** Overwrites any prior record for the same path so the latest read wins. */
+    public void recordFileRead(String path) {
         if (path == null || path.isEmpty()) return;
 
         synchronized (lock) {
-            files.put(path, new FileReadRecord(path, content, Instant.now()));
+            files.put(path, new FileReadRecord(path, Instant.now()));
         }
     }
 
@@ -51,6 +63,39 @@ public final class RecoveryState {
         if (name == null || name.isEmpty()) return;
         synchronized (lock) {
             skills.put(name, new SkillInvocationRecord(name, body, Instant.now()));
+        }
+    }
+
+    /** Replaces the prior active-plan snapshot. */
+    public void recordPlan(String path, String content) {
+        if (path == null || path.isBlank() || content == null || content.isBlank()) return;
+        synchronized (lock) {
+            plan = new PlanRecord(path, content, Instant.now());
+        }
+    }
+
+    /** Clears the plan snapshot after the active plan file has disappeared. */
+    public void clearPlan() {
+        synchronized (lock) {
+            plan = null;
+        }
+    }
+
+    /** Keeps the most recent verification commands and their outcomes. */
+    public void recordValidation(String command, boolean passed, String output) {
+        if (command == null || command.isBlank()) return;
+        synchronized (lock) {
+            validations.add(new ValidationRecord(command, passed, output == null ? "" : output, Instant.now()));
+            if (validations.size() > 5) validations.removeFirst();
+        }
+    }
+
+    /** Keeps the most recent user permission decisions for recovery after compacting. */
+    public void recordApproval(String toolName, String decision, String description) {
+        if (toolName == null || toolName.isBlank() || decision == null || decision.isBlank()) return;
+        synchronized (lock) {
+            approvals.add(new ApprovalRecord(toolName, decision, description == null ? "" : description, Instant.now()));
+            if (approvals.size() > 10) approvals.removeFirst();
         }
     }
 
@@ -75,5 +120,25 @@ public final class RecoveryState {
         }
         out.sort(Comparator.comparing(SkillInvocationRecord::timestamp).reversed());
         return out;
+    }
+
+    public PlanRecord snapshotPlan() {
+        synchronized (lock) {
+            return plan;
+        }
+    }
+
+    /** Returns validation records oldest-to-newest, matching their execution order. */
+    public List<ValidationRecord> snapshotValidations() {
+        synchronized (lock) {
+            return List.copyOf(validations);
+        }
+    }
+
+    /** Returns permission decisions oldest-to-newest, matching the user's choices. */
+    public List<ApprovalRecord> snapshotApprovals() {
+        synchronized (lock) {
+            return List.copyOf(approvals);
+        }
     }
 }

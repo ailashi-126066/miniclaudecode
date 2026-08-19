@@ -26,7 +26,7 @@ class RecoveryAttachmentTest {
     @Test
     void emitsAllSections() {
         var state = new RecoveryState();
-        state.recordFileRead("/tmp/a.java", "class A {}\n");
+        state.recordFileRead("/tmp/a.java");
         state.recordSkillInvocation("planner", "step 1\nstep 2\n");
         var schemas = List.<Map<String, Object>>of(
                 Map.of("name", "ReadFile",
@@ -47,7 +47,7 @@ class RecoveryAttachmentTest {
     void fileLimitAndNewestFirst() throws Exception {
         var state = new RecoveryState();
         for (int i = 0; i < 7; i++) {
-            state.recordFileRead("/f" + i, "x");
+            state.recordFileRead("/f" + i);
         }
         // Force deterministic timestamps via reflection so ordering is observable.
         Field filesField = RecoveryState.class.getDeclaredField("files");
@@ -57,7 +57,7 @@ class RecoveryAttachmentTest {
         long base = 1_000_000L;
         for (int i = 0; i < 7; i++) {
             var key = "/f" + i;
-            files.put(key, new RecoveryState.FileReadRecord(key, "x", Instant.ofEpochSecond(base + i)));
+            files.put(key, new RecoveryState.FileReadRecord(key, Instant.ofEpochSecond(base + i)));
         }
 
         var snapshot = state.snapshotFiles(ContextCompactor.RECOVERY_FILE_LIMIT);
@@ -67,13 +67,12 @@ class RecoveryAttachmentTest {
     }
 
     @Test
-    void truncatesPerFile() {
-        int charBudget = (int) (ContextCompactor.RECOVERY_TOKENS_PER_FILE * 3.5 * 3);
-        String huge = "x".repeat(charBudget);
+    void emitsFilePathWithoutFileContent() {
         var state = new RecoveryState();
-        state.recordFileRead("/big", huge);
+        state.recordFileRead("/big");
         String out = ContextCompactor.buildRecoveryAttachment(state, null);
-        assertTrue(out.contains("(content truncated)"));
+        assertTrue(out.contains("- /big (read "));
+        assertFalse(out.contains("```"));
     }
 
     @Test
@@ -106,4 +105,3 @@ class RecoveryAttachmentTest {
         assertTrue(emitted >= 1 && emitted <= 5, "emitted " + emitted + " skills, expected 1..5");
     }
 }
-

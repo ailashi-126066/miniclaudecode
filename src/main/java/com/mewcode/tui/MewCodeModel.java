@@ -1589,6 +1589,8 @@ public class MewCodeModel implements Model {
                     permDesc = e.description();
                     permCursor = 0;
                     pendingPermission = e.future();
+                    if (agent != null) agent.getRecoveryState().recordApproval(
+                            permToolName, "pending", permDesc);
                 }
                 case AgentEvent.AskUserRequestEvent e -> {
                     askUserDialogState.activate(e.questions());
@@ -1676,7 +1678,6 @@ public class MewCodeModel implements Model {
         }
         var provider = selectedProvider;
         var userDir = memoryManager.userMemDir();
-        var projectDir = memoryManager.projectMemDir();
 
         return CompletableFuture.supplyAsync(() -> {
             MemoryRecall.SelectorFn selector = (systemPrompt, userMessage) -> {
@@ -1697,7 +1698,7 @@ public class MewCodeModel implements Model {
                 return sb.toString();
             };
             var results = MemoryRecall.findRelevantMemories(
-                    query, userDir, projectDir, null, null, selector);
+                    query, userDir, null, null, selector);
             return MemoryRecall.renderReminder(results);
         }, runnable -> {
             // Run on a virtual thread with 8s timeout.
@@ -2259,7 +2260,7 @@ public class MewCodeModel implements Model {
 
                     // Compaction-aware rebuild: when the session has a
                     // compact_boundary, the live conversation is the compacted
-                    // state (summary + kept tail + messages appended after the
+                    // state (summary + recovery attachment + kept tail + messages appended after the
                     // boundary); the pre-compaction prefix stays in the file for
                     // audit but is not replayed. Without a boundary (old sessions)
                     // everything replays verbatim.
@@ -2267,7 +2268,12 @@ public class MewCodeModel implements Model {
                     var scan = SessionManager.findLastCompactBoundary(messages);
                     chatMessages.clear();
                     if (scan.found()) {
-                        chatMessages.add(new ChatMessage("user", scan.boundary().summary()));
+                        String compactedContext = scan.boundary().summary();
+                        if (scan.boundary().recoveryAttachment() != null
+                                && !scan.boundary().recoveryAttachment().isBlank()) {
+                            compactedContext += "\n\n---\n\n" + scan.boundary().recoveryAttachment();
+                        }
+                        chatMessages.add(new ChatMessage("user", compactedContext));
                         for (var k : scan.boundary().keep()) {
                             chatMessages.add(new ChatMessage(k.role(), k.content()));
                         }
@@ -2378,12 +2384,16 @@ public class MewCodeModel implements Model {
                     case 1 -> PermissionResponse.ALLOW_ALWAYS;
                     default -> PermissionResponse.DENY;
                 };
+                if (agent != null) agent.getRecoveryState().recordApproval(
+                        permToolName, response.name(), permDesc);
                 if (pendingPermission != null) pendingPermission.complete(response);
                 permDialog = false;
                 pendingPermission = null;
                 yield UpdateResult.from(this);
             }
             case "escape" -> {
+                if (agent != null) agent.getRecoveryState().recordApproval(
+                        permToolName, PermissionResponse.DENY.name(), permDesc);
                 if (pendingPermission != null) pendingPermission.complete(PermissionResponse.DENY);
                 permDialog = false;
                 pendingPermission = null;

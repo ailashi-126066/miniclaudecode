@@ -22,8 +22,8 @@ public class SessionManager {
     /**
      * TYPE_COMPACT_BOUNDARY marks a session record as a compaction boundary
      * rather than a plain conversation message. A boundary record's content
-     * holds a JSON blob (see {@link CompactBoundary}) carrying the summary text
-     * plus the recent tail (keep) preserved verbatim at compaction time. Plain
+     * holds a JSON blob (see {@link CompactBoundary}) carrying the summary text,
+     * recovery attachment, plus the recent tail (keep) preserved verbatim at compaction time. Plain
      * messages leave {@code type} null/empty, so old sessions and normal turns
      * are unaffected (append-only, backward-compatible).
      */
@@ -64,12 +64,17 @@ public class SessionManager {
 
     /**
      * Structured payload stored (as JSON) in the content of a boundary record.
-     * {@code summary} is the LLM-produced summary of the older prefix; {@code keep}
-     * is the recent tail kept verbatim. On resume the compacted state is rebuilt
-     * as: [user message = summary] + keep + any plain messages appended after the
-     * boundary.
+     * {@code summary} is the LLM-produced summary of the older prefix;
+     * {@code recoveryAttachment} preserves structured plan, verification, and approval state;
+     * {@code keep} is the recent tail kept verbatim. On resume the compacted state is rebuilt
+     * as: [user message = summary + attachment] + keep + any plain messages appended after the boundary.
      */
-    public record CompactBoundary(String summary, List<KeepMessage> keep) {}
+    public record CompactBoundary(String summary, String recoveryAttachment, List<KeepMessage> keep) {
+        /** Compatibility constructor for callers and old tests without an attachment. */
+        public CompactBoundary(String summary, List<KeepMessage> keep) {
+            this(summary, "", keep);
+        }
+    }
 
     /** Result of {@link #findLastCompactBoundary}: the boundary and the plain messages after it. */
     public record BoundaryScan(CompactBoundary boundary, List<SessionMessage> after, boolean found) {}
@@ -119,21 +124,33 @@ public class SessionManager {
 
     /**
      * Append a compaction boundary record so a later resume can rebuild the
-     * compacted state (summary + kept tail) instead of replaying the full
+     * compacted state (summary + recovery attachment + kept tail) instead of replaying the full
      * pre-compaction transcript. Append-only: the original prefix messages stay
      * in the file but won't be replayed past this boundary (see
-     * {@link #findLastCompactBoundary}). The summary + keep are inlined into the
+     * {@link #findLastCompactBoundary}). The summary + recovery attachment + keep are inlined into the
      * record's content as a {@link CompactBoundary} JSON blob. No-op when
      * workDir/sessionId is null/blank (tests, one-shot callers).
      */
     public static void saveCompactBoundary(String workDir, String sessionId,
                                            String summary, List<KeepMessage> keep) {
+        saveCompactBoundary(workDir, sessionId, summary, "", keep);
+    }
+
+    /**
+     * Saves a compact boundary with the recovery attachment that was visible to
+     * the model immediately after compaction. Keeping it in JSONL means a later
+     * resume retains structured plan, verification, and approval context too.
+     */
+    public static void saveCompactBoundary(String workDir, String sessionId,
+                                           String summary, String recoveryAttachment,
+                                           List<KeepMessage> keep) {
         if (workDir == null || workDir.isBlank() || sessionId == null || sessionId.isBlank()) {
             return;
         }
         try {
             String blob = MAPPER.writeValueAsString(
-                    new CompactBoundary(summary, keep == null ? List.of() : keep));
+                    new CompactBoundary(summary, recoveryAttachment == null ? "" : recoveryAttachment,
+                            keep == null ? List.of() : keep));
             saveRecord(workDir, sessionId, "system", TYPE_COMPACT_BOUNDARY, blob, null);
         } catch (JsonProcessingException ignored) {
             // best-effort: a failed boundary just means the next resume replays
@@ -254,6 +271,9 @@ public class SessionManager {
         // as autoCompact, so the model sees a consistent context header on resume.
         String resumeSummary = "本次会话延续自之前的对话，因上下文空间不足进行了压缩。以下是早期对话的摘要：\n\n"
                 + scan.boundary().summary();
+        if (scan.boundary().recoveryAttachment() != null && !scan.boundary().recoveryAttachment().isBlank()) {
+            resumeSummary += "\n\n---\n\n" + scan.boundary().recoveryAttachment();
+        }
         if (!scan.boundary().keep().isEmpty()) {
             resumeSummary += "\n\n近期消息已原样保留。";
         }
