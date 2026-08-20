@@ -43,7 +43,8 @@ public class MemoryConsolidator {
     private static final int MAX_ENTRYPOINT_LINES = 200;
 
     private final String workDir;
-    private final Path memDir;
+    private final Path userMemDir;
+    private final Path projectMemDir;
     private final int minHours;
     private final int minSessions;
     private long lastScanAt;
@@ -54,7 +55,8 @@ public class MemoryConsolidator {
 
     public MemoryConsolidator(String workDir, int minHours, int minSessions) {
         this.workDir = workDir;
-        this.memDir = Path.of(System.getProperty("user.home"), ".mewcode", "memory");
+        this.userMemDir = Path.of(System.getProperty("user.home"), ".mewcode", "memory");
+        this.projectMemDir = Path.of(workDir, ".mewcode", "memory");
         this.minHours = minHours;
         this.minSessions = minSessions;
     }
@@ -64,7 +66,7 @@ public class MemoryConsolidator {
      * 每轮 Agent Loop 完成后调用。
      */
     public void maybeRun(LlmClient client, ConversationManager conversation, String protocol) {
-        if (!Files.isDirectory(memDir)) return;
+        if (!Files.isDirectory(userMemDir) && !Files.isDirectory(projectMemDir)) return;
 
         // 时间门
         long lastAt = readLastConsolidatedAt();
@@ -102,7 +104,8 @@ public class MemoryConsolidator {
     private void run(LlmClient client, ConversationManager conversation,
                      String protocol, List<String> sessionIds) {
         Path transcriptDir = Path.of(workDir, ".mewcode", "sessions");
-        String prompt = buildConsolidationPrompt(memDir.toString(), transcriptDir.toString(), sessionIds);
+        String prompt = buildConsolidationPrompt(
+                userMemDir.toString(), projectMemDir.toString(), transcriptDir.toString(), sessionIds);
 
         // 构建子 Agent 的工具注册表
         ToolRegistry registry = new ToolRegistry();
@@ -145,7 +148,7 @@ public class MemoryConsolidator {
     // --- 锁文件管理 ---
 
     private Path lockPath() {
-        return memDir.resolve(LOCK_FILE);
+        return projectMemDir.resolve(LOCK_FILE);
     }
 
     private long readLastConsolidatedAt() {
@@ -179,7 +182,7 @@ public class MemoryConsolidator {
         }
 
         try {
-            Files.createDirectories(memDir);
+            Files.createDirectories(projectMemDir);
             Files.writeString(path, String.valueOf(ProcessHandle.current().pid()));
         } catch (IOException e) {
             return null;
@@ -226,19 +229,21 @@ public class MemoryConsolidator {
 
     // --- Prompt ---
 
-    private String buildConsolidationPrompt(String memDirStr, String transcriptDir, List<String> sessionIds) {
+    private String buildConsolidationPrompt(String userMemDirStr, String projectMemDirStr,
+                                            String transcriptDir, List<String> sessionIds) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Dream: Memory Consolidation\n\n");
         sb.append("You are performing a dream — a reflective pass over your memory files. ");
         sb.append("Synthesize what you've learned recently into durable, well-organized ");
         sb.append("memories so that future sessions can orient quickly.\n\n");
-        sb.append(String.format("User memory directory: `%s`\n", memDirStr));
-        sb.append("Only user.md and feedback.md are durable-memory files. Project knowledge belongs in AGENTS.md, MEWCODE.md, docs, or source.\n\n");
+        sb.append(String.format("User memory directory: `%s`\n", userMemDirStr));
+        sb.append(String.format("Project memory directory: `%s`\n\n", projectMemDirStr));
         sb.append(String.format("Session transcripts: `%s` (large JSONL files — grep narrowly, don't read whole files)\n\n", transcriptDir));
         sb.append("---\n\n");
         sb.append("## Phase 1 — Orient\n\n");
-        sb.append("- `ls` the memory directory to see what already exists\n");
-        sb.append("- Read `user.md` and `feedback.md` before changing them\n");
+        sb.append("- `ls` both memory directories to see what already exists\n");
+        sb.append("- Read `user.md`, `feedback.md`, and `project.md` before changing them\n");
+        sb.append("- Keep user preferences in user.md, collaboration corrections in feedback.md, and durable repository facts in project.md\n");
         sb.append("- Update an existing `## memory-name` section rather than creating a new file\n\n");
         sb.append("## Phase 2 — Gather recent signal\n\n");
         sb.append("Look for new information worth persisting:\n\n");
@@ -248,14 +253,14 @@ public class MemoryConsolidator {
         sb.append("Use verified evidence to refine an inference; do not promote an unverified inference to a fact.\n\n");
         sb.append("Don't exhaustively read transcripts. Look only for things you already suspect matter.\n\n");
         sb.append("## Phase 3 — Consolidate\n\n");
-        sb.append("For each thing worth remembering, append or update a `## memory-name` section in user.md or feedback.md. ");
+        sb.append("For each thing worth remembering, append or update a `## memory-name` section in user.md, feedback.md, or project.md. ");
         sb.append("Keep its `### ACE` section: Evidence, Inference, and Verification stay separate before the durable-memory conclusion.\n\n");
         sb.append("Focus on:\n");
         sb.append("- Merging new signal into existing topic files rather than creating near-duplicates\n");
         sb.append("- Converting relative dates (\"yesterday\", \"last week\") to absolute dates\n");
         sb.append("- Deleting contradicted facts — if today's investigation disproves an old memory, fix it at the source\n\n");
         sb.append("## Phase 4 — Prune and index\n\n");
-        sb.append("Keep user.md and feedback.md concise. Merge duplicate sections and remove stale claims.\n");
+        sb.append("Keep user.md, feedback.md, and project.md concise. Merge duplicate sections and remove stale claims.\n");
         sb.append("Resolve contradictions inside the existing section instead of adding another file.\n\n");
         sb.append("---\n\n");
         sb.append("**Tool constraints for this run:** Bash is restricted to read-only commands ");

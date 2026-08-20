@@ -30,16 +30,21 @@ public class MemoryManager {
     private static final int EXTRACTION_INTERVAL = 1;
     private static final String MEMORY_DIR = ".mewcode/memory";
 
-    /** Only user-scoped categories remain. Each category maps to one Markdown file. */
+    /** User-scoped categories are shared across workspaces. */
     private static final Set<String> USER_TYPES = Set.of("user", "feedback");
+    /** Project-scoped facts are stored with the workspace. */
+    private static final Set<String> PROJECT_TYPES = Set.of("project");
+    private static final Set<String> MEMORY_TYPES = Set.of("user", "feedback", "project");
 
     private final Path userMemDirPath;
+    private final Path projectMemDirPath;
     private int turnCount;
 
     public MemoryManager(String workDir) {
         this.userMemDirPath = Path.of(System.getProperty("user.home"), MEMORY_DIR);
-        // Ensure the user memory directory exists for category files.
+        this.projectMemDirPath = Path.of(workDir, MEMORY_DIR);
         ensureDir(userMemDirPath);
+        ensureDir(projectMemDirPath);
     }
 
     // ---- Directory accessors (for memory recall) ----
@@ -47,6 +52,11 @@ public class MemoryManager {
     /** 返回用户级记忆目录（~/.mewcode/memory/） */
     public Path userMemDir() {
         return userMemDirPath;
+    }
+
+    /** Returns the project-scoped memory directory ({@code .mewcode/memory/}). */
+    public Path projectMemDir() {
+        return projectMemDirPath;
     }
 
     // ---- Accessors ----
@@ -58,6 +68,11 @@ public class MemoryManager {
     public List<String> getMemories() {
         var out = new ArrayList<String>();
         for (String type : USER_TYPES) {
+            for (CategoryEntry entry : readCategoryEntries(type)) {
+                out.add("[%s] %s — %s".formatted(type, entry.name(), entry.description()));
+            }
+        }
+        for (String type : PROJECT_TYPES) {
             for (CategoryEntry entry : readCategoryEntries(type)) {
                 out.add("[%s] %s — %s".formatted(type, entry.name(), entry.description()));
             }
@@ -77,6 +92,9 @@ public class MemoryManager {
         for (String type : USER_TYPES) {
             try { Files.deleteIfExists(categoryPath(type)); } catch (IOException ignored) {}
         }
+        for (String type : PROJECT_TYPES) {
+            try { Files.deleteIfExists(categoryPath(type)); } catch (IOException ignored) {}
+        }
     }
 
     // ---- Memory file record ----
@@ -90,11 +108,12 @@ public class MemoryManager {
      */
     List<MemoryFile> loadAll() {
         var out = new ArrayList<MemoryFile>();
-        out.addAll(loadDir(userMemDirPath));
+        out.addAll(loadDir(userMemDirPath, USER_TYPES));
+        out.addAll(loadDir(projectMemDirPath, PROJECT_TYPES));
         return out;
     }
 
-    private static List<MemoryFile> loadDir(Path dir) {
+    private static List<MemoryFile> loadDir(Path dir, Set<String> supportedTypes) {
         if (dir == null || !Files.isDirectory(dir)) {
             return List.of();
         }
@@ -103,7 +122,7 @@ public class MemoryManager {
             mdFiles = stream.filter(Files::isRegularFile)
                     .filter(p -> {
                         String n = p.getFileName().toString();
-                        return USER_TYPES.contains(n.replaceFirst("\\.md$", ""));
+                        return supportedTypes.contains(n.replaceFirst("\\.md$", ""));
                     })
                     .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                     .toList();
@@ -133,12 +152,13 @@ public class MemoryManager {
     // ---- Build system-reminder section ----
 
     /**
-     * Builds a small reminder pointing at the two user-memory category files.
+     * Builds a small reminder pointing at the user and project memory files.
      */
     public String buildSystemReminder() {
         ensureDir(userMemDirPath);
+        ensureDir(projectMemDirPath);
 
-        var paths = USER_TYPES.stream().map(this::categoryPath).filter(Files::isRegularFile).toList();
+        var paths = MEMORY_TYPES.stream().map(this::categoryPath).filter(Files::isRegularFile).toList();
         if (paths.isEmpty()) return "";
         var sb = new StringBuilder("# auto memory\n\n");
         for (Path path : paths) sb.append("- ").append(path).append('\n');
@@ -191,7 +211,7 @@ public class MemoryManager {
                 "Analyze the conversation below and extract memories worth saving.\n\n"
                 + "For each memory, output in this exact format:\n"
                 + "MEMORY_NAME: <kebab-case-name>\n"
-                + "MEMORY_TYPE: <user|feedback>\n"
+                + "MEMORY_TYPE: <user|feedback|project>\n"
                 + "MEMORY_DESC: <one-line description>\n"
                 + "ACE_EVIDENCE: <one-line observed fact, user statement, or tool output>\n"
                 + "ACE_INFERENCE: <one-line conclusion derived from the evidence>\n"
@@ -200,9 +220,10 @@ public class MemoryManager {
                 + "---\n\n"
                 + "Types:\n"
                 + "- user: user preferences, role, and long-term habits\n"
-                + "- feedback: corrections and validated collaboration rules\n\n"
+                + "- feedback: corrections and validated collaboration rules\n"
+                + "- project: durable repository-specific decisions, invariants, and conventions\n\n"
                 + "What NOT to save:\n"
-                + "- Code patterns derivable from reading the project\n"
+                + "- Transient code details that are cheaper to re-read from source\n"
                 + "- Git history, debugging solutions\n"
                 + "- Ephemeral task details\n\n"
                 + "Keep evidence, inference, and verification distinct. Never present an unverified inference as evidence. "
@@ -237,7 +258,7 @@ public class MemoryManager {
             String desc = extractField(block, "MEMORY_DESC");
             String body = extractField(block, "MEMORY_BODY");
             if (name.isEmpty() || body.isEmpty()) continue;
-            if (!USER_TYPES.contains(type)) continue;
+            if (!MEMORY_TYPES.contains(type)) continue;
 
             var ace = new AceBullet(
                     extractField(block, "ACE_EVIDENCE"),
@@ -268,10 +289,19 @@ public class MemoryManager {
         }
     }
 
-    private Path categoryPath(String type) { return userMemDirPath.resolve(type + ".md"); }
+    private Path categoryPath(String type) {
+        return PROJECT_TYPES.contains(type)
+                ? projectMemDirPath.resolve(type + ".md")
+                : userMemDirPath.resolve(type + ".md");
+    }
 
     private static String categoryHeader(String type) {
-        String title = "user".equals(type) ? "User memories" : "Feedback memories";
+        String title = switch (type) {
+            case "user" -> "User memories";
+            case "feedback" -> "Feedback memories";
+            case "project" -> "Project memories";
+            default -> "Memories";
+        };
         return "---\nname: %s\ndescription: %s\nmetadata:\n  type: %s\n---\n\n# %s\n\n"
                 .formatted(type, title, type, title);
     }

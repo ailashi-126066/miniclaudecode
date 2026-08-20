@@ -206,6 +206,7 @@ public class RemoteServer {
         // 记忆管理
         memoryManager = new MemoryManager(workDir);
         instructionsContent = MemoryManager.loadInstructions(workDir);
+        memoryContent = memoryManager.buildSystemReminder();
 
         // 构建系统提示词
         var env = PromptBuilder.detectEnvironment(providerCfg.getModel());

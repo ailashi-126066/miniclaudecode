@@ -1691,6 +1691,7 @@ public class MewCodeModel implements Model {
         }
         var provider = selectedProvider;
         var userDir = memoryManager.userMemDir();
+        var projectDir = memoryManager.projectMemDir();
 
         return CompletableFuture.supplyAsync(() -> {
             MemoryRecall.SelectorFn selector = (systemPrompt, userMessage) -> {
@@ -1711,7 +1712,7 @@ public class MewCodeModel implements Model {
                 return sb.toString();
             };
             var results = MemoryRecall.findRelevantMemories(
-                    query, userDir, null, null, selector);
+                    query, userDir, projectDir, null, null, selector);
             return MemoryRecall.renderReminder(results);
         }, runnable -> {
             // Run on a virtual thread with 8s timeout.

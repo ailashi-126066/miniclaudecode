@@ -147,6 +147,7 @@ public class PrintMode {
         Agent agent = new Agent(client, registry, protocol, providerCfg);
         agent.setFileHistory(fileHistory);
         agent.setInstructions(instructionsContent);
+        agent.setMemoryContent(memoryManager.buildSystemReminder());
         agent.setChecker(permChecker);
         agent.setWorkDir(workDir);
         agent.setSessionId(sessionId);

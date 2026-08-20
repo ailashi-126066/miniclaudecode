@@ -52,29 +52,20 @@ public class Agent {
     private String instructions = "";
     private String memoryContent = "";
 
-    // 非阻塞 memory recall：prefetch 与主 LLM 调用并行，工具执行后注入
-    private CompletableFuture<String> memoryRecallFuture;
-    private boolean memoryRecallConsumed;
-    private final com.mewcode.compact.ContextCompactor.AutoCompactTrackingState compactTracking =
-            new com.mewcode.compact.ContextCompactor.AutoCompactTrackingState();
-
     /**
-     * Real API-usage anchor for the compaction decision. Refreshed after each
-     * stream ends with the provider-reported usage; null until the first turn
-     * reports usage, so the compactor falls back to character estimation on a
-     * cold start. See {@link com.mewcode.compact.ContextCompactor.UsageAnchor}.
+     * Conversation-scoped state shared by every iteration: conversation,
+     * compaction anchors, recovery data, tool-result decisions, retries,
+     * usage, and asynchronous memory recall.
      */
-    private com.mewcode.compact.ContextCompactor.UsageAnchor usageAnchor;
+    private final AgentLoopState loopState = new AgentLoopState();
 
     /**
      * Per-conversation-thread tool-result decision log. Carries across
      * iterations so Anthropic's prompt cache sees byte-stable prefixes.
      * Forks (see {@code AgentTool}) clone this for their child agent.
      */
-    private ContentReplacementState replacementState = new ContentReplacementState();
-
-    public ContentReplacementState getReplacementState() { return replacementState; }
-    public void setReplacementState(ContentReplacementState state) { this.replacementState = state; }
+    public ContentReplacementState getReplacementState() { return loopState.replacementState; }
+    public void setReplacementState(ContentReplacementState state) { loopState.replacementState = state; }
 
     /**
      * Holds the snapshots needed to rebuild working context after Layer 2
@@ -82,10 +73,7 @@ public class Agent {
      * Recorded on each ReadFile / skill call; consumed by ContextCompactor
      * when the threshold trips.
      */
-    private final com.mewcode.compact.RecoveryState recoveryState =
-            new com.mewcode.compact.RecoveryState();
-
-    public com.mewcode.compact.RecoveryState getRecoveryState() { return recoveryState; }
+    public com.mewcode.compact.RecoveryState getRecoveryState() { return loopState.recoveryState; }
 
     private com.mewcode.filehistory.FileHistory fileHistory;
     public void setFileHistory(com.mewcode.filehistory.FileHistory fh) { this.fileHistory = fh; }
@@ -114,8 +102,7 @@ public class Agent {
     public void setInstructions(String instructions) { this.instructions = instructions; }
     public void setMemoryContent(String memoryContent) { this.memoryContent = memoryContent; }
     public void setMemoryRecallFuture(CompletableFuture<String> future) {
-        this.memoryRecallFuture = future;
-        this.memoryRecallConsumed = false;
+        loopState.setMemoryRecallFuture(future);
     }
     public HookEngine getHookEngine() { return hookEngine; }
 
@@ -129,14 +116,16 @@ public class Agent {
     public void run(ConversationManager conv, BlockingQueue<AgentEvent> queue) {
         Thread.startVirtualThread(() -> {
             try {
-                agentLoop(conv, queue);
+                loopState.beginRun(conv);
+                agentLoop(loopState, queue);
             } catch (Exception e) {
                 putSafe(queue, new AgentEvent.ErrorEvent("Agent error: " + e.getMessage()));
             }
         });
     }
 
-    private void agentLoop(ConversationManager conv, BlockingQueue<AgentEvent> queue) {
+    private void agentLoop(AgentLoopState state, BlockingQueue<AgentEvent> queue) {
+        ConversationManager conv = state.conversation;
         ensureLongTermMemory(conv);
         if (workDir != null) {
             var activePlan = new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(workDir)).load();
@@ -146,17 +135,10 @@ public class Agent {
                             "\nUse CompletePlanStep or FailPlanStep to record each outcome."));
         }
 
-        int totalInput = 0, totalOutput = 0;
-        int outputRecoveries = 0;
-        boolean maxTokensEscalated = false;
-
-        int contextRetries = 0;
-        int rateLimitRetries = 0;
-        boolean loopCompleted = false;
-
         try {
-        for (int iteration = 1; ; iteration++) {
-            if (maxIterations > 0 && iteration > maxIterations) {
+        while (!state.loopCompleted) {
+            state.iteration++;
+            if (maxIterations > 0 && state.iteration > maxIterations) {
                 putSafe(queue, new AgentEvent.ErrorEvent(
                         "Agent reached maximum iterations (%d)".formatted(maxIterations)));
                 break;
@@ -203,13 +185,13 @@ public class Agent {
                 String planPath = PlanFile.getOrCreatePlanPath(wd);
                 checker.setPlanFilePath(planPath);
                 boolean planExists = PlanFile.planExists();
-                String reminder = PlanModePrompt.buildReminder(planPath, planExists, iteration);
+                String reminder = PlanModePrompt.buildReminder(planPath, planExists, state.iteration);
                 conv.addSystemReminder(reminder);
             }
 
             // Layer 1: apply tool-result budget（就地修改 conv，Design A）
             Path sessionDir = Paths.get(workDir == null ? "." : workDir, ".mewcode/session");
-            List<ContentReplacementRecord> newRecords = ToolResultBudget.apply(conv, sessionDir, replacementState);
+            List<ContentReplacementRecord> newRecords = ToolResultBudget.apply(conv, sessionDir, state.replacementState);
             if (!newRecords.isEmpty()) {
                 try {
                     ReplacementRecordsIO.append(sessionDir, newRecords);
@@ -222,24 +204,24 @@ public class Agent {
                 String wd = workDir != null ? workDir : System.getProperty("user.dir");
                 int sizeBefore = conv.size();
                 String compactMsg = com.mewcode.compact.ContextCompactor.manage(
-                        conv, client, contextWindow, maxOutput, wd, sessionId, compactTracking,
-                        recoveryState, iterToolSchemas, usageAnchor,
+                        conv, client, contextWindow, maxOutput, wd, sessionId, state.compactTracking,
+                        state.recoveryState, iterToolSchemas, state.usageAnchor,
                         conv.getMessages());
                 if (compactMsg != null && !compactMsg.isEmpty()) {
                     putSafe(queue, new AgentEvent.CompactEvent(compactMsg));
                 }
                 // 压缩把旧消息替换成摘要，旧锚点失效，下次 stream 重新锚定
                 if (conv.size() < sizeBefore) {
-                    usageAnchor = null;
+                    state.usageAnchor = null;
                     ensureLongTermMemory(conv);
                     // 压缩后 conv 已变，重新应用 tool-result budget
-                    newRecords = ToolResultBudget.apply(conv, sessionDir, replacementState);
+                    newRecords = ToolResultBudget.apply(conv, sessionDir, state.replacementState);
                 }
             } catch (Exception ignored) {}
 
             var tools = iterToolSchemas;
             var streamQueue = client.stream(conv, tools);
-            lastStreamException = null;
+            state.lastStreamException = null;
 
             // Consume stream events, collect tool calls
             var text = new StringBuilder();
@@ -291,7 +273,7 @@ public class Agent {
                         turnCacheCreation = se.cacheCreationTokens();
                     }
                     case StreamEvent.Error err -> {
-                        lastStreamException = err.exception();
+                        state.lastStreamException = err.exception();
                         putSafe(queue, new AgentEvent.ErrorEvent(err.message()));
                         streamError = true;
                     }
@@ -303,11 +285,11 @@ public class Agent {
             // Error recovery: branch on the typed LLM failure instead of
             // parsing human-readable provider messages.
             if (streamError) {
-                var error = lastStreamException;
+                var error = state.lastStreamException;
 
                 if (error instanceof LlmException.ContextTooLongException) {
-                    if (contextRetries < 3) {
-                        contextRetries++;
+                    if (state.contextRetries < 3) {
+                        state.contextRetries++;
                         putSafe(queue, new AgentEvent.RetryEvent(
                                 "Context too long, compacting...", 0));
                         // Apply the result budget before compacting the context.
@@ -316,7 +298,7 @@ public class Agent {
                                 ".mewcode/session");
                         List<ContentReplacementRecord> forceRecords =
                                 ToolResultBudget.apply(
-                                        conv, forceSessionDir, replacementState);
+                                        conv, forceSessionDir, state.replacementState);
                         if (!forceRecords.isEmpty()) {
                             try {
                                 ReplacementRecordsIO.append(forceSessionDir, forceRecords);
@@ -330,7 +312,7 @@ public class Agent {
                                     : System.getProperty("user.dir");
                             com.mewcode.compact.ContextCompactor.forceCompact(
                                     conv, client, contextWindow, wdForce, sessionId,
-                                    recoveryState, iterToolSchemas,
+                                    state.recoveryState, iterToolSchemas,
                                     conv.getMessages());
                         } catch (Exception ignored) {
                         }
@@ -338,7 +320,7 @@ public class Agent {
                         // tail), so the prior anchor's message count no longer
                         // lines up; drop it and re-anchor on the next stream.
                         if (conv.size() < sizeBeforeForce) {
-                            usageAnchor = null;
+                            state.usageAnchor = null;
                             ensureLongTermMemory(conv);
                         }
                         continue;
@@ -346,10 +328,10 @@ public class Agent {
                 }
 
                 if (error instanceof LlmException.RateLimitException rateLimit
-                        && rateLimitRetries < 3) {
-                    rateLimitRetries++;
+                        && state.rateLimitRetries < 3) {
+                    state.rateLimitRetries++;
                     long waitMs = retryDelayMillis(
-                            rateLimit.getRetryAfter(), rateLimitRetries);
+                            rateLimit.getRetryAfter(), state.rateLimitRetries);
                     putSafe(queue, new AgentEvent.RetryEvent(
                             "Rate limited, retrying...", waitMs));
                     try {
@@ -366,15 +348,15 @@ public class Agent {
             }
 
             // A successful stream resets the bounded rate-limit retry budget.
-            rateLimitRetries = 0;
-            totalInput += turnInput;
-            totalOutput += turnOutput;
-            putSafe(queue, new AgentEvent.UsageEvent(totalInput, totalOutput));
+            state.rateLimitRetries = 0;
+            state.totalInputTokens += turnInput;
+            state.totalOutputTokens += turnOutput;
+            putSafe(queue, new AgentEvent.UsageEvent(state.totalInputTokens, state.totalOutputTokens));
 
             // Max tokens handling
             if ("max_tokens".equals(stopReason)) {
-                if (!maxTokensEscalated) {
-                    maxTokensEscalated = true;
+                if (!state.maxTokensEscalated) {
+                    state.maxTokensEscalated = true;
                     client.setMaxOutputTokens(MAX_TOKENS_CEILING);
                     if (!text.isEmpty()) {
                         conv.addAssistantFull(text.toString(), thinkingBlocks, List.of());
@@ -382,17 +364,17 @@ public class Agent {
                     }
                     putSafe(queue, new AgentEvent.RetryEvent("max_tokens escalation", 0));
                     continue;
-                } else if (outputRecoveries < MAX_OUTPUT_RECOVERIES) {
-                    outputRecoveries++;
+                } else if (state.outputRecoveries < MAX_OUTPUT_RECOVERIES) {
+                    state.outputRecoveries++;
                     conv.addAssistantFull(text.toString(), thinkingBlocks, List.of());
                     conv.addUserMessage("Output token limit hit. Resume directly from where you stopped. Break remaining work into smaller pieces.");
                     putSafe(queue, new AgentEvent.RetryEvent(
-                            "max_tokens recovery %d/%d".formatted(outputRecoveries, MAX_OUTPUT_RECOVERIES), 0));
+                            "max_tokens recovery %d/%d".formatted(state.outputRecoveries, MAX_OUTPUT_RECOVERIES), 0));
                     continue;
                 }
                 // Exhausted: fall through to normal completion
             } else {
-                outputRecoveries = 0;
+                state.outputRecoveries = 0;
             }
 
             // Save assistant message to conversation
@@ -410,7 +392,7 @@ public class Agent {
             // raw character estimate.
             if (turnInput > 0 || turnOutput > 0 || turnCacheRead > 0 || turnCacheCreation > 0) {
                 int baseline = turnInput + turnCacheRead + turnCacheCreation + turnOutput;
-                usageAnchor = new com.mewcode.compact.ContextCompactor.UsageAnchor(
+                state.usageAnchor = new com.mewcode.compact.ContextCompactor.UsageAnchor(
                         baseline, conv.size());
             }
 
@@ -425,13 +407,13 @@ public class Agent {
                 // handler flushes+clears streamBuf without persisting; if we emitted
                 // it first, LoopComplete would see an empty buffer and the final
                 // assistant message would never be saved to the session file.
-                putSafe(queue, new AgentEvent.LoopComplete(iteration));
-                loopCompleted = true;
+                putSafe(queue, new AgentEvent.LoopComplete(state.iteration));
+                state.loopCompleted = true;
                 break;
             }
 
             // Execute tool calls
-            var executor = new StreamingExecutor(registry, checker, hookEngine, queue, recoveryState,
+            var executor = new StreamingExecutor(registry, checker, hookEngine, queue, state.recoveryState,
                     java.nio.file.Path.of(workDir == null ? "." : workDir), sessionId);
             var callInfos = toolCalls.stream()
                     .map(tc -> new StreamingExecutor.ToolCallInfo(tc.toolId, tc.toolName, tc.args))
@@ -446,15 +428,15 @@ public class Agent {
 
             // 非阻塞 memory recall：工具执行完后检查 prefetch 是否就绪
             // 记忆在第 1 轮工具执行后、第 2 轮迭代前注入
-            if (memoryRecallFuture != null && !memoryRecallConsumed) {
-                if (memoryRecallFuture.isDone()) {
+            if (state.memoryRecallFuture != null && !state.memoryRecallConsumed) {
+                if (state.memoryRecallFuture.isDone()) {
                     try {
-                        String recall = memoryRecallFuture.getNow("");
+                        String recall = state.memoryRecallFuture.getNow("");
                         if (recall != null && !recall.isEmpty()) {
                             conv.addSystemReminder(recall);
                         }
                     } catch (Exception ignored) {}
-                    memoryRecallConsumed = true;
+                    state.memoryRecallConsumed = true;
                 }
             }
 
@@ -462,16 +444,16 @@ public class Agent {
                     && toolCalls.stream().anyMatch(call -> "ExitPlanMode".equals(call.toolName)
                     && call.toolId.equals(result.toolId())));
             if (exitPlanSucceeded) {
-                putSafe(queue, new AgentEvent.TurnComplete(iteration));
-                putSafe(queue, new AgentEvent.LoopComplete(iteration));
-                loopCompleted = true;
+                putSafe(queue, new AgentEvent.TurnComplete(state.iteration));
+                putSafe(queue, new AgentEvent.LoopComplete(state.iteration));
+                state.loopCompleted = true;
                 break;
             }
 
-            putSafe(queue, new AgentEvent.TurnComplete(iteration));
+            putSafe(queue, new AgentEvent.TurnComplete(state.iteration));
         }
         } finally {
-            if (!loopCompleted) {
+            if (!state.loopCompleted) {
                 putSafe(queue, new AgentEvent.LoopComplete(0));
             }
         }
@@ -486,8 +468,6 @@ public class Agent {
         conv.resetLtmInjected();
         conv.injectLongTermMemory(instructions, memoryContent);
     }
-
-    private LlmException lastStreamException;
 
     private static long retryDelayMillis(String retryAfter, int attempt) {
         if (retryAfter != null && !retryAfter.isBlank()) {
