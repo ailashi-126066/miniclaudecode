@@ -7,66 +7,31 @@ package com.mewcode.plan;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 /**
  * Manages plan files stored under {@code .mewcode/plans/} in the working
  * directory.
  * <p>
- * A plan slug is generated from word lists and a timestamp, and the
- * singleton plan path is cached for the lifetime of the process.
+ * Plan Mode and structured plans share the same {@code active.md} file.
  */
 public class PlanFile {
 
     private static final String PLANS_DIR = ".mewcode/plans";
 
-    private static final String[] ADJECTIVES = {
-            "bright", "calm", "bold", "swift", "quiet",
-            "vivid", "clear", "keen", "warm", "cool",
-            "sharp", "light", "deep", "pure", "soft",
-    };
-
-    private static final String[] NOUNS = {
-            "plan", "draft", "design", "sketch", "blueprint",
-            "outline", "strategy", "approach", "scheme", "map",
-            "vision", "path", "route", "guide", "frame",
-    };
-
     private static String currentPlanPath;
 
     // ── Slug generation ─────────────────────────────────────────────────
 
-    /**
-     * Generates a human-friendly slug such as {@code bold-sketch-0515-1423}.
-     * Uses the current nanosecond timestamp modulo the word-list lengths,
-     * matching the Go implementation's selection logic.
-     */
-    public static String generateSlug() {
-        long nanos = System.nanoTime();
-        int ai = (int) ((nanos / 1000) % ADJECTIVES.length);
-        int ni = (int) ((nanos / 100) % NOUNS.length);
-        if (ai < 0) ai += ADJECTIVES.length;
-        if (ni < 0) ni += NOUNS.length;
-        String timestamp = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("MMdd-HHmm"));
-        return ADJECTIVES[ai] + "-" + NOUNS[ni] + "-" + timestamp;
-    }
-
     // ── Path management ─────────────────────────────────────────────────
 
     public static String getOrCreatePlanPath(String workDir) {
-        if (currentPlanPath != null) {
-            return currentPlanPath;
-        }
         Path dir = Path.of(workDir, PLANS_DIR);
         try {
             Files.createDirectories(dir);
         } catch (IOException ignored) {
             // best effort
         }
-        String slug = generateSlug();
-        currentPlanPath = dir.resolve(slug + ".md").toString();
+        currentPlanPath = dir.resolve("active.md").toString();
         return currentPlanPath;
     }
 

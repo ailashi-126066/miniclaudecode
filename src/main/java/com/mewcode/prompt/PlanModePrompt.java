@@ -21,9 +21,8 @@ public final class PlanModePrompt {
 
             ## Plan File Info:
             %s
-            You should build your plan incrementally by writing to or editing this file. NOTE that this \
-            is the only file you are allowed to edit - other than this you are only allowed to take \
-            READ-ONLY actions.
+            This file is managed by CreatePlan, CompletePlanStep, and FailPlanStep. Do not replace it with \
+            WriteFile or EditFile. Other than CreatePlan, you may only take READ-ONLY actions.
 
             ## Plan Workflow
 
@@ -75,7 +74,7 @@ public final class PlanModePrompt {
             3. Use AskUserQuestion to clarify any remaining questions with the user
 
             ### Phase 4: Final Plan
-            Goal: Write your final plan to the plan file (the only file you can edit).
+            Goal: Call CreatePlan to write your final structured plan to the plan file.
             - Begin with a **Context** section: explain why this change is being made -- the problem or \
             need it addresses, what prompted it, and the intended outcome
             - Include only your recommended approach, not all alternatives
@@ -89,7 +88,7 @@ public final class PlanModePrompt {
             ### Phase 5: Call ExitPlanMode
             At the very end of your turn, once you have asked the user questions and are happy with your \
 
-            final plan file - you should always call ExitPlanMode to indicate to the user that you are \
+            final structured plan - you should always call ExitPlanMode to indicate to the user that you are \
             done planning.
             This is critical - your turn should only end with either using the AskUserQuestion tool OR \
             calling ExitPlanMode. Do not stop unless it's for these 2 reasons

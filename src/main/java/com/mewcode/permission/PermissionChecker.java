@@ -164,12 +164,6 @@ public class PermissionChecker {
             if (PLAN_MODE_ALLOWED_TOOLS.contains(toolName)) {
                 return CheckResult.allow();
             }
-            if ("WriteFile".equals(toolName) || "EditFile".equals(toolName)) {
-                String path = stringArg(args, "file_path", "");
-                if (path.contains(".mewcode/plans/")) {
-                    return CheckResult.allow();
-                }
-            }
         }
 
         // Layer 1: Safe commands (auto-allow)

@@ -42,6 +42,23 @@ class ContextCompactorTest {
         public void setSystemPrompt(String prompt) {}
     }
 
+    private static final class CapturingSummaryClient implements LlmClient {
+        private String summaryPrompt;
+
+        @Override
+        public BlockingQueue<StreamEvent> stream(ConversationManager conv,
+                                                 List<Map<String, Object>> tools) {
+            summaryPrompt = conv.getMessages().get(0).getContent();
+            BlockingQueue<StreamEvent> q = new LinkedBlockingQueue<>();
+            q.add(new StreamEvent.TextDelta("<summary>old chat summarized</summary>"));
+            q.add(new StreamEvent.StreamEnd("end_turn", 0, 0));
+            return q;
+        }
+
+        @Override
+        public void setSystemPrompt(String prompt) {}
+    }
+
     @Test
     void estimateTokensEmpty() {
         assertEquals(0, ContextCompactor.estimateTokens(List.of()));
@@ -205,6 +222,27 @@ class ContextCompactorTest {
     }
 
     @Test
+    void compactKeepsLongTermMemoryButDoesNotSendItToSummaryModel() {
+        ConversationManager conv = new ConversationManager();
+        conv.injectLongTermMemory("PROJECT_RULE_DO_NOT_SUMMARIZE", "MEMORY_DO_NOT_SUMMARIZE");
+        for (int i = 0; i < 12; i++) {
+            conv.addUserMessage("old question " + i + " " + "x".repeat(200));
+            conv.addAssistantMessage("old answer " + i + " " + "y".repeat(200));
+        }
+
+        CapturingSummaryClient client = new CapturingSummaryClient();
+        String result = ContextCompactor.forceCompact(conv, client, 100_000, null, null);
+
+        assertFalse(result.isEmpty());
+        assertNotNull(client.summaryPrompt);
+        assertFalse(client.summaryPrompt.contains("PROJECT_RULE_DO_NOT_SUMMARIZE"));
+        assertFalse(client.summaryPrompt.contains("MEMORY_DO_NOT_SUMMARIZE"));
+        assertTrue(ConversationManager.isLongTermMemoryMessage(conv.getMessages().get(0)));
+        assertEquals(1, conv.getMessages().stream()
+                .filter(ConversationManager::isLongTermMemoryMessage).count());
+    }
+
+    @Test
     void compactDoesNotSplitToolUseToolResultPair() {
         ConversationManager conv = new ConversationManager();
         // Filler prefix so there is something to summarize.
@@ -313,4 +351,3 @@ class ContextCompactorTest {
         assertFalse(tracking.isTripped());
     }
 }
-

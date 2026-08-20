@@ -2833,9 +2833,8 @@ if (error instanceof LlmException.ContextTooLongException) {
         // 强制压缩上下文
         ContextCompactor.forceCompact(conv, client, contextWindow, ...);
         
-        // 重新注入长期记忆
-        conv.resetLtmInjected();
-        conv.injectLongTermMemory(instructions, memoryContent);
+        // 压缩器会原样保留长期记忆；仅在外部旧流程丢失它时再补注入
+        ensureLongTermMemory(conv);
         
         continue;  // 重试
     }
@@ -2846,7 +2845,7 @@ if (error instanceof LlmException.ContextTooLongException) {
 - 最多重试 3 次
 - 先裁剪工具结果
 - 执行上下文压缩
-- 重新注入长期记忆
+- 确认长期记忆仍存在（旧流程丢失时才补注入）
 - 重新发起 LLM 请求
 
 #### 2. 限流恢复

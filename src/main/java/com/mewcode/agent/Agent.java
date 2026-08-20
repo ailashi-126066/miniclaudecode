@@ -137,7 +137,7 @@ public class Agent {
     }
 
     private void agentLoop(ConversationManager conv, BlockingQueue<AgentEvent> queue) {
-        conv.injectLongTermMemory(instructions, memoryContent);
+        ensureLongTermMemory(conv);
         if (workDir != null) {
             var activePlan = new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(workDir)).load();
             activePlan.filter(p -> p.status() == com.mewcode.plan.PlanState.Status.ACTIVE)
@@ -231,8 +231,7 @@ public class Agent {
                 // 压缩把旧消息替换成摘要，旧锚点失效，下次 stream 重新锚定
                 if (conv.size() < sizeBefore) {
                     usageAnchor = null;
-                    conv.resetLtmInjected();
-                    conv.injectLongTermMemory(instructions, memoryContent);
+                    ensureLongTermMemory(conv);
                     // 压缩后 conv 已变，重新应用 tool-result budget
                     newRecords = ToolResultBudget.apply(conv, sessionDir, replacementState);
                 }
@@ -340,8 +339,7 @@ public class Agent {
                         // lines up; drop it and re-anchor on the next stream.
                         if (conv.size() < sizeBeforeForce) {
                             usageAnchor = null;
-                            conv.resetLtmInjected();
-                            conv.injectLongTermMemory(instructions, memoryContent);
+                            ensureLongTermMemory(conv);
                         }
                         continue;
                     }
@@ -460,9 +458,10 @@ public class Agent {
                 }
             }
 
-            boolean exitPlanCalled = toolCalls.stream()
-                    .anyMatch(tc -> "ExitPlanMode".equals(tc.toolName));
-            if (exitPlanCalled) {
+            boolean exitPlanSucceeded = results.stream().anyMatch(result -> !result.isError()
+                    && toolCalls.stream().anyMatch(call -> "ExitPlanMode".equals(call.toolName)
+                    && call.toolId.equals(result.toolId())));
+            if (exitPlanSucceeded) {
                 putSafe(queue, new AgentEvent.TurnComplete(iteration));
                 putSafe(queue, new AgentEvent.LoopComplete(iteration));
                 loopCompleted = true;
@@ -476,6 +475,16 @@ public class Agent {
                 putSafe(queue, new AgentEvent.LoopComplete(0));
             }
         }
+    }
+
+    /**
+     * Compaction preserves the pinned long-term reminder. The fallback handles
+     * conversations rebuilt by an older or external compaction path.
+     */
+    private void ensureLongTermMemory(ConversationManager conv) {
+        if (conv.hasLongTermMemory()) return;
+        conv.resetLtmInjected();
+        conv.injectLongTermMemory(instructions, memoryContent);
     }
 
     private LlmException lastStreamException;

@@ -504,8 +504,14 @@ public final class ContextCompactor {
                 ? budgetMessages : conv.getMessages();
         int beforeTokens = estimateTokens(messages);
 
-        // Keep the recent verbatim tail; only summarize the older prefix.
-        int keepStartIndex = computeKeepStartIndex(messages);
+        // Long-term memory is pinned context, not chat history. Keep its leading
+        // reminder verbatim and exclude it from the summary request; Agent can
+        // therefore retain one exact copy after both automatic and manual compact.
+        int pinnedCount = leadingLongTermMemoryCount(messages);
+        List<Message> compactableMessages = messages.subList(pinnedCount, messages.size());
+
+        // Keep the recent verbatim tail; only summarize the older chat prefix.
+        int keepStartIndex = computeKeepStartIndex(compactableMessages);
 
         // Degenerate cases: nothing to summarize (everything is in the keep
         // window) or the prefix is too small to be worth a summary round-trip.
@@ -514,8 +520,8 @@ public final class ContextCompactor {
             return "";
         }
 
-        List<Message> toSummarize = messages.subList(0, keepStartIndex);
-        List<Message> toKeep = messages.subList(keepStartIndex, messages.size());
+        List<Message> toSummarize = compactableMessages.subList(0, keepStartIndex);
+        List<Message> toKeep = compactableMessages.subList(keepStartIndex, compactableMessages.size());
 
         // 调用 LLM 生成摘要，带 PTL 重试：摘要请求本身超出上下文窗口时，
         // 按 API 轮次从最老的开始丢弃，最多重试 MAX_PTL_RETRIES 次。
@@ -556,8 +562,11 @@ public final class ContextCompactor {
             content += "\n\n---\n\n" + attachment;
         }
 
-        // Rebuild = summary (user) + recent verbatim tail (no assistant ack).
+        // Rebuild = pinned long-term context + summary + recent verbatim tail.
         ConversationManager compacted = new ConversationManager();
+        for (int i = 0; i < pinnedCount; i++) {
+            appendMessage(compacted, messages.get(i));
+        }
         compacted.addUserMessage(content);
         for (Message m : toKeep) {
             appendMessage(compacted, m);
@@ -567,6 +576,10 @@ public final class ContextCompactor {
 
         int afterTokens = estimateTokens(conv.getMessages());
         return String.format("Compacted: %d -> %d estimated tokens", beforeTokens, afterTokens);
+    }
+
+    private static int leadingLongTermMemoryCount(List<Message> messages) {
+        return !messages.isEmpty() && ConversationManager.isLongTermMemoryMessage(messages.get(0)) ? 1 : 0;
     }
 
     // ── Post-compact recovery attachment ───────────────────────────────

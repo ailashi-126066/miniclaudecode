@@ -10,6 +10,9 @@ import java.util.List;
 
 public class ConversationManager {
 
+    private static final String LONG_TERM_MEMORY_REMINDER_PREFIX =
+            "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n";
+
     private final List<Message> history = new ArrayList<>();
 
     private boolean ltmInjected = false;
@@ -53,7 +56,7 @@ public class ConversationManager {
         if (sections.isEmpty()) return;
         sections.add("# currentDate\nToday's date is " + java.time.LocalDate.now() + ".");
         String body = String.join("\n\n", sections);
-        String wrapped = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n" +
+        String wrapped = LONG_TERM_MEMORY_REMINDER_PREFIX +
             body +
             "\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>";
         history.add(0, new Message("user", wrapped));
@@ -62,6 +65,24 @@ public class ConversationManager {
 
     public void resetLtmInjected() {
         ltmInjected = false;
+    }
+
+    /**
+     * Identifies the pinned reminder created by {@link #injectLongTermMemory}.
+     * Context compaction keeps this message verbatim instead of asking the
+     * summary model to restate it.
+     */
+    public static boolean isLongTermMemoryMessage(Message message) {
+        if (message == null || !"user".equals(message.getRole())) return false;
+        String content = message.getContent();
+        return content != null
+                && content.startsWith(LONG_TERM_MEMORY_REMINDER_PREFIX)
+                && (content.contains("# mewcodeMd\n") || content.contains("# autoMemory\n"));
+    }
+
+    /** True when this conversation still contains its pinned long-term context. */
+    public boolean hasLongTermMemory() {
+        return !history.isEmpty() && isLongTermMemoryMessage(history.get(0));
     }
 
     public void addSystemReminder(String content) {

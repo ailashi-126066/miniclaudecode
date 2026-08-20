@@ -11,6 +11,7 @@ import com.mewcode.tool.ToolResult;
 
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 public class ExitPlanModeTool implements Tool {
 
@@ -20,6 +21,7 @@ public class ExitPlanModeTool implements Tool {
 
     private BooleanSupplier isPlanMode;
     private BooleanSupplier planExists;
+    private Supplier<String> planContent;
 
     public void setIsPlanMode(BooleanSupplier isPlanMode) {
         this.isPlanMode = isPlanMode;
@@ -27,6 +29,10 @@ public class ExitPlanModeTool implements Tool {
 
     public void setPlanExists(BooleanSupplier planExists) {
         this.planExists = planExists;
+    }
+
+    public void setPlanContent(Supplier<String> planContent) {
+        this.planContent = planContent;
     }
 
     @Override
@@ -68,8 +74,15 @@ public class ExitPlanModeTool implements Tool {
                     "No plan file found. Please write your plan to the plan file before calling ExitPlanMode.",
                     true);
         }
+        String content = planContent == null ? "" : planContent.get();
+        if (planContent != null && (content == null || content.isBlank())) {
+            return new ToolResult("The active plan is empty. Create a structured plan before calling ExitPlanMode.", true);
+        }
+        String approvalMessage = content == null || content.isBlank()
+                ? "Plan mode will be exited after this turn.\n\n"
+                : "Plan ready for user approval:\n\n" + content + "\n\n";
         return new ToolResult(
-                "Plan mode will be exited after this turn. "
+                approvalMessage
                         + "The user will be shown the plan approval dialog. "
                         + "Do not call any more tools — end your turn now.",
                 false);

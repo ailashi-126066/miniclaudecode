@@ -174,6 +174,8 @@ public class MewCodeModel implements Model {
     // ── Plan mode ────────────────────────────────────────────────────
     private PermissionMode prePlanMode = PermissionMode.DEFAULT;
     private final PlanApprovalDialog planApprovalDialog = new PlanApprovalDialog();
+    /** Set only when ExitPlanMode completed successfully in the current Plan Mode run. */
+    private boolean planApprovalRequested;
     /** 标记本次会话中是否曾退出过 plan mode，用于再次进入时注入 reentry reminder */
     private boolean hasExitedPlanMode;
 
@@ -519,7 +521,8 @@ public class MewCodeModel implements Model {
             registry.register(new ToolSearchTool(registry, protocol));
             var exitPlanTool = new com.mewcode.tool.impl.ExitPlanModeTool();
             exitPlanTool.setIsPlanMode(() -> permChecker != null && permChecker.getMode() == PermissionMode.PLAN);
-            exitPlanTool.setPlanExists(() -> com.mewcode.plan.PlanFile.planExists());
+            exitPlanTool.setPlanExists(() -> new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(workDir)).load().isPresent());
+            exitPlanTool.setPlanContent(() -> new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(workDir)).readForModel());
             registry.register(exitPlanTool);
             askUserTool = new AskUserTool();
             registry.register(askUserTool);
@@ -847,6 +850,11 @@ public class MewCodeModel implements Model {
                 case PLAN -> PermissionMode.BYPASS;
                 case BYPASS -> PermissionMode.DEFAULT;
             };
+            if (next == PermissionMode.PLAN) {
+                prePlanMode = current;
+                planApprovalRequested = false;
+                PlanFile.getOrCreatePlanPath(System.getProperty("user.dir"));
+            }
             permChecker.setMode(next);
             // Status bar already shows the mode — no need for a chat message
             return UpdateResult.from(this);
@@ -1225,6 +1233,7 @@ public class MewCodeModel implements Model {
                     case "plan" -> {
                         if (permChecker != null) {
                             prePlanMode = permChecker.getMode();
+                            planApprovalRequested = false;
                             permChecker.setMode(PermissionMode.PLAN);
                             String planPath = PlanFile.getOrCreatePlanPath(
                                     System.getProperty("user.dir"));
@@ -1540,6 +1549,9 @@ public class MewCodeModel implements Model {
                         }
                     }
                     commitCompletedToolBlocks();
+                    if ("ExitPlanMode".equals(e.toolName()) && !e.isError()) {
+                        planApprovalRequested = true;
+                    }
                     needsCommit = true;
                 }
                 case AgentEvent.TurnComplete e -> {
@@ -1615,7 +1627,8 @@ public class MewCodeModel implements Model {
                 drainTaskNotifications();
                 triggerMemoryExtraction();
                 triggerMemoryConsolidation();
-                if (permChecker != null && permChecker.getMode() == PermissionMode.PLAN) {
+                if (permChecker != null && permChecker.getMode() == PermissionMode.PLAN
+                        && planApprovalRequested) {
                     planApprovalDialog.activate();
                 }
                 if (teamManager != null) {
@@ -2149,6 +2162,8 @@ public class MewCodeModel implements Model {
                 if (permChecker != null) permChecker.setMode(PermissionMode.BYPASS);
                 chatMessages.add(new ChatMessage("system",
                         "Plan approved. Entered YOLO mode (all operations auto-approved)."));
+                injectApprovedPlan();
+                planApprovalRequested = false;
                 // 退出 plan mode，注入 exit reminder 并标记已退出
                 String exitPath = PlanFile.getOrCreatePlanPath(System.getProperty("user.dir"));
                 String exitReminder = PlanModePrompt.buildExitReminder(exitPath, PlanFile.planExists());
@@ -2164,6 +2179,8 @@ public class MewCodeModel implements Model {
                 }
                 chatMessages.add(new ChatMessage("system",
                         "Plan approved. Each edit will require your confirmation."));
+                injectApprovedPlan();
+                planApprovalRequested = false;
                 // 退出 plan mode，注入 exit reminder 并标记已退出
                 String exitPath = PlanFile.getOrCreatePlanPath(System.getProperty("user.dir"));
                 String exitReminder = PlanModePrompt.buildExitReminder(exitPath, PlanFile.planExists());
@@ -2172,12 +2189,13 @@ public class MewCodeModel implements Model {
                 PlanFile.resetPlanPath();
             }
             case FEEDBACK -> {
+                planApprovalRequested = false;
                 String feedback = result.feedback();
                 inputBuffer.setLength(0); inputCursor = 0;
                 inputBuffer.append(feedback); inputCursor = inputBuffer.length();
                 return sendUserMessage();
             }
-            case CANCEL -> {}
+            case CANCEL -> planApprovalRequested = false;
         }
         return UpdateResult.from(this);
     }
@@ -2189,6 +2207,16 @@ public class MewCodeModel implements Model {
                     .ifPresent(p -> new com.mewcode.plan.PlanCoordinator(repository).activate());
         } catch (RuntimeException failure) {
             chatMessages.add(new ChatMessage("error", "Structured plan activation failed: " + failure.getMessage()));
+        }
+    }
+
+    /** Makes the exact user-approved Plan available for the next implementation run. */
+    private void injectApprovedPlan() {
+        var repository = new com.mewcode.plan.PlanRepository(java.nio.file.Path.of(System.getProperty("user.dir")));
+        String plan = repository.readForModel();
+        if (!plan.isBlank()) {
+            conversation.addSystemReminder("The user approved this plan. Execute it and keep its step status current:\n\n"
+                    + plan);
         }
     }
 
