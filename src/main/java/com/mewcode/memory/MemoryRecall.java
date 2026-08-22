@@ -125,6 +125,46 @@ public final class MemoryRecall {
         return result;
     }
 
+    /**
+     * Recalls both user- and project-scoped memories while retaining the original single-directory
+     * API for callers that do not have a project scope.
+     */
+    public static List<RelevantMemory> findRelevantMemories(
+            String query,
+            Path userMemDir,
+            Path projectMemDir,
+            List<String> recentTools,
+            Set<String> alreadySurfaced,
+            SelectorFn selector) {
+        if (selector == null) return List.of();
+
+        List<MemoryScanner.MemoryHeader> all = new ArrayList<>();
+        if (userMemDir != null) all.addAll(MemoryScanner.scanMemoryFiles(userMemDir, "user"));
+        if (projectMemDir != null) all.addAll(MemoryScanner.scanMemoryFiles(projectMemDir, "project"));
+        if (all.isEmpty()) return List.of();
+
+        Set<String> surfaced = alreadySurfaced != null ? alreadySurfaced : Set.of();
+        List<MemoryScanner.MemoryHeader> candidates = new ArrayList<>();
+        for (var memory : all) {
+            if (!surfaced.contains(memory.filePath())) candidates.add(memory);
+        }
+        if (candidates.isEmpty()) return List.of();
+
+        Map<String, MemoryScanner.MemoryHeader> byKey = new HashMap<>();
+        for (var memory : candidates) {
+            byKey.put(memory.filePath(), memory);
+            // A filename can exist in both scopes; the absolute path remains the unambiguous key.
+            byKey.putIfAbsent(memory.filename(), memory);
+        }
+
+        List<RelevantMemory> result = new ArrayList<>();
+        for (String filename : selectRelevantMemories(query, candidates, recentTools, selector)) {
+            var memory = byKey.get(filename);
+            if (memory != null) result.add(new RelevantMemory(memory.filePath(), memory.mtimeMs()));
+        }
+        return result;
+    }
+
     // ── Selector logic ─────────────────────────────────────────────────
 
     private static List<String> selectRelevantMemories(

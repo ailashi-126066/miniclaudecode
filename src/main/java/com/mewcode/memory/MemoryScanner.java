@@ -70,7 +70,7 @@ public final class MemoryScanner {
         List<Path> mdFiles = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(memoryDir)) {
             walk.filter(Files::isRegularFile)
-                .filter(p -> Set.of("user.md", "feedback.md").contains(p.getFileName().toString()))
+                .filter(p -> Set.of("user.md", "feedback.md", "project.md").contains(p.getFileName().toString()))
                 .forEach(mdFiles::add);
         } catch (IOException e) {
             return List.of();
@@ -165,7 +165,7 @@ public final class MemoryScanner {
         return new Frontmatter(name, description, type);
     }
 
-    private static final Set<String> VALID_TYPES = Set.of("user", "feedback");
+    private static final Set<String> VALID_TYPES = Set.of("user", "feedback", "project");
 
     private static boolean isValidType(String raw) {
         return VALID_TYPES.contains(raw);

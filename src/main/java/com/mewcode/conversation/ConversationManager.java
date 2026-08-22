@@ -25,11 +25,12 @@ public class ConversationManager {
         history.add(new Message("assistant", content));
     }
 
-    public void addAssistantFull(String text, List<ThinkingBlock> thinking, List<ToolUseBlock> toolUses) {
+    public Message addAssistantFull(String text, List<ThinkingBlock> thinking, List<ToolUseBlock> toolUses) {
         var msg = new Message("assistant", text);
         msg.setThinkingBlocks(thinking);
         msg.setToolUses(toolUses);
         history.add(msg);
+        return msg;
     }
 
     public void addAssistantMessageWithTools(String text, List<ToolUseBlock> toolUses) {
@@ -95,6 +96,14 @@ public class ConversationManager {
 
     public List<Message> getMessagesMutable() {
         return history;
+    }
+
+    public Message findMessageById(String id) {
+        if (id == null || id.isBlank()) return null;
+        for (Message message : history) {
+            if (id.equals(message.getId())) return message;
+        }
+        return null;
     }
 
     public int size() {

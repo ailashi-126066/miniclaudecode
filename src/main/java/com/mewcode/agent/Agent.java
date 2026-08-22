@@ -104,6 +104,9 @@ public class Agent {
     public void setMemoryRecallFuture(CompletableFuture<String> future) {
         loopState.setMemoryRecallFuture(future);
     }
+    public void setKnowledgeRecallFuture(CompletableFuture<String> future) {
+        loopState.setKnowledgeRecallFuture(future);
+    }
     public HookEngine getHookEngine() { return hookEngine; }
 
     public BlockingQueue<AgentEvent> run(ConversationManager conv) {
@@ -145,6 +148,14 @@ public class Agent {
             }
 
             if (Thread.currentThread().isInterrupted()) break;
+
+            if (!state.memoryRecallConsumed) {
+                state.memoryRecallConsumed = injectRecallIfReady(state.memoryRecallFuture, conv, 0);
+            }
+            if (!state.knowledgeRecallConsumed) {
+                state.knowledgeRecallConsumed = injectRecallIfReady(
+                        state.knowledgeRecallFuture, conv, state.iteration == 1 ? 300 : 0);
+            }
 
             // Drain background task notifications and inject as system reminders
             if (notificationFn != null) {
@@ -220,7 +231,13 @@ public class Agent {
             } catch (Exception ignored) {}
 
             var tools = iterToolSchemas;
+            long responseStartedAt = System.nanoTime();
             var streamQueue = client.stream(conv, tools);
+            var streamingAssistant = new com.mewcode.conversation.Message("assistant", "");
+            streamingAssistant.setStatus(com.mewcode.conversation.MessageStatus.STREAMING);
+            // Add only after client.stream captured its immutable request snapshot, so the empty
+            // placeholder is visible to the local lifecycle but never sent to the provider.
+            conv.getMessagesMutable().add(streamingAssistant);
             state.lastStreamException = null;
 
             // Consume stream events, collect tool calls
@@ -285,6 +302,7 @@ public class Agent {
             // Error recovery: branch on the typed LLM failure instead of
             // parsing human-readable provider messages.
             if (streamError) {
+                streamingAssistant.setStatus(com.mewcode.conversation.MessageStatus.ERROR);
                 var error = state.lastStreamException;
 
                 if (error instanceof LlmException.ContextTooLongException) {
@@ -353,20 +371,33 @@ public class Agent {
             state.totalOutputTokens += turnOutput;
             putSafe(queue, new AgentEvent.UsageEvent(state.totalInputTokens, state.totalOutputTokens));
 
+            var toolUseBlocks = toolCalls.stream()
+                    .map(tc -> new ToolUseBlock(tc.toolId, tc.toolName, tc.args))
+                    .toList();
+            streamingAssistant.setContent(text.toString());
+            streamingAssistant.setThinkingBlocks(thinkingBlocks);
+            streamingAssistant.setToolUses(toolUseBlocks);
+            streamingAssistant.setUsage(new com.mewcode.conversation.UsageInfo(
+                    turnInput, turnOutput, turnCacheRead, turnCacheCreation));
+            streamingAssistant.setResponseTimeMs(
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - responseStartedAt));
+            streamingAssistant.setStatus(com.mewcode.conversation.MessageStatus.COMPLETE);
+
             // Max tokens handling
             if ("max_tokens".equals(stopReason)) {
+                // A truncated response never reaches tool execution. Do not leave tool_use blocks
+                // in history without matching results before asking the provider to continue.
+                streamingAssistant.setToolUses(List.of());
                 if (!state.maxTokensEscalated) {
                     state.maxTokensEscalated = true;
                     client.setMaxOutputTokens(MAX_TOKENS_CEILING);
                     if (!text.isEmpty()) {
-                        conv.addAssistantFull(text.toString(), thinkingBlocks, List.of());
                         conv.addUserMessage("Output token limit hit. Resume directly from where you stopped. Do not apologize or repeat previous content. Pick up mid-thought if needed.");
                     }
                     putSafe(queue, new AgentEvent.RetryEvent("max_tokens escalation", 0));
                     continue;
                 } else if (state.outputRecoveries < MAX_OUTPUT_RECOVERIES) {
                     state.outputRecoveries++;
-                    conv.addAssistantFull(text.toString(), thinkingBlocks, List.of());
                     conv.addUserMessage("Output token limit hit. Resume directly from where you stopped. Break remaining work into smaller pieces.");
                     putSafe(queue, new AgentEvent.RetryEvent(
                             "max_tokens recovery %d/%d".formatted(state.outputRecoveries, MAX_OUTPUT_RECOVERIES), 0));
@@ -378,10 +409,8 @@ public class Agent {
             }
 
             // Save assistant message to conversation
-            var toolUseBlocks = toolCalls.stream()
-                    .map(tc -> new ToolUseBlock(tc.toolId, tc.toolName, tc.args))
-                    .toList();
-            conv.addAssistantFull(text.toString(), thinkingBlocks, toolUseBlocks);
+            // The placeholder created above is now the completed assistant turn. Keeping the same
+            // object gives UI/state consumers a stable message ID throughout streaming.
 
             // Re-anchor the compaction estimate on this turn's real usage. The
             // baseline = input + cacheRead + cacheCreation + output covers the
@@ -428,16 +457,11 @@ public class Agent {
 
             // 非阻塞 memory recall：工具执行完后检查 prefetch 是否就绪
             // 记忆在第 1 轮工具执行后、第 2 轮迭代前注入
-            if (state.memoryRecallFuture != null && !state.memoryRecallConsumed) {
-                if (state.memoryRecallFuture.isDone()) {
-                    try {
-                        String recall = state.memoryRecallFuture.getNow("");
-                        if (recall != null && !recall.isEmpty()) {
-                            conv.addSystemReminder(recall);
-                        }
-                    } catch (Exception ignored) {}
-                    state.memoryRecallConsumed = true;
-                }
+            if (!state.memoryRecallConsumed) {
+                state.memoryRecallConsumed = injectRecallIfReady(state.memoryRecallFuture, conv, 0);
+            }
+            if (!state.knowledgeRecallConsumed) {
+                state.knowledgeRecallConsumed = injectRecallIfReady(state.knowledgeRecallFuture, conv, 0);
             }
 
             boolean exitPlanSucceeded = results.stream().anyMatch(result -> !result.isError()
@@ -456,6 +480,23 @@ public class Agent {
             if (!state.loopCompleted) {
                 putSafe(queue, new AgentEvent.LoopComplete(0));
             }
+        }
+    }
+
+    private static boolean injectRecallIfReady(
+            CompletableFuture<String> future, ConversationManager conversation, long waitMillis) {
+        if (future == null) return true;
+        try {
+            String reminder = waitMillis > 0
+                    ? future.get(waitMillis, TimeUnit.MILLISECONDS)
+                    : future.getNow(null);
+            if (reminder == null) return false;
+            if (!reminder.isBlank()) conversation.addSystemReminder(reminder);
+            return true;
+        } catch (java.util.concurrent.TimeoutException ignored) {
+            return false;
+        } catch (Exception ignored) {
+            return true;
         }
     }
 

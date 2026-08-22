@@ -98,6 +98,7 @@ public class MewCodeModel implements Model {
     private int inputCursor;
     private boolean streaming;
     private boolean userHasSentMessage;
+    private boolean knowledgeCatalogInjected;
 
     // ── Scrollback commit ──────────────────────────────────────────────
     // chatMessages[0..committedUpTo) 已通过 Command.println 输出到终端 scrollback，
@@ -248,6 +249,7 @@ public class MewCodeModel implements Model {
         this.inputCursor = 0;
         this.conversation = new ConversationManager();
         this.cmdRegistry = new CommandRegistry();
+        com.mewcode.command.KnowledgeCommands.register(this.cmdRegistry);
         this.historyStore.load();
         this.width = 80;
         this.height = 24;
@@ -1184,6 +1186,10 @@ public class MewCodeModel implements Model {
                 if (output != null && !output.isEmpty()) {
                     chatMessages.add(new ChatMessage("system", output));
                 }
+                if ("knowledge".equals(cmd.name()) && isKnowledgeQuery(args)
+                        && output != null && output.startsWith("Knowledge sources:")) {
+                    conversation.addSystemReminder(output);
+                }
                 yield UpdateResult.from(this);
             }
             case LOCAL_UI -> {
@@ -1192,6 +1198,7 @@ public class MewCodeModel implements Model {
                         chatMessages.clear();
                         committedUpTo = 0;
                         conversation = new ConversationManager();
+                        knowledgeCatalogInjected = false;
                         // 开启全新会话：重置 session ID 及关联的持久化存储
                         var wd = System.getProperty("user.dir");
                         sessionId = com.mewcode.session.SessionManager.newId();
@@ -1443,6 +1450,15 @@ public class MewCodeModel implements Model {
         if (conversation.getMessages().isEmpty() && memoryManager != null) {
             memoryManager.injectMemories(conversation);
         }
+        String knowledgeMode = config.getRag() == null ? "auto" : config.getRag().getKnowledgeMode();
+        if (!"off".equalsIgnoreCase(knowledgeMode) && !knowledgeCatalogInjected) {
+            String catalog = new com.mewcode.rag.KnowledgeRagService(
+                    java.nio.file.Path.of(System.getProperty("user.dir"))).catalogReminder();
+            if (!catalog.isBlank()) {
+                conversation.addSystemReminder(catalog);
+                knowledgeCatalogInjected = true;
+            }
+        }
 
         chatMessages.add(new ChatMessage("user", userText));
         // 用户消息立即提交到 scrollback
@@ -1462,6 +1478,8 @@ public class MewCodeModel implements Model {
 
         // Start memory recall prefetch — runs in a virtual thread with 8s timeout.
         var prefetchFuture = prefetchRelevantMemories(userText);
+        var knowledgeFuture = com.mewcode.rag.KnowledgeRecall.prefetch(
+                java.nio.file.Path.of(System.getProperty("user.dir")), userText, knowledgeMode);
 
         if (agent == null) {
             chatMessages.add(new ChatMessage("error", "No agent configured."));
@@ -1483,6 +1501,7 @@ public class MewCodeModel implements Model {
         // 非阻塞 memory recall：prefetch future 传给 agent，工具执行后注入
         // 不再同步等待，避免阻塞 TUI 渲染
         agent.setMemoryRecallFuture(prefetchFuture);
+        agent.setKnowledgeRecallFuture(knowledgeFuture);
 
         Thread.startVirtualThread(() -> {
             try {
@@ -1756,6 +1775,12 @@ public class MewCodeModel implements Model {
 
     private static boolean isCollapsibleTool(String name) {
         return COLLAPSIBLE_TOOLS.contains(name);
+    }
+
+    private static boolean isKnowledgeQuery(String args) {
+        if (args == null || args.isBlank()) return false;
+        String command = args.strip().split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
+        return !"index".equals(command) && !"sync".equals(command) && !"status".equals(command);
     }
 
     /**

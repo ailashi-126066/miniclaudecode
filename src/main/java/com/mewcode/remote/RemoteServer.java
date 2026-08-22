@@ -84,6 +84,7 @@ public class RemoteServer {
     private volatile boolean streaming;
     private volatile Thread streamThread;
     private BlockingQueue<AgentEvent> agentQueue;
+    private boolean knowledgeCatalogInjected;
 
     // ── 权限和 ask_user 的待决响应 ────────────────────────────────────
     private final ReentrantLock pendingPermLock = new ReentrantLock();
@@ -339,6 +340,7 @@ public class RemoteServer {
 
         // 命令注册
         cmdRegistry = new CommandRegistry();
+        com.mewcode.command.KnowledgeCommands.register(cmdRegistry);
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -450,6 +452,14 @@ public class RemoteServer {
         streamThread = Thread.currentThread();
         String workDir = System.getProperty("user.dir");
         SessionManager.saveMessage(workDir, sessionId, "user", content);
+        String knowledgeMode = config.getRag() == null ? "auto" : config.getRag().getKnowledgeMode();
+        if (!"off".equalsIgnoreCase(knowledgeMode) && !knowledgeCatalogInjected) {
+            String catalog = new com.mewcode.rag.KnowledgeRagService(Path.of(workDir)).catalogReminder();
+            if (!catalog.isBlank()) {
+                conversation.addSystemReminder(catalog);
+                knowledgeCatalogInjected = true;
+            }
+        }
         conversation.addUserMessage(content);
 
         // 首次消息时注入 MCP 指令
@@ -459,6 +469,8 @@ public class RemoteServer {
         }
 
         // 启动 Agent 并消费事件
+        agent.setKnowledgeRecallFuture(com.mewcode.rag.KnowledgeRecall.prefetch(
+                Path.of(workDir), content, knowledgeMode));
         agentQueue = agent.run(conversation);
         if (askUserTool != null) askUserTool.setEventQueue(agentQueue);
 
@@ -514,6 +526,7 @@ public class RemoteServer {
                     switch (name) {
                         case "clear" -> {
                             conversation = new ConversationManager();
+                            knowledgeCatalogInjected = false;
                             broadcast(Map.of("type", "clear"));
                         }
                         case "compact" -> {

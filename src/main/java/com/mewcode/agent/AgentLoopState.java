@@ -21,6 +21,8 @@ final class AgentLoopState {
 
     CompletableFuture<String> memoryRecallFuture;
     boolean memoryRecallConsumed;
+    CompletableFuture<String> knowledgeRecallFuture;
+    boolean knowledgeRecallConsumed;
 
     int iteration;
     int totalInputTokens;
@@ -48,5 +50,10 @@ final class AgentLoopState {
     void setMemoryRecallFuture(CompletableFuture<String> future) {
         memoryRecallFuture = future;
         memoryRecallConsumed = false;
+    }
+
+    void setKnowledgeRecallFuture(CompletableFuture<String> future) {
+        knowledgeRecallFuture = future;
+        knowledgeRecallConsumed = false;
     }
 }

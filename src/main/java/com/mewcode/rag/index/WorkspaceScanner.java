@@ -61,6 +61,8 @@ public final class WorkspaceScanner {
   private final long maximumFileBytes;
   private final long maximumDocumentBytes;
   private final DocumentTextExtractor documentExtractor;
+  private final boolean useGitCandidates;
+  private final Set<String> ignoredDirectories;
 
   public WorkspaceScanner() {
     this(DEFAULT_MAXIMUM_FILE_BYTES);
@@ -79,6 +81,20 @@ public final class WorkspaceScanner {
 
   public WorkspaceScanner(
       long maximumFileBytes, long maximumDocumentBytes, DocumentTextExtractor documentExtractor) {
+    this(
+        maximumFileBytes,
+        maximumDocumentBytes,
+        documentExtractor,
+        true,
+        IGNORED_DIRECTORIES);
+  }
+
+  private WorkspaceScanner(
+      long maximumFileBytes,
+      long maximumDocumentBytes,
+      DocumentTextExtractor documentExtractor,
+      boolean useGitCandidates,
+      Set<String> ignoredDirectories) {
     if (maximumFileBytes < 1L || maximumDocumentBytes < maximumFileBytes) {
       throw new IllegalArgumentException("invalid scanner size limits");
     }
@@ -86,6 +102,18 @@ public final class WorkspaceScanner {
     this.maximumDocumentBytes = maximumDocumentBytes;
     this.documentExtractor =
         Objects.requireNonNull(documentExtractor, "documentExtractor must not be null");
+    this.useGitCandidates = useGitCandidates;
+    this.ignoredDirectories = Set.copyOf(ignoredDirectories);
+  }
+
+  /** Scanner for an explicitly selected document root such as {@code .mewcode/knowledge}. */
+  public static WorkspaceScanner standaloneDocuments() {
+    return new WorkspaceScanner(
+        DEFAULT_MAXIMUM_FILE_BYTES,
+        DEFAULT_MAXIMUM_DOCUMENT_BYTES,
+        new MultiFormatDocumentExtractor(),
+        false,
+        Set.of());
   }
 
   public List<WorkspaceScanner.ScannedFile> scan(Path workspace) throws IOException {
@@ -107,7 +135,7 @@ public final class WorkspaceScanner {
     Objects.requireNonNull(known, "known must not be null");
     final Path root = workspace.toRealPath();
     final List<WorkspaceScanner.ScannedFile> files = new ArrayList<>();
-    Optional<List<Path>> gitCandidates = gitCandidates(root);
+    Optional<List<Path>> gitCandidates = this.useGitCandidates ? this.gitCandidates(root) : Optional.empty();
     if (gitCandidates.isPresent()) {
       for (Path file : gitCandidates.orElseThrow()) {
         try {
@@ -128,7 +156,7 @@ public final class WorkspaceScanner {
         new SimpleFileVisitor<Path>() {
           public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
             return !directory.equals(root)
-                    && WorkspaceScanner.IGNORED_DIRECTORIES.contains(
+                    && WorkspaceScanner.this.ignoredDirectories.contains(
                         WorkspaceScanner.fileName(directory).toLowerCase(Locale.ROOT))
                 ? FileVisitResult.SKIP_SUBTREE
                 : FileVisitResult.CONTINUE;
@@ -186,7 +214,7 @@ public final class WorkspaceScanner {
    * .gitignore} files, {@code .git/info/exclude}, and the user's standard excludes without losing
    * untracked source files that an agent has just created.
    */
-  private static Optional<List<Path>> gitCandidates(Path root) throws IOException {
+  private Optional<List<Path>> gitCandidates(Path root) throws IOException {
     Process process;
     try {
       process =
@@ -217,7 +245,7 @@ public final class WorkspaceScanner {
     for (String relative : new String(output, StandardCharsets.UTF_8).split("\\x00")) {
       if (!relative.isEmpty()) {
         Path candidate = root.resolve(relative).normalize();
-        if (candidate.startsWith(root) && !isInIgnoredDirectory(root, candidate)) {
+        if (candidate.startsWith(root) && !this.isInIgnoredDirectory(root, candidate)) {
           files.add(candidate);
         }
       }
@@ -225,10 +253,10 @@ public final class WorkspaceScanner {
     return Optional.of(List.copyOf(files));
   }
 
-  private static boolean isInIgnoredDirectory(Path root, Path file) {
+  private boolean isInIgnoredDirectory(Path root, Path file) {
     Path relative = root.relativize(file);
     for (int index = 0; index < relative.getNameCount() - 1; index++) {
-      if (IGNORED_DIRECTORIES.contains(
+      if (this.ignoredDirectories.contains(
           relative.getName(index).toString().toLowerCase(Locale.ROOT))) {
         return true;
       }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mewcode.config.ProviderConfig;
 import com.mewcode.conversation.ConversationManager;
+import com.mewcode.conversation.ConversationProtocol;
 import com.mewcode.conversation.Message;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -166,7 +167,7 @@ public class LangChainClient implements LlmClient {
         List<ChatMessage> out = new ArrayList<>();
         if (!systemPrompt.isBlank()) out.add(SystemMessage.from(systemPrompt));
         Map<String, String> toolNames = new HashMap<>();
-        for (Message m : source) {
+        for (Message m : ConversationProtocol.messagesForProvider(source)) {
             if (m.getToolUses() != null) m.getToolUses().forEach(t -> toolNames.put(t.toolUseId(), t.toolName()));
             if (m.getToolResults() != null && !m.getToolResults().isEmpty()) {
                 for (var r : m.getToolResults()) out.add(ToolExecutionResultMessage.builder()
