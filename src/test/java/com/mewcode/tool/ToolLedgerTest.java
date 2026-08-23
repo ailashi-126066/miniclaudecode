@@ -1,3 +1,0 @@
-package com.mewcode.tool;
-import static org.junit.jupiter.api.Assertions.*;import java.nio.file.Path;import java.time.Instant;import org.junit.jupiter.api.Test;import org.junit.jupiter.api.io.TempDir;
-class ToolLedgerTest{@TempDir Path dir;@Test void stalePendingBecomesUnknown(){var first=new JsonlToolExecutionLedger(dir,"s1","run1");first.append(new ToolExecutionRecord("c1","Bash",ToolEffect.PROCESS,ToolExecutionRecord.Status.PENDING,"h","","","","","run1",Instant.now()));var recovered=new JsonlToolExecutionLedger(dir,"s1","run2");assertEquals(ToolExecutionRecord.Status.UNKNOWN,recovered.find("c1").orElseThrow().status());}}
