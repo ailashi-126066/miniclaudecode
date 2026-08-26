@@ -2,7 +2,7 @@
 # 后端八股网站：xiaolincoding.com
 # Agent网站：xiaolinnote.com
 # 简历模版：jianli.xiaolinnote.com
-"""MewCode 的系统提示词（system prompt）构建。"""
+"""Minicode 的系统提示词（system prompt）构建。"""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ IDENTITY_SECTION = PromptSection(
     name="Identity",
     priority=0,
     content=(
-        "You are MewCode, an AI programming assistant running in the terminal. "
+        "You are Minicode, an AI programming assistant running in the terminal. "
         "You help users with software engineering tasks including writing code, "
         "debugging, refactoring, explaining code, and running commands.\n\n"
         "IMPORTANT: Be careful not to introduce security vulnerabilities such as "

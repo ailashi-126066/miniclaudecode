@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from mewcode.conversation import ConversationManager, Message
+from mewcode.memory.ace import AceBullet
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -447,6 +448,9 @@ class MemoryManager:
             f"MEMORY_NAME: <kebab-case-name>\n"
             f"MEMORY_TYPE: <user|feedback|project|reference>\n"
             f"MEMORY_DESC: <one-line description>\n"
+            f"ACE_EVIDENCE: <observed user statement or tool result>\n"
+            f"ACE_INFERENCE: <conclusion derived from evidence, or NONE>\n"
+            f"ACE_VERIFICATION: <tool result id that validates the inference, or NONE>\n"
             f"MEMORY_BODY: <content>\n"
             f"---\n\n"
             f"Types:\n"
@@ -456,6 +460,8 @@ class MemoryManager:
             f"- Code patterns derivable from reading the project\n"
             f"- Git history, debugging solutions\n"
             f"- Ephemeral task details\n\n"
+            f"Never turn an unverified inference into durable memory. If ACE_INFERENCE is not NONE, "
+            f"ACE_VERIFICATION must name a tool result from this conversation.\n\n"
             f"If nothing is worth saving, output NONE.{manifest_section}\n\n"
             f"Conversation:\n{''.join(conv_lines)}"
         )
@@ -482,6 +488,11 @@ class MemoryManager:
             return
 
         blocks = [b for b in collected.split("---") if "MEMORY_NAME:" in b]
+        valid_tool_ids = {
+            result.tool_use_id
+            for message in recent
+            for result in message.tool_results
+        }
         for block in blocks:
             name = _extract_field(block, "MEMORY_NAME")
             mtype = _extract_field(block, "MEMORY_TYPE") or "reference"
@@ -492,13 +503,24 @@ class MemoryManager:
             if mtype not in VALID_TYPES:
                 mtype = "reference"
 
+            ace = AceBullet(
+                evidence=_extract_field(block, "ACE_EVIDENCE"),
+                inference=_extract_field(block, "ACE_INFERENCE"),
+                verification=_extract_field(block, "ACE_VERIFICATION"),
+            )
+            if ace.has_unverified_inference:
+                continue
+            if ace.inference and ace.inference.upper() != "NONE" and ace.verification not in valid_tool_ids:
+                continue
+
             # 路由到正确的目录
             target_dir = self._user_mem_dir if mtype in _USER_LEVEL_TYPES else self._mem_dir
             if not target_dir:
                 continue
             ensure_memory_dir_exists(target_dir)
 
-            content = f"---\nname: {name}\ndescription: {desc}\nmetadata:\n  type: {mtype}\n---\n\n{body}\n"
+            ace_content = ace.render(body) if ace.evidence or ace.inference or ace.verification else body
+            content = f"---\nname: {name}\ndescription: {desc}\nmetadata:\n  type: {mtype}\n---\n\n{ace_content}\n"
             file_path = Path(target_dir) / f"{name}.md"
             try:
                 file_path.write_text(content, encoding="utf-8")

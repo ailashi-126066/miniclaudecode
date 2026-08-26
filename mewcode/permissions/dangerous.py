@@ -21,15 +21,15 @@ _DANGEROUS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 _SAFE_COMMANDS = frozenset({
     "ls", "dir", "pwd", "echo", "cat", "head", "tail", "wc",
-    "find", "which", "whereis", "whoami", "hostname", "uname",
+    "which", "whereis", "whoami", "hostname", "uname",
     "date", "cal", "uptime", "df", "du", "free", "env", "printenv",
     "file", "stat", "readlink", "realpath", "basename", "dirname",
-    "sort", "uniq", "tr", "cut", "awk", "sed", "grep", "egrep", "fgrep",
-    "diff", "comm", "tee", "xargs", "true", "false", "test",
+    "sort", "uniq", "tr", "cut", "grep", "egrep", "fgrep",
+    "diff", "comm", "true", "false", "test",
     "git status", "git log", "git diff", "git show", "git branch",
     "git tag", "git remote", "git rev-parse", "git ls-files",
     "git blame", "git stash list", "go version", "go env",
-    "node -v", "npm -v", "npx", "python --version", "pip list",
+    "node -v", "npm -v", "python --version", "pip list",
     "cargo --version", "rustc --version", "java -version", "java --version",
 })
 
@@ -38,7 +38,11 @@ def is_safe_command(command: str) -> bool:
     trimmed = command.strip()
     if not trimmed:
         return False
-    for ch in ("|", ";", "&&", ">", "$(", "`"):
+    # Whitespace-separated shell commands, command substitutions and redirections
+    # must never inherit the safety of their first token.  Newlines were an
+    # especially subtle bypass because a string beginning with "echo " used to
+    # be accepted before the shell executed its following line.
+    for ch in ("|", ";", "&", ">", "<", "$(", "`", "\n", "\r"):
         if ch in trimmed:
             return False
     for safe in _SAFE_COMMANDS:

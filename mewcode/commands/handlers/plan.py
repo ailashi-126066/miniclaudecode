@@ -6,10 +6,15 @@
 from __future__ import annotations
 
 from mewcode.commands.registry import Command, CommandContext, CommandType
+from mewcode.plan_state import PlanStateStore
 from mewcode.prompts import build_plan_mode_reentry_reminder
 
 
 async def handle_plan(ctx: CommandContext) -> None:
+    if ctx.agent is not None and ctx.args:
+        store = PlanStateStore(ctx.agent.work_dir)
+        ctx.agent.plan_state_store = store
+        ctx.agent.plan_state = store.create(ctx.args)
     ctx.ui.set_plan_mode(True)
     ctx.ui.add_system_message("已切换到 Plan 模式 — 只读，禁止写入和命令执行")
 

@@ -582,7 +582,7 @@ _MEWCODE_THEME = Theme(
 
 class MewCodeApp(App):
     CSS_PATH = "styles.tcss"
-    TITLE = "MewCode"
+    TITLE = "Minicode"
     INLINE_PADDING = 0
     theme = "mewcode"
     BINDINGS = [
@@ -669,7 +669,7 @@ class MewCodeApp(App):
     def _make_banner(model: str = "", work_dir: str = "") -> RichText:
         t = RichText()
         t.append(" /\\_/\\    ", style="bold color(99)")
-        t.append("MewCode v0.1.0\n", style="color(242)")
+        t.append("Minicode v0.2.0\n", style="color(242)")
         t.append("( o.o )   ", style="bold color(99)")
         t.append(f"{model}\n" if model else "\n", style="color(242)")
         t.append(" > ^ <    ", style="bold color(99)")
@@ -1655,6 +1655,7 @@ class MewCodeApp(App):
 
         pre = getattr(self, "_pre_plan_mode", PermissionMode.DEFAULT)
         if choice == PlanChoice.YOLO:
+            self._approve_structured_plan(plan_content)
             self.agent.set_permission_mode(PermissionMode.BYPASS)
             self._update_mode_label()
             # 构建退出提示并标记已退出 Plan Mode
@@ -1665,6 +1666,7 @@ class MewCodeApp(App):
                 execute_text += "\n\nApproved Plan:\n" + plan_content
             self.send_user_message(execute_text)
         elif choice == PlanChoice.MANUAL:
+            self._approve_structured_plan(plan_content)
             self.agent.set_permission_mode(pre)
             self._update_mode_label()
             # 构建退出提示并标记已退出 Plan Mode
@@ -1679,6 +1681,18 @@ class MewCodeApp(App):
                 self.send_user_message(feedback)
             else:
                 self._show_system_message("Type your feedback and send.")
+
+    def _approve_structured_plan(self, plan_content: str) -> None:
+        """Keep the durable state machine in lock-step with TUI plan approval."""
+        if self.agent is None:
+            return
+        from mewcode.plan_state import PlanStateStore
+
+        store = getattr(self.agent, "plan_state_store", None) or PlanStateStore(self.agent.work_dir)
+        state = getattr(self.agent, "plan_state", None) or store.load()
+        if state is not None:
+            self.agent.plan_state_store = store
+            self.agent.plan_state = store.approve(state, plan_content)
 
     async def _handle_askuser(self, event: AskUserEvent) -> None:
         from mewcode.askuser_dialog import InlineAskUserWidget

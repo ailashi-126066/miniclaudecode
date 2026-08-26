@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
 import time
@@ -35,9 +36,53 @@ class FileHistory:
     def __init__(self, base_dir: str, session_id: str) -> None:
         self._session_dir = Path(base_dir) / ".mewcode" / "file-history" / session_id
         self._session_dir.mkdir(parents=True, exist_ok=True)
+        self._metadata_path = self._session_dir / "snapshots.json"
         self._tracked: dict[str, int] = {}
         self._snapshots: list[Snapshot] = []
         self._lock = threading.Lock()
+        self._load_snapshots()
+
+    def _load_snapshots(self) -> None:
+        """Restore checkpoint metadata so /rewind also works after a restart."""
+        try:
+            raw = json.loads(self._metadata_path.read_text(encoding="utf-8"))
+            for item in raw:
+                backups = {
+                    path: Backup(**backup)
+                    for path, backup in item.get("backups", {}).items()
+                }
+                snapshot = Snapshot(
+                    message_index=int(item["message_index"]),
+                    user_text=str(item.get("user_text", "")),
+                    backups=backups,
+                    timestamp=float(item.get("timestamp", 0)),
+                )
+                self._snapshots.append(snapshot)
+                for path, backup in backups.items():
+                    self._tracked[path] = max(self._tracked.get(path, 0), backup.version)
+        except (OSError, ValueError, TypeError, KeyError):
+            self._snapshots = []
+
+    def _persist_snapshots(self) -> None:
+        payload = [
+            {
+                "message_index": snapshot.message_index,
+                "user_text": snapshot.user_text,
+                "timestamp": snapshot.timestamp,
+                "backups": {
+                    path: {
+                        "backup_path": backup.backup_path,
+                        "version": backup.version,
+                        "timestamp": backup.timestamp,
+                    }
+                    for path, backup in snapshot.backups.items()
+                },
+            }
+            for snapshot in self._snapshots
+        ]
+        temp_path = self._metadata_path.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temp_path.replace(self._metadata_path)
 
     def _backup_name(self, file_path: str, version: int) -> str:
         h = hashlib.sha256(file_path.encode()).hexdigest()[:16]
@@ -81,6 +126,7 @@ class FileHistory:
             ))
             if len(self._snapshots) > MAX_SNAPSHOTS:
                 self._snapshots = self._snapshots[-MAX_SNAPSHOTS:]
+            self._persist_snapshots()
 
     def get_snapshots(self) -> list[Snapshot]:
         with self._lock:
@@ -123,5 +169,7 @@ class FileHistory:
             self._snapshots = self._snapshots[: snapshot_index + 1]
             for file_path, backup in target.backups.items():
                 self._tracked[file_path] = backup.version
+
+            self._persist_snapshots()
 
             return changed

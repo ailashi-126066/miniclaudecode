@@ -81,15 +81,16 @@ class PermissionChecker:
                 if self._is_plan_file(content):
                     return Decision(effect="allow", reason="Plan mode: plan file write")
 
-        # Layer 1: 安全的只读命令（自动放行）
-        if tool.category == "command" and is_safe_command(content or ""):
-            return Decision(effect="allow", reason="Safe read-only command")
-
-        # Layer 1b: 危险命令黑名单（仅 Bash）
+        # Layer 1: 危险命令黑名单（仅 Bash）。必须先于安全白名单运行，
+        # 否则 "echo ok\\nrm -rf /" 这类以安全命令开头的复合输入会绕过检测。
         if tool.category == "command":
             hit, reason = self.detector.detect(content)
             if hit:
                 return Decision(effect="deny", reason=f"危险命令拦截: {reason}")
+
+        # Layer 1b: 严格的只读命令白名单（自动放行）
+        if tool.category == "command" and is_safe_command(content or ""):
+            return Decision(effect="allow", reason="Safe read-only command")
 
         # Layer 1c: OS 沙箱自动放行
         # 沙箱开启时，命令类工具通过了危险命令检查后直接放行——

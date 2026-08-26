@@ -147,6 +147,10 @@ class TestLoadInstructions:
         assert result.index("dotdir root") < result.index("dotdir leaf")
 
     def test_no_files_returns_empty(self, tmp_path: Path) -> None:
+        # pytest's sandboxed base temp lives below this repository.  Mark the
+        # fixture as an independent repository so parent project instructions
+        # are intentionally outside the discovery chain.
+        (tmp_path / ".git").mkdir()
         result = load_instructions(str(tmp_path))
         assert result == ""
 

@@ -34,6 +34,8 @@ class TeamError(Exception):
 
 
 class TeamManager:
+    MAX_TEAMMATES = 4
+
     def __init__(self, worktree_manager: Any = None, trace_manager: Any = None) -> None:
         self._teams: dict[str, AgentTeam] = {}
         self._task_stores: dict[str, SharedTaskStore] = {}
@@ -133,6 +135,10 @@ class TeamManager:
         team = self.get_team(team_name)
         if team is None:
             raise TeamError(f"Team '{team_name}' not found")
+        if len(team.members) >= self.MAX_TEAMMATES:
+            raise TeamError(
+                f"Team '{team_name}' already has the maximum of {self.MAX_TEAMMATES} teammates"
+            )
         team.add_member(member)
         team.save()
 
