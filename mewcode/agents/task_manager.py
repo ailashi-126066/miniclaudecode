@@ -37,15 +37,26 @@ class BackgroundTask:
     end_time: float | None = None
     cancel: Callable[[], None] | None = None
     progress: ProgressInfo = field(default_factory=ProgressInfo)
+    worktree_path: str = ""
+    worktree_branch: str = ""
+    base_commit: str = ""
+    plan_step_id: str = ""
+    verification_command: list[str] = field(default_factory=list)
+    change_report: Any = None
+    integration_outcome: Any = None
 
 
 class TaskManager:
 
 
-    def __init__(self) -> None:
+    def __init__(self, integration_manager: Any = None) -> None:
         self._tasks: dict[str, BackgroundTask] = {}
         self._notify_queue: asyncio.Queue[str] = asyncio.Queue()
         self._async_tasks: dict[str, asyncio.Task[None]] = {}
+        self._integration_manager = integration_manager
+
+    def set_integration_manager(self, integration_manager: Any) -> None:
+        self._integration_manager = integration_manager
 
 
     def launch(
@@ -54,6 +65,11 @@ class TaskManager:
         task: str,
         name: str = "",
         fork_conversation: Any = None,
+        worktree_path: str = "",
+        worktree_branch: str = "",
+        base_commit: str = "",
+        plan_step_id: str = "",
+        verification_command: list[str] | None = None,
     ) -> str:
         task_id = uuid.uuid4().hex[:8]
         bg = BackgroundTask(
@@ -61,6 +77,11 @@ class TaskManager:
             name=name or task_id,
             agent=agent,
             task=task,
+            worktree_path=worktree_path,
+            worktree_branch=worktree_branch,
+            base_commit=base_commit,
+            plan_step_id=plan_step_id,
+            verification_command=list(verification_command or []),
         )
         self._tasks[task_id] = bg
 
@@ -129,6 +150,22 @@ class TaskManager:
             bg.status = "failed"
             bg.result = f"Error: {e}"
         finally:
+            if bg.worktree_path:
+                from mewcode.integration import collect_change_report
+
+                bg.change_report = collect_change_report(
+                    bg.worktree_path, bg.worktree_branch, bg.base_commit
+                )
+                if bg.status == "completed" and self._integration_manager is not None:
+                    try:
+                        bg.integration_outcome = await self._integration_manager.integrate(bg)
+                    except Exception as exc:
+                        from mewcode.integration import IntegrationOutcome
+
+                        bg.integration_outcome = IntegrationOutcome(
+                            status="failed", message=f"integration failed: {exc}",
+                            source_branch=bg.worktree_branch,
+                        )
             bg.end_time = time.monotonic()
             bg.progress.input_tokens = bg.agent.total_input_tokens
             bg.progress.output_tokens = bg.agent.total_output_tokens

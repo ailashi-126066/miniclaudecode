@@ -653,6 +653,7 @@ class MewCodeApp(App):
         self.trace_manager: TraceManager = TraceManager()
         self._notification_check_task: asyncio.Task[None] | None = None
         self.worktree_manager: WorktreeManager | None = None
+        self.integration_manager: Any = None
         self._stale_cleanup_task: asyncio.Task[None] | None = None
         self._current_streaming_label: Static | None = None
         self._current_ai_row: Vertical | None = None
@@ -859,6 +860,9 @@ class MewCodeApp(App):
             repo_root=work_dir,
             symlink_directories=wt_cfg.symlink_directories,
         )
+        from mewcode.integration import IntegrationManager
+        self.integration_manager = IntegrationManager(work_dir, self.session.session_id)
+        self.task_manager.set_integration_manager(self.integration_manager)
         restored = self.worktree_manager.restore_session()
         if restored:
             self.agent.work_dir = restored.worktree_path
@@ -1575,6 +1579,9 @@ class MewCodeApp(App):
         if not completed or self.agent is None:
             return
 
+        for task in completed:
+            await self._integrate_completed_task(task)
+
         inject_task_notifications(self.conversation, completed)
 
         for task in completed:
@@ -1589,6 +1596,42 @@ class MewCodeApp(App):
         self._agent_task = asyncio.create_task(
             self._send_message("", is_notification=True)
         )
+
+    async def _integrate_completed_task(self, task: Any) -> None:
+        if (
+            task.status == "completed"
+            and task.worktree_path
+            and self.integration_manager
+            and task.integration_outcome is None
+        ):
+            task.integration_outcome = await self.integration_manager.integrate(task)
+
+        if not task.plan_step_id:
+            return
+
+        from mewcode.plan_state import PlanStateStore
+
+        store = getattr(self.agent, "plan_state_store", None) or PlanStateStore(self.agent.work_dir)
+        state = getattr(self.agent, "plan_state", None) or store.load()
+        if state is None:
+            return
+
+        try:
+            if task.status != "completed":
+                store.fail_step(state, task.plan_step_id, task.result or task.status)
+                return
+
+            outcome = task.integration_outcome
+            if outcome is None:
+                store.fail_step(state, task.plan_step_id, "Worktree integration was not available")
+            elif outcome.status == "integrated" and outcome.verified:
+                verification = [" ".join(outcome.verification_command) + " (passed)"]
+                changed_files = task.change_report.changed_files if task.change_report else []
+                store.complete_step(state, task.plan_step_id, verification, changed_files)
+            elif outcome.status in {"conflict", "verification_failed", "failed"}:
+                store.fail_step(state, task.plan_step_id, outcome.message or outcome.status)
+        except (KeyError, ValueError) as exc:
+            log.warning("Failed to update plan step %s: %s", task.plan_step_id, exc)
 
     async def _start_notification_polling(self) -> None:
         while True:

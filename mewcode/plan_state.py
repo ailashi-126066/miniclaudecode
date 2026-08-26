@@ -115,6 +115,19 @@ class PlanStateStore:
                 return step
         return None
 
+    def start_step(self, state: PlanState, step_id: str) -> PlanStep:
+        """Mark one explicitly assigned step as running."""
+        step = _find_step(state, step_id)
+        if step.status is not StepStatus.PENDING:
+            raise ValueError(f"Plan step {step_id} is not pending")
+        if state.status is PlanStatus.APPROVED:
+            state.status = PlanStatus.EXECUTING
+        if state.status is not PlanStatus.EXECUTING:
+            raise ValueError(f"Plan is not executable (status: {state.status})")
+        step.status = StepStatus.IN_PROGRESS
+        self.save(state)
+        return step
+
     def complete_step(
         self,
         state: PlanState,

@@ -30,6 +30,22 @@ class AgentToolParams(BaseModel):
     run_in_background: bool = False
     name: str | None = None
     isolation: str | None = None
+    plan_step_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional PlanState step ID owned by this task. The step is marked in progress "
+            "when the background worktree task is launched, and is completed only after "
+            "integration and verification succeed."
+        ),
+    )
+    verification_command: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Command argv to run in the integration worktree after merging this task, for "
+            "example ['python', '-m', 'pytest', 'tests/test_feature.py', '-q']. "
+            "A plan step is completed automatically only when this command succeeds."
+        ),
+    )
     plan_mode_required: bool = Field(
         default=False,
         description=(
@@ -120,6 +136,22 @@ class AgentTool(Tool):
 
         parent_checker = getattr(self._parent_agent, "permission_checker", None)
         return parent_checker.rule_engine if parent_checker else RuleEngine()
+
+    def _start_plan_step(self, plan_step_id: str | None) -> str | None:
+        if not plan_step_id:
+            return None
+        from mewcode.plan_state import PlanStateStore
+
+        store = getattr(self._parent_agent, "plan_state_store", None)
+        if store is None:
+            store = PlanStateStore(self._parent_agent.work_dir)
+        state = getattr(self._parent_agent, "plan_state", None) or store.load()
+        if state is None:
+            raise ValueError("No active plan state found for plan_step_id")
+        store.start_step(state, plan_step_id)
+        self._parent_agent.plan_state_store = store
+        self._parent_agent.plan_state = state
+        return plan_step_id
 
     async def execute(self, params: BaseModel) -> ToolResult:
         p: AgentToolParams = params  # type: ignore[assignment]
@@ -468,11 +500,21 @@ class AgentTool(Tool):
             )
 
         # 进程内模式：直接用 task_manager 执行并通知结果
+        try:
+            plan_step_id = self._start_plan_step(p.plan_step_id)
+        except ValueError as e:
+            return ToolResult(output=f"Cannot start plan step: {e}", is_error=True)
+
         task_id = self._task_manager.launch(
             agent=sub_agent,
             task="" if is_fork else p.prompt,
             name=teammate_name,
             fork_conversation=conversation if is_fork else None,
+            worktree_path=wt.path,
+            worktree_branch=wt.branch,
+            base_commit=wt.head_commit,
+            plan_step_id=plan_step_id or "",
+            verification_command=p.verification_command,
         )
 
         return ToolResult(
@@ -662,6 +704,29 @@ class AgentTool(Tool):
             trace_id=sub_agent.trace_id,
         )
         sub_agent.agent_id = trace_node.agent_id
+
+        if p.run_in_background or definition.background:
+            try:
+                plan_step_id = self._start_plan_step(p.plan_step_id)
+            except ValueError as e:
+                return ToolResult(output=f"Cannot start plan step: {e}", is_error=True)
+            task_id = self._task_manager.launch(
+                agent=sub_agent,
+                task=task,
+                name=p.name or definition.agent_type,
+                worktree_path=wt.path,
+                worktree_branch=wt.branch,
+                base_commit=wt.head_commit,
+                plan_step_id=plan_step_id or "",
+                verification_command=p.verification_command,
+            )
+            return ToolResult(
+                output=(
+                    f"Worktree sub-agent launched in background.\n"
+                    f"Task ID: {task_id}\nWorktree: {wt.path}\nBranch: {wt.branch}\n"
+                    "The lead will receive its change and integration report when it completes."
+                )
+            )
 
         try:
             result_text = await sub_agent.run_to_completion(task)

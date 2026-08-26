@@ -305,8 +305,9 @@ class RemoteServer:
             repo_root=work_dir,
             symlink_directories=wt_cfg.symlink_directories,
         )
+        from mewcode.integration import IntegrationManager
         trace_manager = TraceManager()
-        self.task_manager = TaskManager()
+        self.task_manager = TaskManager(IntegrationManager(work_dir, self.session_id))
         agent_loader = AgentLoader(work_dir, enable_verification=enable_verification)
         agent_loader.load_all()
         self.team_manager = TeamManager(

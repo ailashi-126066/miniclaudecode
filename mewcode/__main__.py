@@ -208,7 +208,8 @@ async def _run_prompt(config, permission_mode, hook_engine, prompt: str, output_
         symlink_directories=wt_cfg.symlink_directories,
     )
     trace_manager = TraceManager()
-    task_manager = TaskManager()
+    from mewcode.integration import IntegrationManager
+    task_manager = TaskManager(IntegrationManager(work_dir))
     agent_loader = AgentLoader(work_dir, enable_verification=config.enable_verification_agent)
     agent_loader.load_all()
     team_manager = TeamManager(worktree_manager=wt_manager, trace_manager=trace_manager)
