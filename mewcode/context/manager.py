@@ -25,10 +25,12 @@ from mewcode.serialization import build_messages
 # 常量
 # ---------------------------------------------------------------------------
 
-# 单条消息内所有工具结果的聚合上限。单条结果的大小由 tools.MAX_OUTPUT_CHARS
-# 在结果入历史时把关，这里只管聚合——一轮并行调多个工具时，每条都没超单条
-# 阈值，加起来却能撑爆上下文，这是单条阈值管不到的场景。
+# 发送副本中的单条、聚合和陈旧工具结果预算；不会原地修改对话历史。
+SINGLE_RESULT_CHAR_LIMIT = 50_000
 AGGREGATE_CHAR_LIMIT = 200_000
+KEEP_RECENT_TURNS = 10
+OLD_RESULT_SNIP_CHARS = 2_000
+SNIPPED_TAG = "<snipped>"
 PREVIEW_CHARS = 2_000
 
 SUMMARY_OUTPUT_RESERVE = 20_000
@@ -82,6 +84,89 @@ class CompactEvent:
 # ---------------------------------------------------------------------------
 # Session 目录管理
 # ---------------------------------------------------------------------------
+
+@dataclass
+class ContentReplacementState:
+    seen_ids: set[str] = field(default_factory=set)
+    replacements: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ContentReplacementRecord:
+    tool_use_id: str
+    replacement: str
+    kind: str = "tool-result"
+
+
+def create_replacement_state() -> ContentReplacementState:
+    return ContentReplacementState()
+
+
+def clone_replacement_state(src: ContentReplacementState) -> ContentReplacementState:
+    return ContentReplacementState(
+        seen_ids=set(src.seen_ids),
+        replacements=dict(src.replacements),
+    )
+
+
+REPLACEMENT_RECORDS_FILENAME = "replacement_records.jsonl"
+
+
+def append_replacement_records(
+    session_dir: Path, records: list[ContentReplacementRecord]
+) -> None:
+    if not records:
+        return
+    path = session_dir / REPLACEMENT_RECORDS_FILENAME
+    with path.open("a", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps({
+                "kind": r.kind,
+                "tool_use_id": r.tool_use_id,
+                "replacement": r.replacement,
+            }, ensure_ascii=False) + "\n")
+
+
+def load_replacement_records(session_dir: Path) -> list[ContentReplacementRecord]:
+    path = session_dir / REPLACEMENT_RECORDS_FILENAME
+    if not path.exists():
+        return []
+    out: list[ContentReplacementRecord] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            out.append(ContentReplacementRecord(
+                kind=obj.get("kind", "tool-result"),
+                tool_use_id=obj["tool_use_id"],
+                replacement=obj["replacement"],
+            ))
+    return out
+
+
+def reconstruct_replacement_state(
+    messages: list[Message],
+    records: list[ContentReplacementRecord],
+    inherited_replacements: Mapping[str, str] | None = None,
+) -> ContentReplacementState:
+    state = create_replacement_state()
+    candidate_ids: set[str] = set()
+    for msg in messages:
+        for tr in msg.tool_results:
+            candidate_ids.add(tr.tool_use_id)
+    state.seen_ids.update(candidate_ids)
+    for r in records:
+        if r.kind == "tool-result" and r.tool_use_id in candidate_ids:
+            state.replacements[r.tool_use_id] = r.replacement
+    if inherited_replacements:
+        for tool_use_id, replacement in inherited_replacements.items():
+            if tool_use_id in candidate_ids and tool_use_id not in state.replacements:
+                state.replacements[tool_use_id] = replacement
+    return state
+
+
 
 def spill_dir(work_dir: str, session_id: str = "") -> Path:
     """溢写目录：按会话隔离在 .mewcode/sessions/<会话id>/tool-results 下，
@@ -149,44 +234,187 @@ def is_spill_readback(tool_name: str, arguments: Mapping[str, object], session_d
     return abs_path.startswith(os.path.abspath(str(session_dir)))
 
 
+def _count_turns(messages: list[Message]) -> int:
+    count = 0
+    for m in messages:
+        if m.role == "assistant" and not m.tool_uses:
+            count += 1
+    return count
+
+
+def _copy_message_with_results(
+    msg: Message, new_tool_results: list[ToolResultBlock]
+) -> Message:
+    return Message(
+        role=msg.role,
+        content=msg.content,
+        tool_uses=list(msg.tool_uses),
+        tool_results=new_tool_results,
+        thinking_blocks=list(msg.thinking_blocks),
+    )
+
+
+def _snip_stale_messages(
+    history: list[Message],
+) -> list[Message]:
+    total_turns = _count_turns(history)
+    if total_turns <= KEEP_RECENT_TURNS:
+        return history
+
+    out: list[Message] = []
+    turns_seen = 0
+    old_boundary = total_turns - KEEP_RECENT_TURNS
+
+    for msg in history:
+        if msg.role == "assistant" and not msg.tool_uses:
+            turns_seen += 1
+        if turns_seen > old_boundary or not msg.tool_results:
+            out.append(msg)
+            continue
+
+        new_results: list[ToolResultBlock] = []
+        changed = False
+        for tr in msg.tool_results:
+            if (
+                tr.content.startswith(SNIPPED_TAG)
+                or tr.content.startswith(PERSISTED_TAG)
+                or len(tr.content) <= OLD_RESULT_SNIP_CHARS
+            ):
+                new_results.append(tr)
+                continue
+            preview = tr.content[:200]
+            orig_len = len(tr.content)
+            new_content = (
+                f"{SNIPPED_TAG}\n"
+                f"(旧结果已裁剪，原始长度 {orig_len} 字符)\n"
+                f"{preview}\n"
+                f"… (snipped)"
+            )
+            new_results.append(ToolResultBlock(
+                tool_use_id=tr.tool_use_id,
+                content=new_content,
+                is_error=tr.is_error,
+            ))
+            changed = True
+
+        out.append(_copy_message_with_results(msg, new_results) if changed else msg)
+
+    return out
+
+
 def apply_tool_result_budget(
-    tool_results: list[ToolResultBlock],
+    conversation: ConversationManager,
     session_dir: Path,
-    exempt_ids: set[str] | None = None,
-) -> None:
-    """在一轮工具结果进入对话历史之前执行聚合预算。
-
-    整批结果的总字符数超过 AGGREGATE_CHAR_LIMIT 时，从最大的开始逐条
-    溢写到磁盘、就地替换成预览，直到总量回到限额内。消息进历史前处理完，
-    历史里的内容自此不再改动，Prompt Cache 前缀天然稳定。
-
-    exempt_ids 里的 tool_use_id 不参与溢写：溢写文件的回读结果（再溢写
-    模型就永远看不到全文），以及本轮已经单条溢写过的结果。全是豁免项时
-    接受超额。
+    state: ContentReplacementState,
+) -> tuple[ConversationManager, list[ContentReplacementRecord]]:
     """
-    exempt = exempt_ids or set()
-    total = sum(len(tr.content) for tr in tool_results)
-    if total <= AGGREGATE_CHAR_LIMIT:
-        return
+    Design B: 不 mutate 原 conversation。
 
-    # 按内容长度降序挑选：先溢写最大的，回到限额内需要动的条数最少。
-    ranked = sorted(tool_results, key=lambda tr: len(tr.content), reverse=True)
-    for tr in ranked:
-        if total <= AGGREGATE_CHAR_LIMIT:
-            break
-        if tr.tool_use_id in exempt:
+    返回一个新的 ConversationManager，其中 tool_result.content 已根据 state.replacements
+    应用了决策，并对本轮 fresh 候选执行了 Pass 1（单条超限）+ Pass 2（聚合超限）。
+    Pass 3（陈旧裁剪）在新 history 上跑，仍然 stateless（边界 drift 是已知 trade-off）。
+
+    state 会被 mutate：本轮新决定的 id 进入 seen_ids，新决定替换的 id 进入 replacements。
+    """
+    readback_ids = {
+        tu.tool_use_id
+        for msg in conversation.history
+        for tu in msg.tool_uses
+        if is_spill_readback(tu.tool_name, tu.arguments, session_dir)
+    }
+    state.seen_ids.update(readback_ids)
+    new_records: list[ContentReplacementRecord] = []
+    new_history: list[Message] = []
+
+    for msg in conversation.history:
+        if not msg.tool_results:
+            new_history.append(msg)
             continue
-        if len(tr.content) <= PREVIEW_CHARS:
-            # 比预览还短的结果，溢写换不回空间
-            continue
-        try:
-            fp = persist_tool_result(tr.tool_use_id, tr.content, session_dir)
-        except OSError:
-            # 写盘失败就保留原文。消息随即定型进历史，不会再有重试
-            continue
-        preview = make_persisted_preview(tr.content, fp)
-        total -= len(tr.content) - len(preview)
-        tr.content = preview
+
+        decisions: dict[str, str] = {}
+        fresh: list[ToolResultBlock] = []
+
+        for tr in msg.tool_results:
+            if tr.tool_use_id in state.replacements:
+                decisions[tr.tool_use_id] = state.replacements[tr.tool_use_id]
+            elif tr.tool_use_id in state.seen_ids:
+                decisions[tr.tool_use_id] = tr.content
+            elif tr.content.startswith(PERSISTED_TAG):
+                # 已被外部（如某些工具本身）打上 persisted-output 标签 —— 视为已知决策
+                state.seen_ids.add(tr.tool_use_id)
+                state.replacements[tr.tool_use_id] = tr.content
+                decisions[tr.tool_use_id] = tr.content
+                new_records.append(ContentReplacementRecord(
+                    tool_use_id=tr.tool_use_id, replacement=tr.content,
+                ))
+            else:
+                fresh.append(tr)
+
+        # Pass 1：单条超限
+        persisted_p1: set[str] = set()
+        for tr in fresh:
+            if len(tr.content) > SINGLE_RESULT_CHAR_LIMIT:
+                fp = persist_tool_result(tr.tool_use_id, tr.content, session_dir)
+                preview = make_persisted_preview(tr.content, fp)
+                decisions[tr.tool_use_id] = preview
+                state.replacements[tr.tool_use_id] = preview
+                state.seen_ids.add(tr.tool_use_id)
+                new_records.append(ContentReplacementRecord(
+                    tool_use_id=tr.tool_use_id, replacement=preview,
+                ))
+                persisted_p1.add(tr.tool_use_id)
+
+        # Pass 2：聚合超限
+        remaining = [tr for tr in fresh if tr.tool_use_id not in persisted_p1]
+        total = sum(len(c) for c in decisions.values()) + sum(
+            len(tr.content) for tr in remaining
+        )
+        if total > AGGREGATE_CHAR_LIMIT:
+            ranked = sorted(remaining, key=lambda tr: len(tr.content), reverse=True)
+            for tr in ranked:
+                if total <= AGGREGATE_CHAR_LIMIT:
+                    break
+                fp = persist_tool_result(tr.tool_use_id, tr.content, session_dir)
+                preview = make_persisted_preview(tr.content, fp)
+                old_len = len(tr.content)
+                decisions[tr.tool_use_id] = preview
+                state.replacements[tr.tool_use_id] = preview
+                state.seen_ids.add(tr.tool_use_id)
+                new_records.append(ContentReplacementRecord(
+                    tool_use_id=tr.tool_use_id, replacement=preview,
+                ))
+                total -= old_len - len(preview)
+
+        # 剩余未替换的 fresh 标记为"已见但未替换"
+        for tr in fresh:
+            if tr.tool_use_id not in state.replacements:
+                state.seen_ids.add(tr.tool_use_id)
+                decisions[tr.tool_use_id] = tr.content
+
+        # 生成新的 tool_results，保持原始顺序
+        new_tool_results = [
+            ToolResultBlock(
+                tool_use_id=tr.tool_use_id,
+                content=decisions[tr.tool_use_id],
+                is_error=tr.is_error,
+                content_blocks=tr.content_blocks if decisions[tr.tool_use_id] == tr.content else None,
+            )
+            for tr in msg.tool_results
+        ]
+        new_history.append(_copy_message_with_results(msg, new_tool_results))
+
+    # Pass 3：在新 history 上裁剪过期结果（无状态；边界漂移是已知 trade-off）
+    new_history = _snip_stale_messages(new_history)
+
+    new_conv = ConversationManager()
+    new_conv.history = new_history
+    new_conv.env_injected = conversation.env_injected
+    new_conv.ltm_injected = conversation.ltm_injected
+    new_conv.last_input_tokens = conversation.last_input_tokens
+    new_conv.baseline_tokens = conversation.baseline_tokens
+    new_conv.anchor_count = conversation.anchor_count
+
+    return new_conv, new_records
 
 
 # ---------------------------------------------------------------------------
@@ -672,8 +900,7 @@ async def auto_compact(
 
     before_tokens = current
 
-    # 历史里的工具结果在入历史时已按预算处理为终态，history 就是实际
-    # 发送量，直接基于它计算 keep_start 和构建摘要。
+    # 摘要使用已有历史，发送副本的工具结果裁剪不会修改摘要来源。
     effective_history = conversation.history
 
     # 决定保留多少尾部消息原文。只有前缀 messages[:keep_start] 会被摘要；
@@ -762,7 +989,7 @@ async def auto_compact(
     # 不清零会导致 current_tokens() 对增量的估算出错。
     # 下一次 API 响应会基于重建后的 history 重新锚定。
     conversation.replace_history(new_messages)
-    cleanup_tool_results(session_dir)
+    # 工具输出与替换日志随会话保留；近期消息或摘要仍可能引用这些文件。
 
     if breaker is not None:
         breaker.record_success()

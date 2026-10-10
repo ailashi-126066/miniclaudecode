@@ -8,12 +8,9 @@ import logging
 import os
 from pathlib import Path
 
-import yaml
-
 from mewcode.skills.parser import (
     SkillDef,
     SkillParseError,
-    resolve_mode_and_context,
     parse_skill_file,
 )
 
@@ -66,14 +63,6 @@ class SkillLoader:
                     skill.source_path = entry
                     results.append(skill)
                 elif entry.is_dir():
-                    # 优先尝试 skill.yaml + prompt.md 格式
-                    skill_yaml = entry / "skill.yaml"
-                    if skill_yaml.is_file():
-                        skill = self._parse_skill_yaml(skill_yaml, entry)
-                        if skill is not None:
-                            results.append(skill)
-                            continue
-                    # 回退到 SKILL.md 格式
                     skill_md = entry / "SKILL.md"
                     if skill_md.is_file():
                         skill = parse_skill_file(skill_md)
@@ -85,62 +74,9 @@ class SkillLoader:
 
         return results
 
-    @staticmethod
-    def _parse_skill_yaml(yaml_path: Path, skill_dir: Path) -> SkillDef | None:
-        """解析 skill.yaml + prompt.md 格式的 skill。"""
-        try:
-            data = yaml_path.read_text(encoding="utf-8")
-            meta = yaml.safe_load(data)
-        except (OSError, yaml.YAMLError) as e:
-            log.warning("Cannot parse %s: %s", yaml_path, e)
-            return None
-
-        if not isinstance(meta, dict):
-            log.warning("Invalid skill.yaml in %s: not a mapping", skill_dir)
-            return None
-
-        name = meta.get("name", "")
-        if not name:
-            # 自动从目录名派生
-            name = skill_dir.name.lower().replace(" ", "-")
-
-        description = meta.get("description", "")
-
-        # 读取 prompt.md 作为 prompt body
-        prompt_md = skill_dir / "prompt.md"
-        prompt_body = ""
-        if prompt_md.is_file():
-            try:
-                prompt_body = prompt_md.read_text(encoding="utf-8")
-            except OSError as e:
-                log.warning("Cannot read prompt.md in %s: %s", skill_dir, e)
-
-        # 没有 description 时从 prompt body 推断
-        if not description and prompt_body:
-            for line in prompt_body.split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#") and not line.startswith("---"):
-                    description = line
-                    break
-
-        mode, context = resolve_mode_and_context(meta)
-        if mode not in ("inline", "fork"):
-            mode = "inline"
-
-        return SkillDef(
-            name=name,
-            description=description,
-            prompt_body=prompt_body,
-            mode=mode,
-            model=meta.get("model"),
-            context=context,
-            source_path=prompt_md if prompt_md.is_file() else yaml_path,
-            is_directory=True,
-        )
-
     def _load_builtins(self) -> list[SkillDef]:
-        """内置 skill 已移除，返回空列表。"""
-        return []
+        """Load the bundled SKILL.md directories with the regular parser."""
+        return self._scan_directory(Path(__file__).parent / "builtins", "builtin")
 
 
     def get(self, name: str) -> SkillDef | None:

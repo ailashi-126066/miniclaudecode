@@ -240,47 +240,13 @@ def validate_sandbox(raw_sb: dict | None) -> dict:
     return result
 
 
-def validate_knowledge(raw_knowledge: dict | None) -> dict:
-    """Validate optional private knowledge-base and embedding settings."""
-    if raw_knowledge is None:
-        return {"configured": False, "enabled": False, "embedding": None}
-    if not isinstance(raw_knowledge, dict):
-        raise ConfigError("'knowledge' must be a mapping")
-
-    enabled = raw_knowledge.get("enabled", False)
-    if not isinstance(enabled, bool):
-        raise ConfigError("'knowledge.enabled' must be a boolean")
-    if not enabled:
-        return {"configured": True, "enabled": False, "embedding": None}
-
-    embedding = raw_knowledge.get("embedding")
-    if not isinstance(embedding, dict):
-        raise ConfigError("'knowledge.embedding' is required when knowledge is enabled")
-    missing = [key for key in ("base_url", "api_key", "model") if not embedding.get(key)]
-    if missing:
-        raise ConfigError(
-            "'knowledge.embedding' missing fields: " + ", ".join(missing)
-        )
-    if not all(isinstance(embedding[key], str) for key in ("base_url", "api_key", "model")):
-        raise ConfigError("'knowledge.embedding.base_url', 'api_key', and 'model' must be strings")
-    return {
-        "configured": True,
-        "enabled": True,
-        "embedding": {
-            "base_url": embedding["base_url"],
-            "api_key": embedding["api_key"],
-            "model": embedding["model"],
-        },
-    }
-
-
 def validate_config_structure(raw: object) -> dict:
     """校验的主入口。校验解析后的原始配置，返回清洗后的字典。
 
     返回的字典包含以下键：
         providers、permission_mode、mcp_servers、hooks、
         enable_fork、enable_verification_agent、worktree、
-        teammate_mode、enable_coordinator_mode、sandbox、knowledge
+        teammate_mode、enable_coordinator_mode、sandbox
     """
     if not isinstance(raw, dict) or "providers" not in raw:
         raise ConfigError("Config must contain a 'providers' list")
@@ -300,5 +266,4 @@ def validate_config_structure(raw: object) -> dict:
             raw.get("enable_coordinator_mode", False), "enable_coordinator_mode"
         ),
         "sandbox": validate_sandbox(raw.get("sandbox")),
-        "knowledge": validate_knowledge(raw.get("knowledge")),
     }

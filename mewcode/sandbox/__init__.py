@@ -5,7 +5,7 @@
 
 """OS 级沙箱：限制 Bash 命令的文件写入和网络访问。
 
-macOS 使用 sandbox-exec（Seatbelt），Linux 使用 bubblewrap（bwrap）。
+仅支持 macOS，使用 sandbox-exec（Seatbelt）。
 与 permissions/sandbox.py 中的 PathSandbox（路径级权限检查）不同，
 这里是操作系统层面的强制隔离——即使命令绕过了路径检查，
 内核也会阻止越权的写操作。
@@ -45,17 +45,9 @@ class Sandbox(ABC):
 
 
 def create_sandbox() -> Sandbox | None:
-    """根据操作系统自动选择沙箱实现。
-
-    macOS -> SeatbeltSandbox（基于 sandbox-exec）
-    Linux -> BwrapSandbox（基于 bubblewrap）
-    其他系统 -> None（不支持沙箱）
-    """
+    """在 macOS 上创建 Seatbelt 沙箱，其他系统返回 None。"""
     system = platform.system()
     if system == "Darwin":
         from .seatbelt import SeatbeltSandbox
         return SeatbeltSandbox()
-    elif system == "Linux":
-        from .bwrap import BwrapSandbox
-        return BwrapSandbox()
     return None

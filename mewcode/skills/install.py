@@ -250,8 +250,8 @@ async def _walk_and_download(
 
 
 def _has_skill_manifest(directory: Path) -> bool:
-    """检查目录下是否有 SKILL.md 或 skill.yaml（基本的合法 skill 检测）。"""
-    return (directory / "SKILL.md").is_file() or (directory / "skill.yaml").is_file()
+    """检查目录下是否有 SKILL.md。"""
+    return (directory / "SKILL.md").is_file()
 
 
 def _validate_skill_name(name: str) -> None:
@@ -302,7 +302,7 @@ async def install_skill(
         # 校验：下载的目录里必须有 skill manifest
         if not _has_skill_manifest(staging):
             raise RuntimeError(
-                "downloaded tree missing SKILL.md or skill.yaml — not a skill?"
+                "downloaded tree missing SKILL.md — not a skill?"
             )
 
         # 原子替换：先删除旧安装（如果存在），再 rename

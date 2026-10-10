@@ -41,7 +41,7 @@ class PermissionChecker:
         self.rule_engine = rule_engine
         self.mode = mode
         self.plan_file_path: str = ""
-        # OS 级沙箱是否启用（开启后命令类工具可自动放行，因为内核会兜底）
+        # 是否对已挂载且可用的 Bash 沙箱启用自动放行
         self.sandbox_enabled = sandbox_enabled
 
     @staticmethod
@@ -93,11 +93,15 @@ class PermissionChecker:
             return Decision(effect="allow", reason="Safe read-only command")
 
         # Layer 1c: OS 沙箱自动放行
-        # 沙箱开启时，命令类工具通过了危险命令检查后直接放行——
+        # Bash 已挂载可用沙箱时，通过危险命令检查后可自动放行——
         # 内核级隔离会阻止越权写入，无需再弹确认。
         # 拆分复合命令逐条检查，防止通过命令拼接绕过权限检查，
         # deny 规则和 ask 规则不受沙箱影响。
-        if self.sandbox_enabled and tool.category == "command":
+        if (
+            self.sandbox_enabled
+            and tool.name == "Bash"
+            and getattr(tool, "sandbox_active", False)
+        ):
             import re
             subcommands = [s.strip() for s in re.split(r'\s*(?:&&|\|\||[;|])\s*', content) if s.strip()]
             if not subcommands:

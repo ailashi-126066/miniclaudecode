@@ -63,6 +63,7 @@ def _handle_info(ctx: CommandContext, loader: SkillLoader, name: str) -> None:
         f"Skill: {skill.name}",
         f"Description: {skill.description}",
         f"Mode: {skill.mode}",
+        f"AllowedTools: {', '.join(skill.allowed_tools) or '(all)'}",
         f"Context: {skill.context}",
         f"Model: {skill.model or '(default)'}",
         f"Source: {source}",

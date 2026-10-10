@@ -55,12 +55,6 @@ def main() -> None:
         default="text",
         help="Output format for -p mode: 'text' (default) prints final text, 'stream-json' emits NDJSON events",
     )
-    parser.add_argument(
-        "--remote",
-        action="store_true",
-        default=False,
-        help="Start in remote mode: WebSocket server on 0.0.0.0:18888 with browser UI",
-    )
     args = parser.parse_args()
 
     try:
@@ -85,19 +79,6 @@ def main() -> None:
         asyncio.run(_run_prompt(config, permission_mode, hook_engine, args.p, output_format))
         return
 
-    # Remote 模式：启动 WebSocket 服务器，浏览器访问 http://localhost:18888
-    if args.remote:
-        from mewcode.remote import RemoteServer
-
-        server = RemoteServer(
-            providers=config.providers,
-            mcp_servers=config.mcp_servers,
-            hook_engine=hook_engine,
-            config=config,
-        )
-        asyncio.run(server.run())
-        return
-
     from mewcode.app import MewCodeApp
     from mewcode.driver import NoAltScreenDriver
 
@@ -113,7 +94,6 @@ def main() -> None:
         enable_coordinator_mode=config.enable_coordinator_mode,
         driver_class=NoAltScreenDriver,
         sandbox_config=config.sandbox,
-        knowledge_config=config.knowledge,
     )
     app.run()
 
@@ -185,9 +165,6 @@ async def _run_prompt(config, permission_mode, hook_engine, prompt: str, output_
     instructions = load_instructions(work_dir)
     registry = create_default_registry()
     registry.register(ToolSearchTool(registry, protocol=provider.protocol))
-    from mewcode.tools.knowledge_search import KnowledgeSearchTool
-    if config.knowledge.enabled and config.knowledge.embedding is not None:
-        registry.register(KnowledgeSearchTool(work_dir, config.knowledge.embedding))
     registry.register(McpCallTool(registry))
 
     agent = Agent(
@@ -198,7 +175,6 @@ async def _run_prompt(config, permission_mode, hook_engine, prompt: str, output_
         permission_checker=checker,
         context_window=provider.get_context_window(),
         instructions_content=instructions,
-        knowledge_enabled=config.knowledge.enabled,
         hook_engine=hook_engine,
     )
 
@@ -208,8 +184,7 @@ async def _run_prompt(config, permission_mode, hook_engine, prompt: str, output_
         symlink_directories=wt_cfg.symlink_directories,
     )
     trace_manager = TraceManager()
-    from mewcode.integration import IntegrationManager
-    task_manager = TaskManager(IntegrationManager(work_dir))
+    task_manager = TaskManager()
     agent_loader = AgentLoader(work_dir, enable_verification=config.enable_verification_agent)
     agent_loader.load_all()
     team_manager = TeamManager(worktree_manager=wt_manager, trace_manager=trace_manager)
@@ -446,7 +421,6 @@ async def _build_teammate_registry(
     team_name: str,
     agent_name: str,
     mcp_servers: list,
-    knowledge_config=None,
     base_url: str = "",
     context_window: int = 0,
 ):
@@ -465,7 +439,6 @@ async def _build_teammate_registry(
     from mewcode.tools.enter_worktree import EnterWorktreeTool
     from mewcode.tools.exit_worktree import ExitWorktreeTool
     from mewcode.tools.impl.tool_search import ToolSearchTool
-    from mewcode.tools.knowledge_search import KnowledgeSearchTool
     from mewcode.tools.mcp_call import McpCallTool
     from mewcode.tools.install_skill import InstallSkillTool
     from mewcode.tools.load_skill import LoadSkill
@@ -479,8 +452,6 @@ async def _build_teammate_registry(
 
     registry = create_default_registry()
     registry.register(ToolSearchTool(registry, protocol=protocol))
-    if knowledge_config is not None and knowledge_config.enabled and knowledge_config.embedding is not None:
-        registry.register(KnowledgeSearchTool(work_dir, knowledge_config.embedding))
     registry.register(McpCallTool(registry))
     registry.register(SyntheticOutputTool())
 
@@ -594,7 +565,6 @@ async def _run_teammate(team_name: str, agent_name: str) -> None:
         mcp_servers=config.mcp_servers,
         base_url=provider.base_url,
         context_window=provider.get_context_window(),
-        knowledge_config=config.knowledge,
     )
 
     checker = PermissionChecker(
@@ -616,7 +586,6 @@ async def _run_teammate(team_name: str, agent_name: str) -> None:
         permission_checker=checker,
         context_window=provider.get_context_window(),
         instructions_content=load_instructions(work_dir),
-        knowledge_enabled=config.knowledge.enabled,
     )
 
     # 不传初始 prompt：lead 已把首个任务写进邮箱，主循环首次轮询即可取到，

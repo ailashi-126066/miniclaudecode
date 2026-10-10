@@ -4,17 +4,7 @@
 # 简历模版：jianli.xiaolinnote.com
 
 
-from mewcode.memory.auto_memory import (
-    ENTRYPOINT_NAME,
-    MemoryFile,
-    MemoryManager,
-    build_memory_prompt,
-    ensure_memory_dir_exists,
-    get_auto_mem_path,
-    get_user_auto_mem_path,
-    is_auto_mem_path,
-    parse_frontmatter,
-)
+from mewcode.memory.auto_memory import MemoryManager
 from mewcode.memory.instructions import load_instructions, process_includes
 from mewcode.memory.recall import (
     RelevantMemory,
@@ -34,8 +24,6 @@ from mewcode.memory.session import (
 
 
 __all__ = [
-    "ENTRYPOINT_NAME",
-    "MemoryFile",
     "MemoryManager",
     "RelevantMemory",
     "ResumeResult",
@@ -43,17 +31,11 @@ __all__ = [
     "SessionManager",
     "SessionMeta",
     "SessionRecord",
-    "build_memory_prompt",
-    "ensure_memory_dir_exists",
     "find_relevant_memories",
     "generate_session_summary",
-    "get_auto_mem_path",
-    "get_user_auto_mem_path",
-    "is_auto_mem_path",
     "load_instructions",
     "make_compact_boundary",
     "parse_compact_boundary",
-    "parse_frontmatter",
     "process_includes",
     "render_reminder",
 ]

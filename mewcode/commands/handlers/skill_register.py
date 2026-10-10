@@ -34,8 +34,13 @@ def register_skill_commands(
         _REGISTERED_SKILL_NAMES.discard(name)
 
     for skill_name, skill_desc in loader.get_catalog():
-        if registry.find(skill_name) is not None:
-            continue
+        existing = registry.find(skill_name)
+        if existing is not None:
+            from mewcode.commands.handlers.review import REVIEW_COMMAND
+            if skill_name == "review" and existing is REVIEW_COMMAND:
+                registry._commands.pop(skill_name)
+            else:
+                continue
 
         s_name = skill_name
         s_desc = skill_desc

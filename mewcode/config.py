@@ -136,25 +136,6 @@ class SandboxAppConfig:
     network_enabled: bool = False  # 沙箱内是否允许网络访问
 
 
-@dataclass(frozen=True)
-class KnowledgeEmbeddingConfig:
-    base_url: str
-    api_key: str
-    model: str
-
-    @property
-    def identity(self) -> str:
-        return f"{self.base_url.rstrip('/')}|{self.model}"
-
-
-@dataclass
-class KnowledgeConfig:
-    enabled: bool = False
-    embedding: KnowledgeEmbeddingConfig | None = None
-    # Internal merge marker: distinguishes an omitted layer from `enabled: false`.
-    configured: bool = False
-
-
 @dataclass
 class AppConfig:
     providers: list[ProviderConfig]
@@ -167,7 +148,6 @@ class AppConfig:
     teammate_mode: str = ""
     enable_coordinator_mode: bool = False
     sandbox: SandboxAppConfig = field(default_factory=SandboxAppConfig)
-    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
 
 
 def _load_single_file(path: Path) -> AppConfig:
@@ -217,21 +197,6 @@ def _load_single_file(path: Path) -> AppConfig:
         auto_allow=sb["auto_allow"],
         network_enabled=sb["network_enabled"],
     )
-    knowledge_raw = validated["knowledge"]
-    embedding_raw = knowledge_raw["embedding"]
-    knowledge_cfg = KnowledgeConfig(
-        enabled=knowledge_raw["enabled"],
-        embedding=(
-            KnowledgeEmbeddingConfig(
-                base_url=resolve_env_vars(embedding_raw["base_url"]),
-                api_key=resolve_env_vars(embedding_raw["api_key"]),
-                model=embedding_raw["model"],
-            )
-            if embedding_raw is not None
-            else None
-        ),
-        configured=knowledge_raw["configured"],
-    )
 
     return AppConfig(
         providers=providers,
@@ -244,7 +209,6 @@ def _load_single_file(path: Path) -> AppConfig:
         teammate_mode=validated["teammate_mode"],
         enable_coordinator_mode=validated["enable_coordinator_mode"],
         sandbox=sandbox_cfg,
-        knowledge=knowledge_cfg,
     )
 
 
@@ -280,8 +244,6 @@ def _merge_config(base: AppConfig, override: AppConfig) -> AppConfig:
         base.sandbox.auto_allow = True
     if override.sandbox.network_enabled:
         base.sandbox.network_enabled = True
-    if override.knowledge.configured:
-        base.knowledge = override.knowledge
     return base
 
 

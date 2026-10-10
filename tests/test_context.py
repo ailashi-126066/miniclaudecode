@@ -13,6 +13,8 @@ import pytest
 
 from mewcode.context.manager import (
     AGGREGATE_CHAR_LIMIT,
+    SINGLE_RESULT_CHAR_LIMIT,
+    create_replacement_state,
     KEEP_MAX_TOKENS,
     KEEP_RECENT_TOKENS,
     MIN_KEEP_MESSAGES,
@@ -81,69 +83,96 @@ class TestMakePersistedPreview:
 # ---------------------------------------------------------------------------
 
 class TestApplyToolResultBudget:
-    def _batch(self, *sizes: int) -> list[ToolResultBlock]:
-        return [
-            ToolResultBlock(tool_use_id=f"t{i + 1}", content="x" * n)
-            for i, n in enumerate(sizes)
-        ]
+    def test_single_oversized_persisted(self, tmp_path: Path) -> None:
+        conv = ConversationManager()
+        big_content = "x" * (SINGLE_RESULT_CHAR_LIMIT + 100)
+        conv.history.append(
+            Message(
+                role="user",
+                content="",
+                tool_results=[
+                    ToolResultBlock(
+                        tool_use_id="toolu_big",
+                        content=big_content,
+                    )
+                ],
+            )
+        )
+        state = create_replacement_state()
+
+        api_conv, records = apply_tool_result_budget(conv, tmp_path, state)
+
+        tr = api_conv.history[0].tool_results[0]
+        assert tr.content.startswith(PERSISTED_TAG)
+        assert (tmp_path / "toolu_big.txt").exists()
+        assert conv.history[0].tool_results[0].content == big_content  # 原始内容未被改动
+        assert len(records) == 1 and records[0].tool_use_id == "toolu_big"
 
     def test_under_limit_untouched(self, tmp_path: Path) -> None:
-        batch = self._batch(40_000, 40_000)
+        conv = ConversationManager()
+        small_content = "x" * 100
+        conv.history.append(
+            Message(
+                role="user",
+                content="",
+                tool_results=[
+                    ToolResultBlock(tool_use_id="toolu_sm", content=small_content)
+                ],
+            )
+        )
+        state = create_replacement_state()
 
-        apply_tool_result_budget(batch, tmp_path)
+        api_conv, records = apply_tool_result_budget(conv, tmp_path, state)
 
-        assert batch[0].content == "x" * 40_000
-        assert batch[1].content == "x" * 40_000
+        tr = api_conv.history[0].tool_results[0]
+        assert tr.content == small_content
+        assert not (tmp_path / "toolu_sm.txt").exists()
+        assert records == []
+        assert "toolu_sm" in state.seen_ids
+        assert "toolu_sm" not in state.replacements
 
-    def test_aggregate_spills_largest_first(self, tmp_path: Path) -> None:
-        # 5 条合计 225K+1，只需溢写最大的 t3 即可回到限额内
-        batch = self._batch(45_000, 45_000, 45_001, 45_000, 45_000)
+    def test_aggregate_limit(self, tmp_path: Path) -> None:
+        conv = ConversationManager()
+        results = []
+        for i in range(5):
+            results.append(
+                ToolResultBlock(
+                    tool_use_id=f"toolu_agg_{i}",
+                    content="x" * (AGGREGATE_CHAR_LIMIT // 4),
+                )
+            )
+        conv.history.append(Message(role="user", content="", tool_results=results))
+        state = create_replacement_state()
 
-        apply_tool_result_budget(batch, tmp_path)
+        api_conv, _ = apply_tool_result_budget(conv, tmp_path, state)
 
-        total = sum(len(tr.content) for tr in batch)
+        total = sum(len(tr.content) for tr in api_conv.history[0].tool_results)
         assert total <= AGGREGATE_CHAR_LIMIT
-        replaced = [tr for tr in batch if tr.content.startswith(PERSISTED_TAG)]
-        assert len(replaced) == 1
-        assert batch[2].content.startswith(PERSISTED_TAG)
-        # 溢写文件保存了完整内容
-        assert (tmp_path / "t3.txt").read_text() == "x" * 45_001
+        # 原始内容未被改动
+        orig_total = sum(len(tr.content) for tr in conv.history[0].tool_results)
+        assert orig_total == 5 * (AGGREGATE_CHAR_LIMIT // 4)
 
-    def test_exempt_skipped(self, tmp_path: Path) -> None:
-        batch = self._batch(45_000, 45_000, 45_001, 45_000, 45_000)
+    def test_already_persisted_skipped(self, tmp_path: Path) -> None:
+        conv = ConversationManager()
+        persisted_content = f"{PERSISTED_TAG}\nalready persisted\n</persisted-output>"
+        conv.history.append(
+            Message(
+                role="user",
+                content="",
+                tool_results=[
+                    ToolResultBlock(tool_use_id="toolu_done", content=persisted_content)
+                ],
+            )
+        )
+        state = create_replacement_state()
 
-        apply_tool_result_budget(batch, tmp_path, {"t3"})
+        api_conv, _ = apply_tool_result_budget(conv, tmp_path, state)
 
-        assert not batch[2].content.startswith(PERSISTED_TAG)
-        total = sum(len(tr.content) for tr in batch)
-        assert total <= AGGREGATE_CHAR_LIMIT
-
-    def test_all_exempt_accepts_overage(self, tmp_path: Path) -> None:
-        batch = self._batch(105_000, 105_000)
-
-        apply_tool_result_budget(batch, tmp_path, {"t1", "t2"})
-
-        assert batch[0].content == "x" * 105_000
-        assert batch[1].content == "x" * 105_000
-
-    def test_deterministic_output(self, tmp_path: Path) -> None:
-        batch1 = self._batch(45_000, 45_000, 45_001, 45_000, 45_000)
-        batch2 = self._batch(45_000, 45_000, 45_001, 45_000, 45_000)
-
-        apply_tool_result_budget(batch1, tmp_path)
-        apply_tool_result_budget(batch2, tmp_path)
-
-        for a, b in zip(batch1, batch2):
-            assert a.content == b.content
-
-    def test_idempotent_on_processed_batch(self, tmp_path: Path) -> None:
-        batch = self._batch(45_000, 45_000, 45_001, 45_000, 45_000)
-        apply_tool_result_budget(batch, tmp_path)
-        snapshot = [tr.content for tr in batch]
-
-        apply_tool_result_budget(batch, tmp_path)
-
-        assert [tr.content for tr in batch] == snapshot
+        tr = api_conv.history[0].tool_results[0]
+        assert tr.content == persisted_content
+        # 外部已预先打过标签的结果同样会被记录到 state.replacements 中，
+        # 这样后续重复应用时仍能保持逐字节一致。
+        assert state.replacements["toolu_done"] == persisted_content
 
 # ---------------------------------------------------------------------------
 # is_spill_readback

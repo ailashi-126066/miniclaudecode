@@ -92,23 +92,21 @@ class TestParseSkillFile:
         assert skill.mode == "inline"
         assert "$ARGUMENTS" in skill.prompt_body
 
-    def test_legacy_context_fork_maps_to_mode(self, tmp_path: Path) -> None:
-        """`context: fork` 与 `mode: fork` 等价，外部生态的技能直接可用。"""
+    @pytest.mark.parametrize("mode", ["", "mode: inline\n", "mode: fork\n"])
+    def test_context_fork_is_rejected(self, tmp_path: Path, mode: str) -> None:
         f = tmp_path / "audit.md"
         f.write_text(
-            "---\nname: audit-deps\ndescription: Audit dependencies\ncontext: fork\n---\nbody"
+            f"---\nname: audit-deps\ndescription: Audit\n{mode}context: fork\n---\nbody"
         )
+        with pytest.raises(SkillParseError, match="Invalid context"):
+            parse_skill_file(f)
+
+    def test_explicit_fork_mode_still_supported(self, tmp_path: Path) -> None:
+        f = tmp_path / "audit.md"
+        f.write_text("---\nname: audit-deps\ndescription: Audit\nmode: fork\ncontext: recent\n---\nbody")
         skill = parse_skill_file(f)
         assert skill.mode == "fork"
-        assert skill.context == "full"
-
-    def test_explicit_mode_wins_over_context(self, tmp_path: Path) -> None:
-        f = tmp_path / "audit.md"
-        f.write_text(
-            "---\nname: audit-deps\ndescription: Audit\nmode: inline\ncontext: fork\n---\nbody"
-        )
-        skill = parse_skill_file(f)
-        assert skill.mode == "inline"
+        assert skill.context == "recent"
 
     def test_missing_name(self, tmp_path: Path) -> None:
         f = tmp_path / "bad.md"
@@ -168,14 +166,34 @@ class TestSubstituteArguments:
 # ---------------------------------------------------------------------------
 
 class TestSkillLoader:
-    def test_load_builtins_empty(self) -> None:
-        """内置 skill 已移除，load_all 不再返回内置 skill。"""
+    def test_yaml_only_directory_is_ignored(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+        directory = tmp_path / ".mewcode" / "skills" / "yaml-only"
+        directory.mkdir(parents=True)
+        (directory / "skill.yaml").write_text("name: yaml-only\ndescription: Old format\n")
+        (directory / "prompt.md").write_text("Do something")
+        assert "yaml-only" not in SkillLoader(str(tmp_path)).load_all()
+
+    def test_skill_md_is_used_when_yaml_is_also_present(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+        directory = tmp_path / ".mewcode" / "skills" / "audit"
+        directory.mkdir(parents=True)
+        (directory / "skill.yaml").write_text("name: yaml-name\ndescription: Old format\n")
+        (directory / "prompt.md").write_text("Old prompt")
+        (directory / "SKILL.md").write_text("---\nname: audit\ndescription: Audit\nmode: fork\n---\nNew prompt")
+        skills = SkillLoader(str(tmp_path)).load_all()
+        assert "yaml-name" not in skills
+        assert skills["audit"].mode == "fork"
+        assert skills["audit"].prompt_body.strip() == "New prompt"
+
+    def test_load_builtins(self) -> None:
         loader = SkillLoader("/nonexistent")
         skills = loader.load_all()
-        assert "commit" not in skills
-        assert "review" not in skills
-        assert "test" not in skills
-        assert "backend-interview" not in skills
+        assert {"commit", "review", "test", "backend-interview"} <= set(skills)
+        assert skills["commit"].mode == "inline"
+        assert skills["review"].mode == "fork"
+        assert skills["review"].context == "none"
+        assert skills["backend-interview"].allowed_tools == ["ReadFile", "Grep", "Glob", "parse_resume"]
 
     def test_project_overrides_builtin(self, tmp_path: Path) -> None:
         skills_dir = tmp_path / ".mewcode" / "skills"
@@ -194,20 +212,20 @@ class TestSkillLoader:
         assert skills["commit"].description == "Custom commit"
         assert "Custom prompt" in skills["commit"].prompt_body
 
-    def test_catalog_empty_without_project_skills(self) -> None:
-        """无项目/用户 skill 且内置已移除时，catalog 为空。"""
+    def test_catalog_includes_builtins(self) -> None:
         loader = SkillLoader("/nonexistent")
         loader.load_all()
-        catalog = loader.get_catalog()
-        assert catalog == []
+        assert {"commit", "review", "test", "backend-interview"} <= {name for name, _ in loader.get_catalog()}
 
-    def test_get_returns_none_for_removed_builtins(self) -> None:
-        """内置 skill 已移除，get 返回 None。"""
+    def test_get_builtins(self) -> None:
         loader = SkillLoader("/nonexistent")
         loader.load_all()
-        assert loader.get("commit") is None
-        assert loader.get("review") is None
-        assert loader.get("test") is None
+        for name in ["commit", "review", "test", "backend-interview"]:
+            skill = loader.get(name)
+            assert skill is not None
+            assert skill.is_directory
+            assert skill.source_path.is_file()
+            assert loader.get_source_label(name) == "builtin"
 
     def test_get_unknown(self) -> None:
         loader = SkillLoader("/nonexistent")
@@ -300,7 +318,7 @@ class TestSkillLoader:
         assert "broken" not in skills
 
     def test_reload(self, tmp_path: Path) -> None:
-        """reload 重新扫描目录，内置已移除时结果为空。"""
+        """Reload rescans project, user, and bundled skills."""
         loader = SkillLoader(str(tmp_path))
         loader.load_all()
         skills = loader.reload()

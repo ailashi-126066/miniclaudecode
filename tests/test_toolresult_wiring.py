@@ -4,9 +4,10 @@
 # 简历模版：jianli.xiaolinnote.com
 
 """工具结果预算在 Agent 主循环里的接线测试：驱动完整主循环，
-验证单条溢写、聚合溢写、回读豁免，以及进入对话历史的内容就是最终形态。"""
+验证单条溢写、发送副本聚合预算、回读豁免和原历史保持不变。"""
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,17 @@ from mewcode.tools.base import (
 )
 
 from test_agent import MockLLMClient
+
+
+class CapturingClient(MockLLMClient):
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.requests = []
+
+    async def stream(self, conversation, system="", tools=None):
+        self.requests.append(copy.deepcopy(conversation))
+        async for event in super().stream(conversation, system, tools):
+            yield event
 
 
 class _EmptyParams(BaseModel):
@@ -78,7 +90,7 @@ def _end_turn() -> list:
 @pytest.mark.asyncio
 async def test_ingest_spills_single_oversized_result(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    client = MockLLMClient([
+    client = CapturingClient([
         [ToolCallComplete("t1", "BigTool", {}), StreamEnd("tool_use", 1, 1)],
         _end_turn(),
     ])
@@ -110,7 +122,7 @@ async def test_ingest_readback_exempt(tmp_path: Path, monkeypatch) -> None:
     probe = Agent(client_placeholder, registry, "anthropic", work_dir=str(tmp_path))
     readback_path = str(probe.session_dir / "toolu_old.txt")
 
-    client = MockLLMClient([
+    client = CapturingClient([
         [
             ToolCallComplete("t_rb", "ReadFile", {"file_path": readback_path}),
             StreamEnd("tool_use", 1, 1),
@@ -128,10 +140,12 @@ async def test_ingest_readback_exempt(tmp_path: Path, monkeypatch) -> None:
     tr = _tool_results_msg(conv).tool_results[0]
     assert len(tr.content) == 60000
     assert not (agent.session_dir / "t_rb.txt").exists()
+    assert len(_tool_results_msg(client.requests[1]).tool_results[0].content) == 60000
 
 
 @pytest.mark.asyncio
-async def test_ingest_aggregate_spills_largest(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("interactive", [True, False])
+async def test_request_aggregate_spills_largest_without_changing_history(tmp_path: Path, monkeypatch, interactive) -> None:
     monkeypatch.chdir(tmp_path)
     sizes = {"T1": 45000, "T2": 45000, "T3": 45001, "T4": 45000, "T5": 45000}
     registry = ToolRegistry()
@@ -139,7 +153,7 @@ async def test_ingest_aggregate_spills_largest(tmp_path: Path, monkeypatch) -> N
     for name, n in sizes.items():
         registry.register(FixedOutputTool(name, "z" * n))
         calls.append(ToolCallComplete("t" + name[1:].lower(), name, {}))
-    client = MockLLMClient([
+    client = CapturingClient([
         [*calls, StreamEnd("tool_use", 1, 1)],
         _end_turn(),
     ])
@@ -147,10 +161,16 @@ async def test_ingest_aggregate_spills_largest(tmp_path: Path, monkeypatch) -> N
     conv = ConversationManager()
     conv.add_user_message("fan out")
 
-    async for _ in agent.run(conv):
-        pass
+    if interactive:
+        async for _ in agent.run(conv):
+            pass
+    else:
+        await agent.run_to_completion("", conversation=conv)
 
-    msg = _tool_results_msg(conv)
+    original = _tool_results_msg(conv)
+    assert sum(len(tr.content) for tr in original.tool_results) == 225001
+    assert all(not tr.content.startswith("<persisted-output>") for tr in original.tool_results)
+    msg = _tool_results_msg(client.requests[1])
     total = sum(len(tr.content) for tr in msg.tool_results)
     assert total <= 200000
     previews = [tr for tr in msg.tool_results if tr.content.startswith("<persisted-output>")]

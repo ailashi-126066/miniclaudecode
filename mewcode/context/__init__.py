@@ -5,6 +5,13 @@
 
 
 from mewcode.context.manager import (
+    ContentReplacementState,
+    ContentReplacementRecord,
+    create_replacement_state,
+    clone_replacement_state,
+    append_replacement_records,
+    load_replacement_records,
+    reconstruct_replacement_state,
     CompactBoundary,
     CompactCircuitBreaker,
     CompactEvent,
@@ -25,6 +32,13 @@ from mewcode.context.manager import (
 
 
 __all__ = [
+    "ContentReplacementState",
+    "ContentReplacementRecord",
+    "create_replacement_state",
+    "clone_replacement_state",
+    "append_replacement_records",
+    "load_replacement_records",
+    "reconstruct_replacement_state",
     "CompactBoundary",
     "CompactCircuitBreaker",
     "CompactEvent",

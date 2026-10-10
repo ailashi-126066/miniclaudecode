@@ -126,12 +126,18 @@ class Bash(Tool):
     sandbox: Sandbox | None = None
     sandbox_config: SandboxConfig | None = None
 
+    @property
+    def sandbox_active(self) -> bool:
+        return bool(self.sandbox and self.sandbox_config and self.sandbox.available())
+
     async def execute(self, params: Params) -> ToolResult:
         timeout = min(params.timeout, MAX_TIMEOUT)
 
         # 如果启用了 OS 沙箱，将命令包装为沙箱内执行
         actual_command = params.command
-        if self.sandbox and self.sandbox_config and self.sandbox.available():
+        if self.sandbox is not None or self.sandbox_config is not None:
+            if not self.sandbox_active:
+                return ToolResult(output="Error: configured macOS sandbox is unavailable", is_error=True)
             actual_command = self.sandbox.wrap(params.command, self.sandbox_config)
 
         try:

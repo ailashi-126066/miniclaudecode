@@ -778,6 +778,15 @@ async def test_e2e_user_denies_operation():
 # ===========================================================================
 
 class TestSandboxAutoAllowRespectsDenyAsk:
+    @pytest.fixture(autouse=True)
+    def sandboxed_bash(self, monkeypatch):
+        from types import SimpleNamespace
+        from mewcode.sandbox import SandboxConfig
+        from mewcode.tools.bash import Bash
+
+        monkeypatch.setattr(Bash, "sandbox", SimpleNamespace(available=lambda: True))
+        monkeypatch.setattr(Bash, "sandbox_config", SandboxConfig())
+
     def test_compound_command_deny(self) -> None:
         tmpdir = Path(tempfile.mkdtemp())
         rules_file = tmpdir / "rules.yaml"

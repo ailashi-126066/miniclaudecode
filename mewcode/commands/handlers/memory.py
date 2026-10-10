@@ -33,8 +33,8 @@ async def handle_memory(ctx: CommandContext) -> None:
     elif sub == "edit":
         ctx.ui.add_system_message(
             f"编辑记忆文件：\n"
-            f"  用户级目录: {mm.user_mem_dir}\n"
-            f"  项目级目录: {mm.project_mem_dir}"
+            f"  用户级: {mm.user_path}\n"
+            f"  项目级: {mm.project_path}"
         )
 
     else:

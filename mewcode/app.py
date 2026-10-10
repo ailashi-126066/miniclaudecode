@@ -86,7 +86,6 @@ from mewcode.tools import ToolRegistry, create_default_registry
 from mewcode.tools.agent_tool import AgentTool
 from mewcode.tools.ask_user import AskUserEvent, AskUserTool
 from mewcode.tools.impl.tool_search import ToolSearchTool
-from mewcode.tools.knowledge_search import KnowledgeSearchTool
 from mewcode.tools.mcp_call import McpCallTool
 from mewcode.tools.install_skill import InstallSkillTool
 from mewcode.tools.load_skill import LoadSkill
@@ -606,7 +605,6 @@ class MewCodeApp(App):
         enable_coordinator_mode: bool = False,
         driver_class: type | None = None,
         sandbox_config: Any = None,
-        knowledge_config: Any = None,
     ) -> None:
         super().__init__(driver_class=driver_class)
         self.providers = providers
@@ -620,8 +618,6 @@ class MewCodeApp(App):
         self._enable_coordinator_mode = enable_coordinator_mode
         from mewcode.config import SandboxAppConfig
         self._sandbox_cfg: SandboxAppConfig = sandbox_config or SandboxAppConfig()
-        from mewcode.config import KnowledgeConfig
-        self._knowledge_cfg: KnowledgeConfig = knowledge_config or KnowledgeConfig()
         self.client: LLMClient | None = None
         self.conversation = ConversationManager()
         self.registry: ToolRegistry = create_default_registry()
@@ -653,7 +649,6 @@ class MewCodeApp(App):
         self.trace_manager: TraceManager = TraceManager()
         self._notification_check_task: asyncio.Task[None] | None = None
         self.worktree_manager: WorktreeManager | None = None
-        self.integration_manager: Any = None
         self._stale_cleanup_task: asyncio.Task[None] | None = None
         self._current_streaming_label: Static | None = None
         self._current_ai_row: Vertical | None = None
@@ -708,6 +703,31 @@ class MewCodeApp(App):
             self.query_one("#chat-area").display = False
             self.query_one("#input-area").display = False
 
+    def _configure_sandbox(self, checker: PermissionChecker, work_dir: str) -> None:
+        from mewcode.sandbox import SandboxConfig, create_sandbox
+
+        checker.sandbox_enabled = False
+        bash_tool = self.registry.get("Bash")
+        if bash_tool is None:
+            return
+        bash_tool.sandbox = None
+        bash_tool.sandbox_config = None
+        if not self._sandbox_cfg.enabled:
+            return
+        backend = create_sandbox()
+        if backend is None or not backend.available():
+            return
+        bash_tool.sandbox = backend
+        bash_tool.sandbox_config = SandboxConfig(
+            allow_write=[work_dir, "/tmp"],
+            deny_write=[
+                f"{work_dir}/.mewcode/config.yaml",
+                f"{work_dir}/.mewcode/permissions.local.yaml",
+            ],
+            network_enabled=self._sandbox_cfg.network_enabled,
+        )
+        checker.sandbox_enabled = self._sandbox_cfg.auto_allow
+
     def _select_provider(self, provider: ProviderConfig) -> None:
         self._selected_provider = provider
         try:
@@ -719,10 +739,6 @@ class MewCodeApp(App):
         work_dir = os.getcwd()
         home = Path.home()
 
-        # 根据配置决定是否启用 OS 级沙箱自动放行
-        sandbox_auto_allow = (
-            self._sandbox_cfg.enabled and self._sandbox_cfg.auto_allow
-        )
         checker = PermissionChecker(
             detector=DangerousCommandDetector(),
             sandbox=PathSandbox(work_dir),
@@ -732,26 +748,9 @@ class MewCodeApp(App):
                 local_rules_path=Path(work_dir) / ".mewcode" / "permissions.local.yaml",
             ),
             mode=self._initial_permission_mode,
-            sandbox_enabled=sandbox_auto_allow,
         )
 
-        # 如果配置启用了沙箱，为 Bash 工具挂载 OS 沙箱
-        if self._sandbox_cfg.enabled:
-            from mewcode.sandbox import SandboxConfig, create_sandbox
-            os_sandbox = create_sandbox()
-            if os_sandbox and os_sandbox.available():
-                sandbox_config = SandboxConfig(
-                    allow_write=[work_dir, "/tmp"],
-                    deny_write=[
-                        f"{work_dir}/.mewcode/config.yaml",
-                        f"{work_dir}/.mewcode/permissions.local.yaml",
-                    ],
-                    network_enabled=self._sandbox_cfg.network_enabled,
-                )
-                bash_tool = self.registry.get("Bash")
-                if bash_tool:
-                    bash_tool.sandbox = os_sandbox
-                    bash_tool.sandbox_config = sandbox_config
+        self._configure_sandbox(checker, work_dir)
 
         self._instructions_content = load_instructions(work_dir)
         self.memory_manager = MemoryManager(work_dir)
@@ -776,8 +775,6 @@ class MewCodeApp(App):
         self.registry.register(
             ToolSearchTool(self.registry, protocol=provider.protocol)
         )
-        if self._knowledge_cfg.enabled and self._knowledge_cfg.embedding is not None:
-            self.registry.register(KnowledgeSearchTool(work_dir, self._knowledge_cfg.embedding))
         # mcp_call 必须在 MCP 连接之前就注册好。等连上再按加载模式决定注不注册，
         # 本身就是一次中途改动 tools[]，缓存前缀照样断。
         self.registry.register(McpCallTool(self.registry))
@@ -797,7 +794,6 @@ class MewCodeApp(App):
             instructions_content=self._instructions_content,
             memory_manager=self.memory_manager,
             hook_engine=self.hook_engine,
-            knowledge_enabled=self._knowledge_cfg.enabled,
         )
         self.agent.file_history = self.file_history
         self.agent.session_id = self.session.session_id
@@ -860,9 +856,6 @@ class MewCodeApp(App):
             repo_root=work_dir,
             symlink_directories=wt_cfg.symlink_directories,
         )
-        from mewcode.integration import IntegrationManager
-        self.integration_manager = IntegrationManager(work_dir, self.session.session_id)
-        self.task_manager.set_integration_manager(self.integration_manager)
         restored = self.worktree_manager.restore_session()
         if restored:
             self.agent.work_dir = restored.worktree_path
@@ -1071,7 +1064,6 @@ class MewCodeApp(App):
                 "render_restored": self._render_restored_messages,
                 "skill_loader": self.skill_loader,
                 "skill_executor": self.skill_executor,
-                "knowledge_config": self._knowledge_cfg,
             },
         )
 
@@ -1579,9 +1571,6 @@ class MewCodeApp(App):
         if not completed or self.agent is None:
             return
 
-        for task in completed:
-            await self._integrate_completed_task(task)
-
         inject_task_notifications(self.conversation, completed)
 
         for task in completed:
@@ -1597,41 +1586,6 @@ class MewCodeApp(App):
             self._send_message("", is_notification=True)
         )
 
-    async def _integrate_completed_task(self, task: Any) -> None:
-        if (
-            task.status == "completed"
-            and task.worktree_path
-            and self.integration_manager
-            and task.integration_outcome is None
-        ):
-            task.integration_outcome = await self.integration_manager.integrate(task)
-
-        if not task.plan_step_id:
-            return
-
-        from mewcode.plan_state import PlanStateStore
-
-        store = getattr(self.agent, "plan_state_store", None) or PlanStateStore(self.agent.work_dir)
-        state = getattr(self.agent, "plan_state", None) or store.load()
-        if state is None:
-            return
-
-        try:
-            if task.status != "completed":
-                store.fail_step(state, task.plan_step_id, task.result or task.status)
-                return
-
-            outcome = task.integration_outcome
-            if outcome is None:
-                store.fail_step(state, task.plan_step_id, "Worktree integration was not available")
-            elif outcome.status == "integrated" and outcome.verified:
-                verification = [" ".join(outcome.verification_command) + " (passed)"]
-                changed_files = task.change_report.changed_files if task.change_report else []
-                store.complete_step(state, task.plan_step_id, verification, changed_files)
-            elif outcome.status in {"conflict", "verification_failed", "failed"}:
-                store.fail_step(state, task.plan_step_id, outcome.message or outcome.status)
-        except (KeyError, ValueError) as exc:
-            log.warning("Failed to update plan step %s: %s", task.plan_step_id, exc)
 
     async def _start_notification_polling(self) -> None:
         while True:

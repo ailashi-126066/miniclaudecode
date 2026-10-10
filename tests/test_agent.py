@@ -507,20 +507,23 @@ def test_environment_context():
 
 
 @pytest.mark.asyncio
-async def test_streaming_tool_execution():
-    """工具在 LLM 流式输出期间就开始执行，不等整个响应结束。"""
+async def test_tools_wait_for_model_response_before_execution():
+    """工具执行必须等模型本次回复结束。"""
     execution_log: list[tuple[str, float]] = []
     original_execute = None
 
-    # 用一个慢速流模拟 LLM 还在输出，验证第一个工具在流结束前已经开始执行
+    stream_log: list[str] = []
+    # 流中记录工具尚未执行，结束后才开始执行批次。
     class SlowMockClient(MockLLMClient):
         async def stream(self, conversation, system="", tools=None):
             events = self._responses[self._call_index]
             self._call_index += 1
             for e in events:
                 if isinstance(e, StreamEnd):
-                    # 在 StreamEnd 前等一下，让已提交的工具有时间执行
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0)
+                    if self._call_index == 1:
+                        assert execution_log == []
+                        stream_log.append("response_end")
                 yield e
                 await asyncio.sleep(0)
 
@@ -543,6 +546,7 @@ async def test_streaming_tool_execution():
 
     async def patched_execute(params):
         import time
+        assert stream_log == ["response_end"]
         execution_log.append(("start", time.monotonic()))
         result = await original_execute(params)
         execution_log.append(("end", time.monotonic()))
@@ -561,5 +565,5 @@ async def test_streaming_tool_execution():
     c = _collect(events)
     # 两个 Glob 调用都应产出结果
     assert len(c["tool_result"]) == 2
-    # 工具应该在流式阶段就开始执行，所以 execution_log 至少有记录
-    assert len(execution_log) >= 2, "工具未在流式阶段执行"
+    assert len(execution_log) == 4
+    assert stream_log == ["response_end"]

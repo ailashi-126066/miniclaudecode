@@ -22,6 +22,10 @@ from mewcode.context import (
     CompactEvent,
     RecoveryState,
     apply_tool_result_budget,
+    append_replacement_records,
+    create_replacement_state,
+    load_replacement_records,
+    reconstruct_replacement_state,
     auto_compact,
     ensure_session_dir,
     is_spill_readback,
@@ -29,12 +33,7 @@ from mewcode.context import (
 from mewcode.conversation import ConversationManager, ToolResultBlock, ToolUseBlock
 from mewcode.conversation_pairing import REJECTED_TOOL_RESULT
 from mewcode.conversation import ThinkingBlock as ConvThinkingBlock
-from mewcode.execution_safety import (
-    ExecutionLedger,
-    MutationPreview,
-    classify_risk,
-    scan_prompt_injection,
-)
+from mewcode.execution_safety import scan_prompt_injection
 from mewcode.memory.auto_memory import MemoryManager
 from mewcode.permissions import (
     Decision,
@@ -253,7 +252,7 @@ def partition_tool_calls(
 
 
 # ---------------------------------------------------------------------------
-# streaming 执行器 — 在 LLM streaming 期间启动 tool 执行
+# 工具执行结果 — 用于并发批次收集
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -262,38 +261,6 @@ class _ToolExecResult:
     tool_name: str
     result: ToolResult
     elapsed: float
-
-
-class StreamingExecutor:
-    def __init__(self) -> None:
-        self._tasks: list[tuple[int, asyncio.Task[_ToolExecResult]]] = []
-        self._order = 0
-
-    def submit(
-        self,
-        coro: Any,
-    ) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append((self._order, task))
-        self._order += 1
-
-    async def collect_results(self) -> list[_ToolExecResult]:
-        if not self._tasks:
-            return []
-        tasks = [t for _, t in sorted(self._tasks, key=lambda x: x[0])]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        out: list[_ToolExecResult] = []
-        for r in results:
-            if isinstance(r, Exception):
-                out.append(_ToolExecResult(
-                    tool_id="",
-                    tool_name="",
-                    result=ToolResult(output=f"Tool execution error: {r}", is_error=True),
-                    elapsed=0.0,
-                ))
-            else:
-                out.append(r)
-        return out
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +280,6 @@ class Agent:
         instructions_content: str = "",
         memory_manager: MemoryManager | None = None,
         hook_engine: HookEngine | None = None,
-        knowledge_enabled: bool = False,
     ) -> None:
         self.client = client
         self.registry = registry
@@ -326,6 +292,8 @@ class Agent:
         )
         self.context_window = context_window
         self.compact_breaker = CompactCircuitBreaker()
+        self.replacement_state = create_replacement_state()
+        self._replacement_context: tuple[str, int] | None = None
         # 保存重建工作上下文所需的快照，在 Layer 2 压缩对话后使用：
         # 最近的文件读取和 skill 调用。每次 ReadFile / skill 调用时记录，
         # auto_compact 触发阈值时消费。
@@ -335,17 +303,12 @@ class Agent:
         self.instructions_content = instructions_content
         self.memory_manager = memory_manager
         self.hook_engine = hook_engine
-        self.knowledge_enabled = knowledge_enabled
         self._loop_count = 0
         # 记忆提取合并策略：_extracting 期间触发新请求会标记 _pending_extraction，
         # _extracting: 标记是否有提取正在进行
         # _pending_extraction: 提取期间又触发了新请求，标记需要尾随提取
         self._extracting = False
         self._pending_extraction = False
-        self._consolidator: MemoryConsolidator | None = None
-        if memory_manager is not None:
-            from mewcode.memory.consolidation import MemoryConsolidator
-            self._consolidator = MemoryConsolidator(work_dir)
         self.session_id: str = ""
         self.active_skills: dict[str, str] = {}
         self._skill_catalog: str = ""
@@ -360,15 +323,10 @@ class Agent:
         self.enable_coordinator_mode: bool = False
         self.notification_fn: Callable[[], list[str]] | None = None
         self.file_history: Any = None
-        self._execution_ledger: ExecutionLedger | None = None
-        self._execution_ledger_session_id: str | None = None
 
         # 非阻塞 memory recall：prefetch task 与主 LLM 调用并行，工具执行后注入
         self.memory_recall_task: Any | None = None
         self._memory_recall_consumed: bool = False
-        # Private knowledge catalog is injected at most once per conversation
-        # so the model knows which documents warrant KnowledgeSearch.
-        self._knowledge_catalog_injected: bool = False
 
     @property
     def session_dir(self) -> Path:
@@ -421,20 +379,42 @@ class Agent:
         if self.permission_checker:
             self.permission_checker.mode = mode
 
-    def _ledger(self) -> ExecutionLedger:
-        """Create a session-scoped ledger lazily because UI assigns session_id after Agent construction."""
-        if self._execution_ledger is None or self._execution_ledger_session_id != self.session_id:
-            self._execution_ledger = ExecutionLedger(self.work_dir, self.session_id)
-            self._execution_ledger_session_id = self.session_id
-        return self._execution_ledger
+    def _prepare_api_conversation(self, conversation: ConversationManager) -> ConversationManager:
+        """Build the request view and restore session-scoped replacement decisions."""
+        key = (self.session_id, id(conversation))
+        ids = {tr.tool_use_id for msg in conversation.history for tr in msg.tool_results}
+        if key != self._replacement_context:
+            inherited = self.replacement_state
+            if self._replacement_context is not None and self._replacement_context[0] != self.session_id:
+                inherited = create_replacement_state()
+            records = load_replacement_records(self.session_dir)
+            self.replacement_state = reconstruct_replacement_state(
+                conversation.history, records, inherited.replacements
+            )
+            # Results not previously sent must still receive a budget decision.
+            self.replacement_state.seen_ids = (
+                inherited.seen_ids.intersection(ids)
+                | set(self.replacement_state.replacements)
+            )
+            self._replacement_context = key
+        else:
+            # Clear/rewind/compact can replace the history of the same object.
+            self.replacement_state.seen_ids.intersection_update(ids)
+            self.replacement_state.replacements = {
+                tool_id: value for tool_id, value in self.replacement_state.replacements.items()
+                if tool_id in ids
+            }
+        api_conv, records = apply_tool_result_budget(
+            conversation, self.session_dir, self.replacement_state
+        )
+        append_replacement_records(self.session_dir, records)
+        return api_conv
 
-    @staticmethod
-    def _has_side_effect(tool: Any) -> bool:
-        return tool.category in ("write", "command")
+
 
     @staticmethod
     def _is_untrusted_result(tool_name: str) -> bool:
-        return tool_name == "KnowledgeSearch" or tool_name == "mcp_call" or tool_name.startswith("mcp__")
+        return tool_name == "mcp_call" or tool_name.startswith("mcp__")
 
     def _append_injection_warning(self, tool_name: str, result: ToolResult) -> ToolResult:
         if result.is_error or not self._is_untrusted_result(tool_name):
@@ -499,13 +479,6 @@ class Agent:
 
         memory_content = self.memory_manager.load() if self.memory_manager else ""
         conversation.inject_long_term_memory(self.instructions_content, memory_content)
-        if self.knowledge_enabled and not self._knowledge_catalog_injected:
-            from mewcode.rag import KnowledgeRagService
-
-            catalog = KnowledgeRagService(self.work_dir).catalog_reminder()
-            if catalog:
-                conversation.add_system_reminder(catalog)
-                self._knowledge_catalog_injected = True
 
         if self.hook_engine:
             ctx = self._build_hook_context("session_start")
@@ -599,8 +572,7 @@ class Agent:
             tools = self.registry.get_all_schemas(self.protocol)
 
             # Layer 2: 接近 context window 上限时自动 compact
-            # Layer 1（工具结果预算）在结果入历史时已处理完，历史里的内容
-            # 就是最终大小，直接用 conversation.history 估算
+            # Layer 1 在发送前生成副本；原有历史保留用于会话恢复和摘要。
             compact_result = await auto_compact(
                 conversation,
                 self.client,
@@ -627,23 +599,9 @@ class Agent:
                 yield ErrorEvent(message=compact_result)
 
             collector = StreamCollector()
-            executor = StreamingExecutor()
-            deferred_tool_calls: list[ToolCallComplete] = []
-            llm_stream = self.client.stream(conversation, system=system, tools=tools)
+            api_conv = self._prepare_api_conversation(conversation)
+            llm_stream = self.client.stream(api_conv, system=system, tools=tools)
             async for event in collector.consume(llm_stream):
-                # 流式工具执行：收到完整 tool_use 就立刻提交执行，不等整个响应结束
-                if isinstance(event, ToolUseEvent):
-                    tc = collector.response.tool_calls[-1]
-                    # 需要交互式权限确认的工具延迟到流结束后顺序执行
-                    tool = self.registry.get(tc.tool_name)
-                    needs_ask = False
-                    if tool and self.permission_checker:
-                        decision = self.permission_checker.check(tool, tc.arguments)
-                        needs_ask = decision.effect == "ask"
-                    if needs_ask:
-                        deferred_tool_calls.append(tc)
-                    else:
-                        executor.submit(self._execute_single_tool_direct(tc))
                 yield event
 
             response = collector.response
@@ -706,10 +664,6 @@ class Agent:
                     and self.memory_manager
                 ):
                     asyncio.ensure_future(self._extract_memories(conversation))
-                if self._consolidator is not None:
-                    asyncio.ensure_future(
-                        self._consolidator.maybe_run(self.client, conversation, self.protocol)
-                    )
                 if self.hook_engine:
                     ctx = self._build_hook_context("turn_end")
                     await self.hook_engine.run_hooks("turn_end", ctx)
@@ -752,69 +706,79 @@ class Agent:
                 if is_spill_readback(tc.tool_name, tc.arguments, self.session_dir)
             }
 
-            # 收集流式执行器中已提交的工具结果（工具在 LLM 流式输出期间已开始执行）
+            # 模型回复结束后按工具的并发安全性分批，批次之间保持原顺序。
             tool_results: list[ToolResultBlock] = []
-            streaming_results = await executor.collect_results()
-
-            for br in streaming_results:
-                content = self._maybe_persist_or_truncate(
-                    br.tool_id, br.result.output, exempt_ids
-                )
-                tool_results.append(
-                    ToolResultBlock(
-                        tool_use_id=br.tool_id,
-                        content=content,
-                        is_error=br.result.is_error,
-                        content_blocks=br.result.content_blocks,
+            for batch in partition_tool_calls(response.tool_calls, self.registry):
+                can_parallel = batch.concurrent and len(batch.calls) > 1
+                if can_parallel and self.permission_checker:
+                    # 需要人工批准的读取也走交互路径，避免非交互执行器拒绝它。
+                    can_parallel = all(
+                        self.permission_checker.check(self.registry.get(tc.tool_name), tc.arguments).effect != "ask"
+                        for tc in batch.calls
                     )
-                )
-                yield ToolResultEvent(
-                    tool_id=br.tool_id,
-                    tool_name=br.tool_name,
-                    output=br.result.output,
-                    is_error=br.result.is_error,
-                    elapsed=br.elapsed,
-                )
+                if can_parallel:
+                    results = await self._execute_batch_parallel(batch.calls)
+                    for br in results:
+                        content = self._maybe_persist_or_truncate(br.tool_id, br.result.output, exempt_ids)
+                        tool_results.append(ToolResultBlock(
+                            tool_use_id=br.tool_id, content=content,
+                            is_error=br.result.is_error, content_blocks=br.result.content_blocks,
+                        ))
+                        yield ToolResultEvent(
+                            tool_id=br.tool_id, tool_name=br.tool_name,
+                            output=br.result.output, is_error=br.result.is_error, elapsed=br.elapsed,
+                        )
+                    for hook_event in self._drain_hook_events():
+                        yield hook_event
+                    continue
 
-            # 需要交互式权限确认的工具，在流结束后顺序执行
-            for tc in deferred_tool_calls:
-                result: ToolResult | None = None
-                elapsed = 0.0
+                for tc in batch.calls:
+                    result: ToolResult | None = None
+                    elapsed = 0.0
+                    rejected = False
+                    if self.hook_engine:
+                        hook_ctx = self._build_hook_context(
+                            "pre_tool_use", tool_name=tc.tool_name, tool_args=tc.arguments,
+                            file_path=self._infer_file_path(tc.arguments),
+                        )
+                        rejection = await self.hook_engine.run_pre_tool_hooks(hook_ctx)
+                        for hook_event in self._drain_hook_events():
+                            yield hook_event
+                        if rejection is not None:
+                            result = ToolResult(output=f"Hook rejected: {rejection.reason}", is_error=True)
+                            rejected = True
 
-                async for item in self._execute_tool(tc):
-                    if isinstance(item, PermissionRequest):
-                        yield item
-                    else:
-                        result, elapsed = item
+                    if not rejected:
+                        async for item in self._execute_tool(tc):
+                            if isinstance(item, PermissionRequest):
+                                yield item
+                            else:
+                                result, elapsed = item
+                        if self.hook_engine:
+                            hook_ctx = self._build_hook_context(
+                                "post_tool_use", tool_name=tc.tool_name, tool_args=tc.arguments,
+                                file_path=self._infer_file_path(tc.arguments),
+                            )
+                            await self.hook_engine.run_hooks("post_tool_use", hook_ctx)
+                            for hook_event in self._drain_hook_events():
+                                yield hook_event
 
-                if result is None:
-                    result = ToolResult(output="Error: no result from tool", is_error=True)
-
-                content = self._maybe_persist_or_truncate(
-                    tc.tool_id, result.output, exempt_ids
-                )
-                tool_results.append(
-                    ToolResultBlock(
-                        tool_use_id=tc.tool_id,
-                        content=content,
-                        is_error=result.is_error,
-                        content_blocks=result.content_blocks,
+                    if result is None:
+                        result = ToolResult(output="Error: no result from tool", is_error=True)
+                    content = self._maybe_persist_or_truncate(tc.tool_id, result.output, exempt_ids)
+                    tool_results.append(ToolResultBlock(
+                        tool_use_id=tc.tool_id, content=content,
+                        is_error=result.is_error, content_blocks=result.content_blocks,
+                    ))
+                    yield ToolResultEvent(
+                        tool_id=tc.tool_id, tool_name=tc.tool_name,
+                        output=result.output, is_error=result.is_error, elapsed=elapsed,
                     )
-                )
-                yield ToolResultEvent(
-                    tool_id=tc.tool_id,
-                    tool_name=tc.tool_name,
-                    output=result.output,
-                    is_error=result.is_error,
-                    elapsed=elapsed,
-                )
 
             exit_plan_called = any(
                 tc.tool_name == "ExitPlanMode" for tc in response.tool_calls
             )
-            # 聚合预算：一轮并行工具的结果落在同一条消息里，单条阈值管不住
-            # 合计超限的情况。进历史前把整批处理完，消息一出生就是终态
-            apply_tool_result_budget(tool_results, self.session_dir, exempt_ids)
+            # 原有结果入历史；聚合预算在下一次发送的副本中处理。
             conversation.add_tool_results_message(tool_results)
 
             # 非阻塞 memory recall：工具执行完后检查 prefetch 是否就绪
@@ -927,32 +891,6 @@ class Agent:
             yield result, elapsed
             return
 
-        try:
-            preview = MutationPreview.prepare(tc.tool_name, tc.arguments)
-        except (OSError, ValueError) as e:
-            yield ToolResult(output=str(e), is_error=True), time.monotonic() - start
-            return
-
-        risk = classify_risk(tc.tool_name, tool.category, tc.arguments)
-        ledger_record = None
-        if self._has_side_effect(tool):
-            ledger = self._ledger()
-            ledger_record = ledger.create(
-                tc.tool_id, tc.tool_name, tool.category, risk, tc.arguments, preview
-            )
-            previous = ledger.previous(tc.tool_id)
-            if previous is not None:
-                if previous.args_hash != ledger_record.args_hash:
-                    result = ToolResult(output="Tool call id was reused with different arguments", is_error=True)
-                elif previous.status == "unknown":
-                    result = ToolResult(output="Prior side-effect outcome is unknown; explicit reconciliation is required", is_error=True)
-                elif previous.status in {"completed", "failed"}:
-                    result = ToolResult(output=previous.result, is_error=previous.status == "failed")
-                else:
-                    result = ToolResult(output="Tool call is already awaiting execution", is_error=True)
-                yield result, time.monotonic() - start
-                return
-
         # 权限检查
         if self.permission_checker:
             decision = self.permission_checker.check(tool, tc.arguments)
@@ -962,8 +900,6 @@ class Agent:
                     output=f"Permission denied: {decision.reason}",
                     is_error=True,
                 )
-                if ledger_record is not None:
-                    self._ledger().record(ledger_record, status="failed", result=result.output)
                 elapsed = time.monotonic() - start
                 yield result, elapsed
                 return
@@ -971,14 +907,7 @@ class Agent:
             if decision.effect == "ask":
                 loop = asyncio.get_running_loop()
                 future: asyncio.Future[PermissionResponse] = loop.create_future()
-                desc = f"[Risk: {risk.value}] {self._build_permission_description(tc)}"
-                if preview is not None:
-                    desc += (
-                        f"\n\nProposed diff:\n{preview.diff}\n"
-                        f"before={preview.before_hash[:12]} diff={preview.diff_hash[:12]}"
-                    )
-                if ledger_record is not None:
-                    self._ledger().record(ledger_record, status="awaiting_approval")
+                desc = self._build_permission_description(tc)
                 # 向调用方 yield 权限请求事件，由调用方处理
                 yield PermissionRequest(
                     tool_name=tc.tool_name,
@@ -992,8 +921,6 @@ class Agent:
                         output=REJECTED_TOOL_RESULT,
                         is_error=True,
                     )
-                    if ledger_record is not None:
-                        self._ledger().record(ledger_record, status="failed", result=result.output)
                     elapsed = time.monotonic() - start
                     yield result, elapsed
                     return
@@ -1005,18 +932,6 @@ class Agent:
                     # 写入本地规则文件，规则引擎每次评估都现读现匹配，本轮之后即刻生效
                     rule = Rule(tool_name=tc.tool_name, pattern=pattern, effect="allow")
                     self.permission_checker.rule_engine.append_local_rule(rule)
-
-        if preview is not None:
-            try:
-                preview.verify_current(tc.tool_name, tc.arguments)
-            except (OSError, RuntimeError) as e:
-                result = ToolResult(output=str(e), is_error=True)
-                if ledger_record is not None:
-                    self._ledger().record(ledger_record, status="failed", result=result.output)
-                yield result, time.monotonic() - start
-                return
-        if ledger_record is not None:
-            self._ledger().record(ledger_record, status="pending")
 
         try:
             params = tool.params_model.model_validate(tc.arguments)
@@ -1031,12 +946,6 @@ class Agent:
             )
 
         result = self._append_injection_warning(tc.tool_name, result)
-        if ledger_record is not None:
-            self._ledger().record(
-                ledger_record,
-                status="failed" if result.is_error else "completed",
-                result=result.output,
-            )
 
         self._snapshot_for_recovery(tc, result)
 
@@ -1217,7 +1126,8 @@ class Agent:
                 )
 
             collector = StreamCollector()
-            llm_stream = self.client.stream(conversation, system=system, tools=tools)
+            api_conv = self._prepare_api_conversation(conversation)
+            llm_stream = self.client.stream(api_conv, system=system, tools=tools)
             async for _event in collector.consume(llm_stream):
                 pass
 
@@ -1302,9 +1212,7 @@ class Agent:
                     )
                 )
 
-            # 聚合预算：一轮并行工具的结果落在同一条消息里，单条阈值管不住
-            # 合计超限的情况。进历史前把整批处理完，消息一出生就是终态
-            apply_tool_result_budget(tool_results, self.session_dir, exempt_ids)
+            # 原有结果入历史；聚合预算在下一次发送的副本中处理。
             conversation.add_tool_results_message(tool_results)
 
             if self.hook_engine:
@@ -1329,27 +1237,6 @@ class Agent:
                 is_error=True,
             )
 
-        try:
-            preview = MutationPreview.prepare(tc.tool_name, tc.arguments)
-        except (OSError, ValueError) as e:
-            return ToolResult(output=str(e), is_error=True)
-
-        risk = classify_risk(tc.tool_name, tool.category, tc.arguments)
-        ledger_record = None
-        if self._has_side_effect(tool):
-            ledger = self._ledger()
-            ledger_record = ledger.create(
-                tc.tool_id, tc.tool_name, tool.category, risk, tc.arguments, preview
-            )
-            previous = ledger.previous(tc.tool_id)
-            if previous is not None:
-                if previous.args_hash != ledger_record.args_hash:
-                    return ToolResult(output="Tool call id was reused with different arguments", is_error=True)
-                if previous.status == "unknown":
-                    return ToolResult(output="Prior side-effect outcome is unknown; explicit reconciliation is required", is_error=True)
-                if previous.status in {"completed", "failed"}:
-                    return ToolResult(output=previous.result, is_error=previous.status == "failed")
-
         if self.hook_engine:
             file_path = self._infer_file_path(tc.arguments)
             hook_ctx = self._build_hook_context(
@@ -1372,8 +1259,6 @@ class Agent:
                     output=f"Permission denied: {decision.reason}",
                     is_error=True,
                 )
-                if ledger_record is not None:
-                    self._ledger().record(ledger_record, status="failed", result=result.output)
                 return result
             if decision.effect == "ask":
                 if self.permission_mode == PermissionMode.BYPASS:
@@ -1383,20 +1268,7 @@ class Agent:
                         output="Permission denied: non-interactive agent cannot prompt user",
                         is_error=True,
                     )
-                    if ledger_record is not None:
-                        self._ledger().record(ledger_record, status="failed", result=result.output)
                     return result
-
-        if preview is not None:
-            try:
-                preview.verify_current(tc.tool_name, tc.arguments)
-            except (OSError, RuntimeError) as e:
-                result = ToolResult(output=str(e), is_error=True)
-                if ledger_record is not None:
-                    self._ledger().record(ledger_record, status="failed", result=result.output)
-                return result
-        if ledger_record is not None:
-            self._ledger().record(ledger_record, status="pending")
 
         try:
             params = tool.params_model.model_validate(tc.arguments)
@@ -1411,12 +1283,6 @@ class Agent:
             )
 
         result = self._append_injection_warning(tc.tool_name, result)
-        if ledger_record is not None:
-            self._ledger().record(
-                ledger_record,
-                status="failed" if result.is_error else "completed",
-                result=result.output,
-            )
 
         if self.hook_engine:
             file_path = self._infer_file_path(tc.arguments)

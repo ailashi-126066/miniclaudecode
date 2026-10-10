@@ -10,7 +10,6 @@ from mewcode.commands.handlers.compact import COMPACT_COMMAND
 from mewcode.commands.handlers.help import HELP_COMMAND
 from mewcode.commands.handlers.mcp import MCP_COMMAND
 from mewcode.commands.handlers.memory import MEMORY_COMMAND
-from mewcode.commands.handlers.knowledge import KNOWLEDGE_COMMAND
 from mewcode.commands.handlers.plan import PLAN_COMMAND
 from mewcode.commands.handlers.sandbox import SANDBOX_COMMAND
 from mewcode.commands.handlers.session import SESSION_COMMAND
@@ -28,7 +27,6 @@ ALL_COMMANDS = [
     SESSION_COMMAND,
     MCP_COMMAND,
     MEMORY_COMMAND,
-    KNOWLEDGE_COMMAND,
     SANDBOX_COMMAND,
     REWIND_COMMAND,
     STATUS_COMMAND,

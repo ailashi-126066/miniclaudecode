@@ -36,14 +36,6 @@ def format_task_notification(task: BackgroundTask) -> str:
             f"output={task.progress.output_tokens}"
         )
 
-    changes = ""
-    if task.change_report is not None:
-        changes = "\nChange report:\n" + task.change_report.summary()
-
-    integration = ""
-    if task.integration_outcome is not None:
-        integration = "\nIntegration report:\n" + task.integration_outcome.summary()
-
     return (
         f"<task-notification>\n"
         f"Task ID: {task.id}\n"
@@ -51,7 +43,7 @@ def format_task_notification(task: BackgroundTask) -> str:
         f"Status: {task.status}\n"
         f"Elapsed: {elapsed}\n"
         f"{tokens}\n"
-        f"Result:\n{result}\n{changes}{integration}\n"
+        f"Result:\n{result}\n"
         f"</task-notification>"
     )
 

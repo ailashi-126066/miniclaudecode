@@ -33,6 +33,7 @@ class SkillDef:
     context: Literal["full", "recent", "none"] = "full"
     source_path: Path | None = None
     is_directory: bool = False
+    allowed_tools: list[str] = field(default_factory=list)
 
 
 def parse_frontmatter(raw: str) -> tuple[dict, str]:
@@ -58,22 +59,6 @@ def parse_frontmatter(raw: str) -> tuple[dict, str]:
     return meta, body
 
 
-def resolve_mode_and_context(meta: dict) -> tuple[str, str]:
-    """规范化 mode 与 context 两个字段。
-
-    另一些 Agent 生态用 `context: fork` 表达「隔离执行」，和这里的 `mode: fork`
-    是同一个意思。统一映射成 mode=fork，context 回落到默认值，两种写法等价，
-    从外部拿来的技能不用改写就能直接用。
-    """
-    mode = meta.get("mode")
-    context = meta.get("context", "full")
-    if context == "fork":
-        if not mode:
-            mode = "fork"
-        context = "full"
-    return mode or "inline", context
-
-
 def _validate_meta(meta: dict, source: str = "") -> None:
     ctx = f" in {source}" if source else ""
 
@@ -89,7 +74,12 @@ def _validate_meta(meta: dict, source: str = "") -> None:
             "must be lowercase letters, digits, and hyphens, starting with a letter"
         )
 
-    mode, context = resolve_mode_and_context(meta)
+    allowed = meta.get("allowedTools", [])
+    if not isinstance(allowed, list) or not all(isinstance(name, str) and name for name in allowed):
+        raise SkillParseError(f"Invalid allowedTools{ctx}: must be a list of tool names")
+
+    mode = meta.get("mode", "inline")
+    context = meta.get("context", "full")
     if mode not in VALID_MODES:
         raise SkillParseError(f"Invalid mode '{mode}'{ctx}: must be one of {VALID_MODES}")
     if context not in VALID_CONTEXTS:
@@ -104,7 +94,8 @@ def parse_skill_file(path: Path) -> SkillDef:
 
     meta, body = parse_frontmatter(raw)
     _validate_meta(meta, str(path))
-    mode, context = resolve_mode_and_context(meta)
+    mode = meta.get("mode", "inline")
+    context = meta.get("context", "full")
 
     return SkillDef(
         name=meta["name"],
@@ -115,6 +106,7 @@ def parse_skill_file(path: Path) -> SkillDef:
         context=context,
         source_path=path,
         is_directory=False,
+        allowed_tools=meta.get("allowedTools", []),
     )
 
 

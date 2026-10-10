@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from mewcode.conversation import ConversationManager, Message
 from mewcode.skills.parser import SkillDef, substitute_arguments
+from mewcode.tools import ToolRegistry
 
 if TYPE_CHECKING:
     from mewcode.agent import Agent, AgentEvent
@@ -17,6 +18,35 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 FORK_RECENT_COUNT = 5
+
+
+class SkillDependencyError(Exception):
+    pass
+
+
+def filter_tool_registry(
+    registry: ToolRegistry, allowed: list[str]
+) -> ToolRegistry:
+    if not allowed:
+        return registry
+
+    filtered = ToolRegistry()
+    filtered.mcp_loading_mode = registry.mcp_loading_mode
+    filtered.expose_tool_search = registry.expose_tool_search
+    filtered.expose_mcp_call = registry.expose_mcp_call
+    for name in allowed:
+        tool = registry.get(name)
+        if tool is None or not registry.is_enabled(name):
+            raise SkillDependencyError(
+                f"Skill requires tool '{name}' but it is not registered"
+            )
+        filtered.register(tool)
+
+    for tool in registry.list_tools():
+        if getattr(tool, "is_system_tool", False) and filtered.get(tool.name) is None:
+            filtered.register(tool)
+
+    return filtered
 
 
 class SkillExecutor:
@@ -34,15 +64,26 @@ class SkillExecutor:
 
 
     def execute_inline(self, skill: SkillDef, args: str) -> None:
+        self._register_tools(skill)
         prompt = substitute_arguments(skill.prompt_body, args)
         self.agent.activate_skill(skill.name, prompt)
         if getattr(self.agent, "recovery_state", None) is not None:
             self.agent.recovery_state.record_skill_invocation(skill.name, prompt)
 
 
+    def _register_tools(self, skill: SkillDef) -> None:
+        if skill.is_directory and skill.source_path is not None:
+            from mewcode.skills.directory import register_skill_tools
+            register_skill_tools(skill.source_path.parent, self.agent.registry)
+
     async def execute_fork(
         self, skill: SkillDef, args: str
     ) -> str:
+        self._register_tools(skill)
+        try:
+            filtered_registry = filter_tool_registry(self.agent.registry, skill.allowed_tools)
+        except SkillDependencyError as e:
+            return f"Skill execution failed: {e}"
         prompt = substitute_arguments(skill.prompt_body, args)
         if getattr(self.agent, "recovery_state", None) is not None:
             self.agent.recovery_state.record_skill_invocation(
@@ -64,7 +105,7 @@ class SkillExecutor:
 
         fork_agent = AgentClass(
             client=self.client,
-            registry=self.agent.registry,
+            registry=filtered_registry,
             protocol=self.protocol,
             work_dir=self.agent.work_dir,
             max_iterations=self.agent.max_iterations,

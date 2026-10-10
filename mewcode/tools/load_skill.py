@@ -68,6 +68,10 @@ class LoadSkill(Tool):
                 is_error=True,
             )
 
+        if skill.is_directory and skill.source_path is not None:
+            from mewcode.skills.directory import register_skill_tools
+            register_skill_tools(skill.source_path.parent, self._agent.registry)
+
         # fork 模式：SOP 正文不进主对话，交给隔离的子 Agent 执行，只把最终结果带回。
         # 这样模型自己加载 skill 和用户敲斜杠命令遵循同一套 mode 语义，声明的隔离
         # 意图在两条路径上都生效。

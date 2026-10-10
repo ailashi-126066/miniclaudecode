@@ -37,8 +37,9 @@ async def handle_status(ctx: CommandContext) -> None:
 
 
     if ctx.memory_manager:
-        mem_entries = ctx.memory_manager.get_memories()
-        lines.append(f"记忆: {len(mem_entries)} 条")
+        content = ctx.memory_manager.load()
+        mem_lines = [line for line in content.split("\n") if line.strip().startswith("- ")]
+        lines.append(f"记忆: {len(mem_lines)} 条")
 
     work_dir = ctx.agent.work_dir if ctx.agent else os.getcwd()
     lines.append(f"工作目录: {work_dir}")

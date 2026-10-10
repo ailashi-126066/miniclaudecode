@@ -596,93 +596,47 @@ class TestSessionMeta:
 # =========================================================================
 
 class TestMemoryManager:
-    """Manager：独立 .md 文件 + frontmatter + MEMORY.md 索引格式。"""
-
-    def test_load_returns_prompt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """load() 返回完整的记忆系统提示（包含行为指令），不再是空字符串。"""
+    def test_load_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
         mgr = MemoryManager(str(tmp_path / "project"))
-        result = mgr.load()
-        # 即使没有记忆文件，也会返回记忆系统的行为指令
-        assert "auto memory" in result
-        assert "User-level" in result
-        assert "Project-level" in result
+        assert mgr.load() == ""
 
-    def test_load_includes_memory_index(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """MEMORY.md 索引内容被包含在 load() 返回的系统提示中。"""
+    def test_load_merges_user_and_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
-        # 创建项目级记忆目录和文件
-        project_mem_dir = tmp_path / "project" / ".mewcode" / "memory"
-        project_mem_dir.mkdir(parents=True)
-        # 写一个记忆文件
-        mem_file = project_mem_dir / "test_mem.md"
-        mem_file.write_text(
-            "---\nname: test\ndescription: a test memory\ntype: project\n---\n\ntest content\n",
-            encoding="utf-8",
-        )
-        # 写 MEMORY.md 索引
-        index_file = project_mem_dir / "MEMORY.md"
-        index_file.write_text(
-            "- [Test](test_mem.md) — a test memory\n", encoding="utf-8"
-        )
+        user_mem = fake_home / ".mewcode" / "memories.md"
+        user_mem.parent.mkdir(parents=True)
+        user_mem.write_text("### 用户偏好\n- prefer spaces", encoding="utf-8")
+
+        project_mem = tmp_path / "project" / ".mewcode" / "memories.md"
+        project_mem.parent.mkdir(parents=True)
+        project_mem.write_text("### 项目知识\n- uses PostgreSQL", encoding="utf-8")
 
         mgr = MemoryManager(str(tmp_path / "project"))
         result = mgr.load()
-        assert "a test memory" in result
-
-    def test_load_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """load_all() 扫描两个目录的 .md 文件并解析 frontmatter。"""
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
-
-        # 用户级记忆
-        user_mem_dir = fake_home / ".mewcode" / "memory"
-        user_mem_dir.mkdir(parents=True)
-        (user_mem_dir / "user_pref.md").write_text(
-            "---\nname: coding style\ndescription: prefers spaces\ntype: user\n---\n\nprefer spaces\n",
-            encoding="utf-8",
-        )
-
-        # 项目级记忆
-        project_mem_dir = tmp_path / "project" / ".mewcode" / "memory"
-        project_mem_dir.mkdir(parents=True)
-        (project_mem_dir / "proj_db.md").write_text(
-            "---\nname: database\ndescription: uses PostgreSQL\ntype: project\n---\n\nuses PostgreSQL\n",
-            encoding="utf-8",
-        )
-
-        mgr = MemoryManager(str(tmp_path / "project"))
-        files = mgr.load_all()
-        assert len(files) == 2
-        names = [f.name for f in files]
-        assert "coding style" in names
-        assert "database" in names
+        assert "prefer spaces" in result
+        assert "uses PostgreSQL" in result
 
     def test_clear(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """clear() 删除两个目录中所有 .md 文件。"""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
-        # 创建记忆文件
-        user_mem_dir = fake_home / ".mewcode" / "memory"
-        user_mem_dir.mkdir(parents=True)
-        (user_mem_dir / "test.md").write_text("content", encoding="utf-8")
-        (user_mem_dir / "MEMORY.md").write_text("- index\n", encoding="utf-8")
+        user_mem = fake_home / ".mewcode" / "memories.md"
+        user_mem.parent.mkdir(parents=True)
+        user_mem.write_text("### 用户偏好\n- something", encoding="utf-8")
 
-        project_mem_dir = tmp_path / "project" / ".mewcode" / "memory"
-        project_mem_dir.mkdir(parents=True)
-        (project_mem_dir / "test.md").write_text("content", encoding="utf-8")
+        project_mem = tmp_path / "project" / ".mewcode" / "memories.md"
+        project_mem.parent.mkdir(parents=True)
+        project_mem.write_text("### 项目知识\n- something", encoding="utf-8")
 
         mgr = MemoryManager(str(tmp_path / "project"))
         mgr.clear()
-        assert mgr.load_all() == []
+        assert mgr.load() == ""
 
     def test_get_display_text_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_home = tmp_path / "home"
@@ -691,24 +645,28 @@ class TestMemoryManager:
         mgr = MemoryManager(str(tmp_path / "project"))
         assert "没有任何自动记忆" in mgr.get_display_text()
 
-    def test_get_memories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """get_memories() 返回单行摘要列表。"""
+    def test_write_memories_splits_correctly(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
-        project_mem_dir = tmp_path / "project" / ".mewcode" / "memory"
-        project_mem_dir.mkdir(parents=True)
-        (project_mem_dir / "db_info.md").write_text(
-            "---\nname: db\ndescription: uses PostgreSQL\ntype: project\n---\n\ncontent\n",
-            encoding="utf-8",
+        mgr = MemoryManager(str(tmp_path / "project"))
+        mgr._write_memories(
+            "### 用户偏好\n- use spaces\n\n"
+            "### 纠正反馈\n- use mutex not channel\n\n"
+            "### 项目知识\n- uses PostgreSQL\n\n"
+            "### 参考资料\n- docs at example.com\n"
         )
 
-        mgr = MemoryManager(str(tmp_path / "project"))
-        summaries = mgr.get_memories()
-        assert len(summaries) == 1
-        assert "[project]" in summaries[0]
-        assert "db" in summaries[0]
+        user_content = mgr._user_path.read_text(encoding="utf-8")
+        assert "use spaces" in user_content
+        assert "use mutex" in user_content
+        assert "PostgreSQL" not in user_content
+
+        project_content = mgr._project_path.read_text(encoding="utf-8")
+        assert "uses PostgreSQL" in project_content
+        assert "docs at example.com" in project_content
+        assert "use spaces" not in project_content
 
 # =========================================================================
 # H. 会话注入长期记忆 inject_long_term_memory
@@ -791,10 +749,11 @@ class TestConversationInjection:
 # =========================================================================
 
 class TestMemoryExtraction:
-    def test_memory_types_aligned_with_go(self, tmp_path: Path) -> None:
-        """验证四种记忆类型枚举。"""
-        from mewcode.memory.auto_memory import VALID_TYPES, _USER_LEVEL_TYPES, _PROJECT_LEVEL_TYPES
+    def test_extraction_prompt_contains_categories(self, tmp_path: Path) -> None:
+        from mewcode.memory.auto_memory import MEMORY_EXTRACTION_PROMPT
 
-        assert VALID_TYPES == {"user", "feedback", "project", "reference"}
-        assert _USER_LEVEL_TYPES == {"user", "feedback"}
-        assert _PROJECT_LEVEL_TYPES == {"project", "reference"}
+        assert "用户偏好" in MEMORY_EXTRACTION_PROMPT
+        assert "纠正反馈" in MEMORY_EXTRACTION_PROMPT
+        assert "项目知识" in MEMORY_EXTRACTION_PROMPT
+        assert "参考资料" in MEMORY_EXTRACTION_PROMPT
+        assert "不要重复添加" in MEMORY_EXTRACTION_PROMPT
