@@ -1,0 +1,16 @@
+"""The official SDK client remains a replaceable transport boundary."""
+
+from typing import Protocol
+
+from pycode.core.messages import ToolCall, ToolResult
+
+
+class MCPConnections(Protocol):
+    async def catalog(self) -> dict: ...
+    async def call(self, declaration: dict, arguments: dict) -> ToolResult: ...
+    async def request(self, server: str, method: str, arguments: dict) -> dict: ...
+    async def aclose(self) -> None: ...
+
+
+class ToolDispatch(Protocol):
+    def resolve(self, call: ToolCall) -> ToolCall: ...

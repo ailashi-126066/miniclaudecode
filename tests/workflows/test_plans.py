@@ -1,0 +1,222 @@
+"""Real Deep Agents Plan writing, current-process review and bounded approval."""
+
+import asyncio
+from pathlib import Path
+
+import pytest
+from tests.support.execution import provider
+from tests.support.http_provider import chat_completion, protocol_server
+from tests.workflows.test_skills_http import skill_reply
+
+from pycode.app.config import AppConfig
+from pycode.app.container import open_agent_session
+from pycode.core.messages import Message
+
+
+def write_plan_reply(content="# Plan\nold step\n"):
+    return skill_reply(
+        "write_file", {"file_path": "/plans/PLAN_ID.md", "content": content}, "plan-write"
+    )
+
+
+def fix_plan_path(reply, plan_id):
+    reply.body = reply.body.replace(b"PLAN_ID", plan_id.encode())
+
+
+async def open_plan_session(config, url, *, create=True):
+    return await open_agent_session(
+        config, (provider(url),), "s1", create=create, refresh_models=False
+    )
+
+
+@pytest.mark.parametrize("decision", ["auto", "review"])
+async def test_plan_writes_only_current_markdown_then_approves_execution(
+    tmp_path, monkeypatch, decision
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    write = write_plan_reply()
+    replies = [
+        write,
+        skill_reply("ExitPlanMode", {}, "plan-exit"),
+        skill_reply("Bash", {"command": "printf approved > executed.txt"}, "execute"),
+        chat_completion(),
+    ]
+    with protocol_server(replies) as (url, requests):
+        session = await open_plan_session(config, url)
+        try:
+            plan = await session.enter_plan()
+            fix_plan_path(write, plan.plan_id)
+            assert not (await asyncio.to_thread(Path(plan.storage_path).exists))
+            waiting = await session.run(Message("u1", "user", "create plan"))
+            assert waiting.outcome == "needs_input" and waiting.pending[0]["kind"] == "plan"
+            assert (
+                await asyncio.to_thread(Path(plan.storage_path).read_text)
+            ) == "# Plan\nold step\n"
+            assert not (tmp_path / "executed.txt").exists()
+            assert len(requests) == 2
+            assert (await session.inspect())["plan"]["document_exists"]
+            result = await session.resume(
+                {
+                    "operation_id": waiting.pending[0]["operation_id"],
+                    "plan_id": plan.plan_id,
+                    "decision": decision,
+                }
+            )
+            if decision == "review":
+                assert result.outcome == "needs_input" and result.pending[0]["kind"] == "permission"
+                assert not (tmp_path / "executed.txt").exists()
+                result = await session.resume(
+                    {"operation_id": result.pending[0]["operation_id"], "decision": "approve"}
+                )
+            assert (
+                result.outcome == "completed"
+                and (tmp_path / "executed.txt").read_text() == "approved"
+            )
+            assert len(requests) == 4
+            assert (await session.inspect())["plan"]["mode"] == "completed"
+            reviews = [
+                entry
+                for entry in (await session.inspect())["snapshot"]["entries"]
+                if entry["type"] == "plan_review"
+            ]
+            assert len(reviews) == 1 and reviews[0]["data"]["content"] == "# Plan\nold step\n"
+        finally:
+            await session.aclose()
+
+
+async def test_plan_denies_workspace_writes_commands_and_other_plan_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    replies = [
+        skill_reply("write_file", {"file_path": "/workspace/blocked.txt", "content": "bad"}, "w1"),
+        skill_reply("Bash", {"command": "printf bad > blocked.txt"}, "b1"),
+        skill_reply("write_file", {"file_path": "/plans/other.md", "content": "bad"}, "p1"),
+        chat_completion(),
+    ]
+    with protocol_server(replies) as (url, requests):
+        session = await open_plan_session(config, url)
+        try:
+            plan = await session.enter_plan()
+            result = await session.run(Message("u1", "user", "plan only"))
+            assert result.outcome == "completed" and len(requests) == 4
+            assert not (tmp_path / "blocked.txt").exists() and not (
+                await asyncio.to_thread(Path(plan.storage_path).exists)
+            )
+            state = await session.inspect()
+            results = [
+                entry["message"]["tool_result"]
+                for entry in state["snapshot"]["entries"]
+                if entry["message"] and entry["message"]["tool_result"]
+            ]
+            assert [result["error_code"] for result in results] == ["plan_read_only"] * 3
+        finally:
+            await session.aclose()
+
+
+async def test_feedback_revises_same_plan_and_requires_new_review(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    write = write_plan_reply()
+    edit = skill_reply(
+        "edit_file",
+        {"file_path": "/plans/PLAN_ID.md", "old_string": "old step", "new_string": "new step"},
+        "revise",
+    )
+    replies = [
+        write,
+        skill_reply("ExitPlanMode", {}, "exit-1"),
+        edit,
+        skill_reply("ExitPlanMode", {}, "exit-2"),
+        chat_completion(),
+    ]
+    with protocol_server(replies) as (url, requests):
+        session = await open_plan_session(config, url)
+        try:
+            plan = await session.enter_plan()
+            fix_plan_path(write, plan.plan_id)
+            fix_plan_path(edit, plan.plan_id)
+            waiting = await session.run(Message("u1", "user", "plan"))
+            revised = await session.resume(
+                {
+                    "operation_id": waiting.pending[0]["operation_id"],
+                    "plan_id": plan.plan_id,
+                    "decision": "feedback",
+                    "feedback": "Use a new step",
+                }
+            )
+            assert revised.outcome == "needs_input" and revised.pending[0]["kind"] == "plan"
+            assert revised.pending[0]["plan_id"] == plan.plan_id
+            assert revised.pending[0]["sha256"] != waiting.pending[0]["sha256"]
+            assert (
+                await asyncio.to_thread(Path(plan.storage_path).read_text)
+            ) == "# Plan\nnew step\n"
+            result = await session.resume(
+                {
+                    "operation_id": revised.pending[0]["operation_id"],
+                    "plan_id": plan.plan_id,
+                    "decision": "auto",
+                }
+            )
+            assert result.outcome == "completed" and len(requests) == 5
+            assert len(list(Path(plan.storage_path).parent.glob("*.md"))) == 1
+        finally:
+            await session.aclose()
+
+
+async def test_changed_plan_during_wait_cannot_be_approved_silently(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    write = write_plan_reply()
+    with protocol_server([write, skill_reply("ExitPlanMode", {}, "exit"), chat_completion()]) as (
+        url,
+        requests,
+    ):
+        session = await open_plan_session(config, url)
+        try:
+            plan = await session.enter_plan()
+            fix_plan_path(write, plan.plan_id)
+            waiting = await session.run(Message("u1", "user", "plan"))
+            await asyncio.to_thread(
+                Path(plan.storage_path).write_text, "externally changed", encoding="utf-8"
+            )
+            result = await session.resume(
+                {
+                    "operation_id": waiting.pending[0]["operation_id"],
+                    "plan_id": plan.plan_id,
+                    "decision": "auto",
+                }
+            )
+            assert result.outcome == "completed" and len(requests) == 3
+            results = [
+                entry["message"]["tool_result"]
+                for entry in (await session.inspect())["snapshot"]["entries"]
+                if entry["message"] and entry["message"]["tool_result"]
+            ]
+            assert results[-1]["error_code"] == "plan_changed"
+            assert (await session.inspect())["plan"]["mode"] == "planning"
+        finally:
+            await session.aclose()
+
+
+async def test_restart_keeps_markdown_but_invalidates_old_plan_interrupt(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    write = write_plan_reply()
+    with protocol_server([write, skill_reply("ExitPlanMode", {}, "exit")]) as (url, requests):
+        first = await open_plan_session(config, url)
+        plan = await first.enter_plan()
+        fix_plan_path(write, plan.plan_id)
+        await first.run(Message("u1", "user", "plan"))
+        await first.aclose()
+        reopened = await open_plan_session(config, url, create=False)
+        try:
+            state = await reopened.inspect()
+            assert state["pending"] == () and state["pending_run_id"] is None
+            assert state["plan"]["plan_id"] == plan.plan_id and state["plan"]["mode"] == "planning"
+            assert (
+                await asyncio.to_thread(Path(plan.storage_path).read_text)
+            ) == "# Plan\nold step\n"
+            assert len(requests) == 2
+        finally:
+            await reopened.aclose()

@@ -1,0 +1,177 @@
+import asyncio
+import shlex
+import sys
+
+import pytest
+from tests.support.requests import TestTiming
+from tests.workflows.test_agent import Recorder
+
+from pycode.adapters.storage.session import JsonlSessionStore
+from pycode.adapters.tools.bash import Bash, find_bash
+from pycode.adapters.tools.output_store import FileToolOutputStore
+from pycode.adapters.tools.schema import JsonSchemaValidator
+from pycode.core.messages import Message, ToolCall
+from pycode.core.session import SessionHeader
+from pycode.core.tools import ToolContext
+from pycode.core.truncation import MAX_BYTES
+from pycode.services.events import EventStream
+from pycode.services.tool_executor import ToolExecutor
+from pycode.services.tool_registry import ToolRegistry
+
+
+class ApprovedGate:
+    async def authorize(self, context, spec, call):
+        return None
+
+
+async def assemble(tmp_path):
+    sessions = tmp_path / "sessions"
+    journal = JsonlSessionStore(
+        sessions / "s1", SessionHeader("s1", str(tmp_path), "t"), TestTiming()
+    )
+    await journal.append_message(Message("u1", "user", "command task"))
+    outputs = FileToolOutputStore(sessions, "s1", journal)
+    validator = JsonSchemaValidator()
+    registry = ToolRegistry(validator, (Bash(find_bash(), outputs),))
+    executor = ToolExecutor(
+        registry, validator, ApprovedGate(), EventStream("s1", "r1", (Recorder(),)), outputs
+    )
+    context = ToolContext("s1", "r1", "op1", str(tmp_path))
+    return executor, context, journal, outputs
+
+
+def python_command(code):
+    return shlex.quote(sys.executable.replace("\\", "/")) + " -c " + shlex.quote(code)
+
+
+async def test_real_command_output_is_complete_on_disk_and_bounded_in_model_result(tmp_path):
+    executor, context, journal, outputs = await assemble(tmp_path)
+    code = (
+        "import sys; "
+        "sys.stdout.buffer.write(''.join(f'line-{i:04d}\\n' for i in range(1,8001)).encode())"
+    )
+    result = await executor.execute(
+        context, ToolCall("call-1", "Bash", {"command": python_command(code)}), "tool_calls"
+    )
+    assert not result.is_error
+    assert result.exit_code == 0
+    assert len(result.text.encode()) <= MAX_BYTES
+    assert "line-8000" in result.text
+    entry_id = await journal.append_message(Message("result-1", "tool", tool_result=result))
+    await outputs.bind(result.output_id, entry_id)
+    full = (tmp_path / "sessions/s1/tool-results" / (result.output_id + ".txt")).read_bytes()
+    assert full.startswith(b"line-0001\n") and full.endswith(b"line-8000\n")
+    assert full.count(b"\n") == 8000
+    assert (await outputs.read(result.output_id, 500, 100, MAX_BYTES)).next_offset == 600
+    await journal.aclose()
+
+
+async def test_cancelled_command_cannot_write_after_owner_returns(tmp_path):
+    executor, context, journal, outputs = await assemble(tmp_path)
+    code = (
+        "from pathlib import Path; import time; Path('ready').write_text('yes'); "
+        "time.sleep(1); Path('late').write_text('bad')"
+    )
+    running = asyncio.create_task(
+        executor.execute(
+            context, ToolCall("call-1", "Bash", {"command": python_command(code)}), "tool_calls"
+        )
+    )
+    try:
+        async with asyncio.timeout(5):
+            ready = tmp_path / "ready"
+            while not await asyncio.to_thread(ready.exists):  # noqa: ASYNC110 - external child readiness
+                await asyncio.sleep(0.01)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        await asyncio.sleep(1.1)
+        assert not (tmp_path / "late").exists()
+        assert (await journal.snapshot()).entries[-1].message.role == "user"
+    finally:
+        if not running.done():
+            running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+        await journal.aclose()
+
+
+async def test_timeout_stops_owned_command_and_preserves_known_output(tmp_path):
+    executor, context, journal, outputs = await assemble(tmp_path)
+    code = (
+        "import sys,time; from pathlib import Path; "
+        "sys.stdout.buffer.write(b'HEAD\\n'); sys.stdout.flush(); "
+        "time.sleep(1); Path('late').write_text('bad')"
+    )
+    result = await executor.execute(
+        context,
+        ToolCall(
+            "call-1",
+            "Bash",
+            {
+                "command": python_command(code),
+                "timeout": 0.3,
+            },
+        ),
+        "tool_calls",
+    )
+    assert result.is_error and result.error_code == "command_timeout"
+    assert "HEAD" in result.text
+    await asyncio.sleep(1.1)
+    assert not (tmp_path / "late").exists()
+    await journal.aclose()
+
+
+async def test_timeout_kills_descendant_even_after_original_process_exits(tmp_path):
+    executor, context, journal, outputs = await assemble(tmp_path)
+    child = "import time; from pathlib import Path; time.sleep(1); Path('late').write_text('bad')"
+    parent = (
+        "import subprocess,sys; "
+        f"subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        "sys.stdout.buffer.write(b'PARENT\\n'); sys.stdout.flush()"
+    )
+    result = await executor.execute(
+        context,
+        ToolCall(
+            "call-1",
+            "Bash",
+            {
+                "command": python_command(parent),
+                "timeout": 0.4,
+            },
+        ),
+        "tool_calls",
+    )
+    assert result.is_error and result.error_code == "command_timeout"
+    await asyncio.sleep(1.1)
+    assert not (tmp_path / "late").exists()
+    await journal.aclose()
+
+
+async def test_descendant_output_after_parent_exit_is_not_cut_off_by_fixed_grace(tmp_path):
+    executor, context, journal, outputs = await assemble(tmp_path)
+    child = (
+        "import sys,time; "
+        "[(time.sleep(0.05),sys.stdout.buffer.write(('TICK'+str(i)+chr(10)).encode()),"
+        "sys.stdout.flush()) "
+        "for i in range(6)]"
+    )
+    parent = (
+        "import subprocess,sys; "
+        f"subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        "sys.stdout.buffer.write(b'HEAD\\n'); sys.stdout.flush()"
+    )
+    result = await executor.execute(
+        context,
+        ToolCall(
+            "call-1",
+            "Bash",
+            {
+                "command": python_command(parent),
+                "timeout": 3,
+            },
+        ),
+        "tool_calls",
+    )
+    assert not result.is_error
+    assert "HEAD" in result.text and "TICK5" in result.text
+    await journal.aclose()

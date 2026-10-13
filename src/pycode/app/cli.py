@@ -1,0 +1,159 @@
+"""pycode command entry point."""
+
+import asyncio
+import io
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+from pycode.app.cli_commands import command
+from pycode.app.cli_parser import build_parser
+from pycode.app.config import load_config, load_providers
+from pycode.app.container import (
+    build_container,
+    build_model_catalog,
+    build_model_control,
+    build_session_repository,
+    build_tui,
+    open_agent_session,
+    sandbox_status,
+)
+from pycode.core.errors import DomainError, OutputClosed
+from pycode.core.sandbox import SandboxSettings
+from pycode.core.values import json_dumps, plain_data
+
+
+def main(argv: list[str] | None = None) -> int:
+    if isinstance(sys.stdout, io.TextIOWrapper) and sys.stdout.encoding.lower() not in {
+        "utf-8",
+        "utf8",
+    }:
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = replace(
+        load_config(args.workspace, args.data_dir),
+        sandbox=SandboxSettings(args.sandbox, args.sandbox_network),
+        project_trusted=args.trust_project,
+        memory_mode=args.memory_mode,
+    )
+    if args.p is not None:
+        if args.command is not None:
+            parser.error("-p cannot be combined with a subcommand")
+        args.command, args.prompt = "run", args.p
+    if args.command is None:
+        parser.print_help()
+        return 0
+    if args.command == "tui":
+        try:
+            providers = load_providers(Path(args.providers).expanduser().resolve())
+            build_tui(config, providers, session_id=args.session).run()
+            return 0
+        except DomainError as error:
+            print(
+                json_dumps(
+                    {"error": {"code": error.code, "message": str(error)}}, ensure_ascii=False
+                )
+            )
+            return 1
+    if args.command in {"model", "/model"}:
+        try:
+            providers = load_providers(Path(args.providers).expanduser().resolve())
+            catalog = build_model_catalog(config, providers)
+            return asyncio.run(model_command(args, config, catalog, providers))
+        except DomainError as error:
+            print(
+                json_dumps(
+                    {"error": {"code": error.code, "message": str(error)}}, ensure_ascii=False
+                )
+            )
+            return 1
+    if args.command != "doctor":
+        try:
+            if args.command in {"compact", "/compact"} and args.keep_recent_tokens is not None:
+                if args.keep_recent_tokens < 1:
+                    raise DomainError(
+                        "invalid_summary_config", "Recent token retention must be positive"
+                    )
+                config = replace(config, summary_keep_recent_tokens=args.keep_recent_tokens)
+            return asyncio.run(command(args, config))
+        except DomainError as error:
+            print(
+                json_dumps(
+                    {"type": "error", "error": {"code": error.code, "message": str(error)}},
+                    ensure_ascii=False,
+                )
+            )
+            return 1
+        except KeyboardInterrupt:
+            return 130
+        except OutputClosed:
+            return 141
+        except BrokenPipeError:
+            return 141
+    container = build_container(config)
+    status = container.application.status()
+    isolation = asyncio.run(sandbox_status(config))
+    if args.json:
+        print(
+            json_dumps({**plain_data(status), "sandbox": plain_data(isolation)}, ensure_ascii=False)
+        )
+    else:
+        print(f"{status.name} {status.version}")
+        print(f"Workspace: {status.workspace.path}")
+        availability = (
+            "available" if status.workspace.snapshot_available else "unavailable (non-Git)"
+        )
+        print(f"File snapshots: {availability}")
+        print(isolation.reason)
+    return 0 if status.workspace.exists else 1
+
+
+async def model_command(args, config, catalog, providers) -> int:
+    if args.model_command == "select":
+        if not args.session:
+            raise DomainError("session_required", "Selecting a model requires an active session")
+        session = await open_agent_session(
+            config, providers, args.session, refresh_models=not args.cached
+        )
+        try:
+            selected = await session.select_model(args.provider, args.model_id)
+            print(
+                json_dumps(
+                    {"selection": plain_data(selected), "session_id": args.session},
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        finally:
+            await session.aclose()
+    store = None
+    if args.session:
+        store = await build_session_repository(config).open(args.session)
+    control = build_model_control(catalog, store)
+    try:
+        snapshot = await control.list_models(refresh=not args.cached)
+        current = await control.current()
+        if args.json:
+            print(
+                json_dumps(
+                    {
+                        "catalog": plain_data(snapshot),
+                        "selection": plain_data(current) if current else None,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            for model in snapshot.models:
+                print(f"{model.provider}/{model.model_id} [{model.availability}]")
+            if current is not None:
+                print(
+                    f"Current: {current.provider}/{current.model_id} · thinking {current.thinking}"
+                )
+            for provider, code in snapshot.errors.items():
+                print(f"{provider}: {code}")
+        return 1 if snapshot.errors else 0
+    finally:
+        if store is not None:
+            await store.aclose()

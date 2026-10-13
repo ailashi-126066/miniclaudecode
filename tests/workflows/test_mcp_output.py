@@ -1,0 +1,100 @@
+from tests.support.execution import provider
+from tests.support.http_provider import chat_completion, protocol_server
+from tests.workflows.test_hooks import hook_file
+from tests.workflows.test_mcp import mcp_config
+from tests.workflows.test_skills_http import skill_reply
+
+from pycode.app.config import AppConfig
+from pycode.app.container import open_agent_session
+from pycode.core.messages import Message
+
+
+async def test_large_mcp_result_is_complete_on_disk_and_pageable_through_read_tool_result(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    await mcp_config(config, mode="dispatch")
+    with protocol_server(
+        [
+            skill_reply(
+                "MCPCall", {"server": "srv", "tool": "big", "arguments": {"lines": 2400}}, "big"
+            ),
+            chat_completion(),
+        ]
+    ) as (url, requests):
+        session = await open_agent_session(
+            config, (provider(url),), "s1", create=True, refresh_models=False
+        )
+        try:
+            assert (await session.run(Message("u1", "user", "big"))).outcome == "completed"
+            state = await session.inspect()
+            result = next(
+                entry["message"]["tool_result"]
+                for entry in state["snapshot"]["entries"]
+                if entry["message"] and entry["message"]["role"] == "tool"
+            )
+            assert "中文行2399" not in result["text"] and result["output_id"]
+            # Complete data is retained as an ordinary output object; the branch owns its reference.
+            from pycode.adapters.storage.layout import StorageLayout
+            from pycode.adapters.tools.output_store import FileToolOutputStore
+            from pycode.app.container import build_session_repository
+
+            await session.aclose()
+            history = await build_session_repository(config).open("s1")
+            try:
+                outputs = FileToolOutputStore(
+                    StorageLayout(config.workspace, config.user_data).sessions, "s1", history
+                )
+                page = await outputs.read(result["output_id"], 2350, 51, 50000)
+                assert "中文行2399" in page.text
+            finally:
+                await history.aclose()
+            assert len(requests) == 2
+        finally:
+            await session.aclose()
+
+
+async def test_dispatch_uses_target_name_for_hook_rejection_and_never_calls_server(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    await mcp_config(config, mode="dispatch")
+    await hook_file(
+        config,
+        [
+            {
+                "id": "protect",
+                "event": "pre_tool_use",
+                "reject": True,
+                "if": 'tool == "mcp__srv__mutate"',
+                "action": {"type": "prompt", "message": "Rejected target"},
+            }
+        ],
+    )
+    with protocol_server(
+        [
+            skill_reply(
+                "MCPCall",
+                {"server": "srv", "tool": "mutate", "arguments": {"value": "blocked"}},
+                "mutate",
+            ),
+            chat_completion(),
+        ]
+    ) as (url, requests):
+        session = await open_agent_session(
+            config, (provider(url),), "s1", create=True, refresh_models=False
+        )
+        try:
+            assert (await session.run(Message("u1", "user", "change"))).outcome == "completed"
+            assert not (tmp_path / "effects.txt").exists() and len(requests) == 2
+            state = await session.inspect()
+            result = next(
+                entry["message"]["tool_result"]
+                for entry in state["snapshot"]["entries"]
+                if entry["message"] and entry["message"]["role"] == "tool"
+            )
+            assert result["name"] == "MCPCall" and result["error_code"] == "hook_rejected"
+        finally:
+            await session.aclose()

@@ -1,0 +1,78 @@
+# Source: MewCode local permission_dialog.py.
+# SHA-256: 87f1c767a00123f05660c08c2c73749b9530a0d5f6040f29ff8b3bab27e2de57
+# Adaptation: operation-bound response message; no Future, implicit grant or direct execution.
+# 来源：公众号@小林coding
+# 后端八股网站：xiaolincoding.com
+# Agent网站：xiaolinnote.com
+# 简历模版：jianli.xiaolinnote.com
+"""Inline approval emits a user decision for the application's persisted interrupt."""
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Vertical, VerticalScroll
+from textual.message import Message
+from textual.widgets import Static
+
+
+class ApprovalDetails(VerticalScroll, can_focus=True):
+    DEFAULT_CSS = (
+        "ApprovalDetails {height: auto; max-height: 5;} ApprovalDetails Static {height: auto;}"
+    )
+
+
+class ApprovalPanel(Vertical, can_focus=True):
+    DEFAULT_CSS = """
+    ApprovalPanel {
+        height: auto; max-height: 12; padding: 1 2;
+        background: $surface; border: solid $primary-muted;
+    }
+    ApprovalPanel:focus {border: solid $primary;}
+    ApprovalPanel Static {height: auto; color: $foreground;}
+    """
+    BINDINGS = [
+        Binding("up", "cursor_up", "Up", priority=True),
+        Binding("down", "cursor_down", "Down", priority=True),
+        Binding("enter", "select", "Select", priority=True),
+        Binding("escape", "deny", "Deny", priority=True),
+    ]
+    OPTIONS = (("Approve once", "approve"), ("Deny", "deny"))
+
+    class Responded(Message):
+        def __init__(self, operation_id, decision):
+            super().__init__()
+            self.answer = {"operation_id": operation_id, "decision": decision}
+
+    def __init__(self, operation_id, name, description):
+        super().__init__(id="perm-inline")
+        self._operation_id = operation_id
+        self._name = name
+        self._description = description
+        self._cursor = 0
+
+    def content(self):
+        lines = []
+        for index, (label, _) in enumerate(self.OPTIONS):
+            lines.append(("> " if index == self._cursor else "  ") + label)
+        return "\n".join(lines)
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._name + " · approval required", markup=False)
+        yield ApprovalDetails(Static(self._description, markup=False), id="approval-details")
+        yield Static(self.content(), id="perm-content", markup=False)
+
+    def on_mount(self):
+        self.focus()
+
+    def action_cursor_up(self):
+        self._cursor = max(0, self._cursor - 1)
+        self.query_one("#perm-content", Static).update(self.content())
+
+    def action_cursor_down(self):
+        self._cursor = min(len(self.OPTIONS) - 1, self._cursor + 1)
+        self.query_one("#perm-content", Static).update(self.content())
+
+    def action_select(self):
+        self.post_message(self.Responded(self._operation_id, self.OPTIONS[self._cursor][1]))
+
+    def action_deny(self):
+        self.post_message(self.Responded(self._operation_id, "deny"))

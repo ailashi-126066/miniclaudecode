@@ -1,0 +1,11 @@
+{
+  "source": "author-owned skills/directory.py and tests/test_skill_execution_routes.py; fixed source inventory in docs/source-map.md",
+  "source_sha256": {"directory.py": "2b04c95e8b75a23b8f65990b846e2ac76d08aaf5d18dadf55d76e0f7ff6b500f", "test_skill_execution_routes.py": "f023d81b2ecaf15f5c6a81ab162113f537cdbb17e616f2aed0f5779e9589f9fb"},
+  "declaration": {"name": "resource_probe", "description": "Report supplied task details", "parameters": {"type": "object", "properties": {"detail": {"type": "string"}}, "required": ["detail"]}},
+  "async_implementation": "async def execute(detail):\n    return 'resource:' + detail\n",
+  "sync_implementation": "def execute(detail):\n    return 'resource:' + detail\n",
+  "argument": {"detail": "task detail"},
+  "expected": "resource:task detail",
+  "cases": ["inline registers only to current agent", "fork does not import when workers disabled", "fork resource schemas and implementation remain inside child", "dynamic parameters validated with declared JSON schema", "missing implementation fails", "implementation or schema change rejects pending resume"],
+  "adaptations": ["no import while scanning or downloading", "record source, schema and implementation hashes", "default side effect and sequential execution", "common executor, persisted approval, output and reconciliation", "owned cancellable process for arbitrary Python execution"]
+}

@@ -1,0 +1,84 @@
+# Source: https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/coding-agent/src/core/tools/truncate.ts
+# Adaptation: UTF-8 bytes, Python dataclasses, whole-line head and partial tail semantics.
+"""Pure line/byte output truncation. Byte, character and token units stay distinct."""
+
+from dataclasses import dataclass
+from typing import Literal
+
+MAX_LINES = 2000
+MAX_BYTES = 50 * 1024
+PreviewMode = Literal["head", "tail"]
+
+
+@dataclass(frozen=True)
+class Truncation:
+    text: str
+    truncated: bool
+    total_lines: int
+    total_bytes: int
+    output_lines: int
+    output_bytes: int
+    truncated_by: Literal["lines", "bytes"] | None = None
+    partial_line: bool = False
+    first_line_exceeds_limit: bool = False
+
+
+def line_count(text: str) -> int:
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
+
+
+def truncate(
+    text: str, mode: PreviewMode, *, max_lines: int = MAX_LINES, max_bytes: int = MAX_BYTES
+) -> Truncation:
+    if mode not in {"head", "tail"} or max_lines < 1 or max_bytes < 1:
+        raise ValueError("Invalid preview limits or mode")
+    total_bytes = len(text.encode("utf-8"))
+    total_lines = line_count(text)
+    if total_bytes <= max_bytes and total_lines <= max_lines:
+        return Truncation(text, False, total_lines, total_bytes, total_lines, total_bytes)
+    lines = text.split("\n")
+    if text.endswith("\n"):
+        lines.pop()
+    if mode == "head" and len(lines[0].encode()) > max_bytes:
+        return Truncation(
+            "", True, total_lines, total_bytes, 0, 0, "bytes", first_line_exceeds_limit=True
+        )
+    candidates = lines if mode == "head" else reversed(lines)
+    selected = []
+    size = 0
+    reason = "lines"
+    partial = False
+    for line in candidates:
+        if len(selected) == max_lines:
+            break
+        encoded = line.encode("utf-8")
+        needed = len(encoded) + (1 if selected else 0)
+        if size + needed > max_bytes:
+            reason = "bytes"
+            if mode == "tail" and not selected:
+                start = len(encoded) - max_bytes
+                while start < len(encoded) and encoded[start] & 0xC0 == 0x80:
+                    start += 1
+                selected.append(encoded[start:].decode())
+                size = len(selected[0].encode())
+                partial = True
+            break
+        selected.append(line)
+        size += needed
+    if len(selected) >= max_lines and size <= max_bytes:
+        reason = "lines"
+    if mode == "tail":
+        selected.reverse()
+    preview = "\n".join(selected)
+    return Truncation(
+        preview,
+        True,
+        total_lines,
+        total_bytes,
+        len(selected),
+        len(preview.encode()),
+        reason,
+        partial,
+    )

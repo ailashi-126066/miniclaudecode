@@ -1,0 +1,106 @@
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+import pytest
+from tests.support.execution import provider
+from tests.support.http_provider import chat_completion, protocol_server
+from tests.workflows.test_skills_http import skill_reply
+
+from pycode.app.config import AppConfig
+from pycode.app.container import open_agent_session, open_session_view
+from pycode.core.messages import Message
+
+SERVER = Path(__file__).parents[1] / "support/mcp_server.py"
+
+
+async def mcp_config(config, *, mode="direct", trusted=True):
+    def write():
+        config.user_data.mkdir(parents=True, exist_ok=True)
+        (config.user_data / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "srv": {
+                            "command": sys.executable,
+                            "args": [str(SERVER)],
+                            "loading": mode,
+                            "trusted": trusted,
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    await asyncio.to_thread(write)
+
+
+@pytest.mark.parametrize("mode", ["direct", "dispatch"])
+async def test_real_mcp_tool_through_native_sdk_model_and_shared_executor(
+    tmp_path, monkeypatch, mode
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    await mcp_config(config, mode=mode)
+    name = "mcp__srv__echo" if mode == "direct" else "MCPCall"
+    args = (
+        {"value": "wire"}
+        if mode == "direct"
+        else {"server": "srv", "tool": "echo", "arguments": {"value": "wire"}}
+    )
+    with protocol_server([skill_reply(name, args, "call"), chat_completion()]) as (url, requests):
+        session = await open_agent_session(
+            config, (provider(url),), "s1", create=True, refresh_models=False
+        )
+        try:
+            result = await session.run(Message("u1", "user", "call MCP"))
+            assert result.outcome == "completed" and len(requests) == 2
+            specs = {item["function"]["name"] for item in requests[0]["body"]["tools"]}
+            assert ("mcp__srv__echo" in specs) == (mode == "direct")
+            state = await session.inspect()
+            outputs = [
+                entry["message"]["tool_result"]
+                for entry in state["snapshot"]["entries"]
+                if entry["message"] and entry["message"]["role"] == "tool"
+            ]
+            assert len(outputs) == 1 and outputs[0]["text"] == "echo:wire"
+            assert outputs[0]["name"] == name and outputs[0]["output_id"]
+            report = state["context_usage"]
+            assert report["source"] == "provider_usage" and report["tokens"] == 25
+        finally:
+            await session.aclose()
+        view = await open_session_view(config, "s1")
+        try:
+            assert (await view.inspect())["context_usage"] == report
+        finally:
+            await view.aclose()
+
+
+async def test_dispatch_default_side_effect_approval_reopens_and_executes_once(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    await mcp_config(config, mode="dispatch")
+    reply = skill_reply(
+        "MCPCall", {"server": "srv", "tool": "mutate", "arguments": {"value": "once"}}, "call"
+    )
+    with protocol_server([reply, chat_completion()]) as (url, requests):
+        configured = provider(url)
+        session = await open_agent_session(
+            config, (configured,), "s1", create=True, refresh_models=False
+        )
+        waiting = await session.run(Message("u1", "user", "change"))
+        assert waiting.outcome == "needs_input" and not (tmp_path / "effects.txt").exists()
+        assert waiting.pending[0]["call"]["name"] == "mcp__srv__mutate"
+        try:
+            assert (await session.resume()).pending == waiting.pending
+            done = await session.resume(
+                {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
+            )
+            assert done.outcome == "completed" and len(requests) == 2
+            assert (tmp_path / "effects.txt").read_text().splitlines() == ["once"]
+        finally:
+            await session.aclose()

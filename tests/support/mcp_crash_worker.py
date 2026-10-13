@@ -1,0 +1,45 @@
+"""Actual process death after a confirmed MCP effect and before history publication."""
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+from pycode.app.config import AppConfig
+from pycode.app.container import open_agent_session
+from pycode.core.messages import Message
+from pycode.core.models import ProviderConfig
+
+
+class CrashAfterFact:
+    async def consume(self, event):
+        if event.kind == "tool_execution_end" and event.data.get("name") in {
+            "MCPCall",
+            "mcp__srv__mutate",
+        }:
+            os._exit(85)
+
+
+async def main():
+    request = json.load(sys.stdin)
+    config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
+    session = await open_agent_session(
+        config,
+        (ProviderConfig(**request["provider"]),),
+        "s1",
+        create=True,
+        refresh_models=False,
+        consumers=(CrashAfterFact(),),
+    )
+    try:
+        waiting = await session.run(Message("u1", "user", "mutate"))
+        await session.resume(
+            {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
+        )
+    finally:
+        await session.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

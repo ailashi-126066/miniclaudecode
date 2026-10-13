@@ -1,0 +1,171 @@
+import asyncio
+import json
+import threading
+from dataclasses import replace
+
+from tests.support.execution import provider
+from tests.support.http_provider import HTTPResponse, chat_completion, protocol_server
+
+from pycode.adapters.storage.layout import StorageLayout
+from pycode.adapters.storage.requests import SQLiteRequestStore
+from pycode.app.config import AppConfig
+from pycode.app.container import build_session_repository, open_agent_session
+from pycode.core.messages import Message
+from pycode.services.context_projector import ContextProjector
+
+
+async def seed(config, *, characters=4000):
+    store = await build_session_repository(config).open("s1", create=True)
+    await store.append_message(
+        Message("system", "system", "Keep the project constraints and preserve history.")
+    )
+    for index in range(5):
+        await store.append_message(
+            Message(f"u{index}", "user", f"old task {index} " + "x" * characters)
+        )
+        await store.append_message(
+            Message(f"a{index}", "assistant", f"old answer {index} " + "x" * characters)
+        )
+    await store.aclose()
+
+
+async def test_manual_compaction_uses_native_sdk_metering_checkpoint_and_restart_projection(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(
+        tmp_path, tmp_path / "data", summary_keep_recent_tokens=1500, memory_mode="off"
+    )
+    await seed(config)
+    with protocol_server([chat_completion(), chat_completion()]) as (url, received):
+        selected = provider(url)
+        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        report = await session.compact()
+        assert report.applied_job_id is not None
+        await session.aclose()
+        restored = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        assert (await restored.run(Message("new-task", "user", "continue"))).outcome == "completed"
+        await restored.aclose()
+        assert len(received) == 2
+        assert not received[0]["body"].get("tools")
+        assert "context checkpoints" in received[0]["body"]["messages"][0]["content"]
+        assert not any(
+            "old task 0" in str(message.get("content", ""))
+            for message in received[1]["body"]["messages"]
+        )
+        assert any(
+            "old task 4" in str(message.get("content", ""))
+            for message in received[1]["body"]["messages"]
+        )
+        assert any(
+            message.get("role") == "system"
+            and "Keep the project constraints" in message.get("content", "")
+            for message in received[1]["body"]["messages"]
+        )
+        records = SQLiteRequestStore(StorageLayout(tmp_path, config.user_data).runtime_database)
+        attempts = await records.list_requests("s1")
+        assert [attempt.purpose for attempt in attempts] == ["summary", "agent"]
+        assert all(attempt.usage.total_tokens == 25 for attempt in attempts)
+        await records.aclose()
+        store = await build_session_repository(config).open("s1")
+        snapshot = await store.snapshot()
+        compaction = next(entry for entry in snapshot.entries if entry.type == "compaction")
+        assert len(compaction.data["checkpoint"]["tools"]) >= 4
+        assert (
+            compaction.data["checkpoint"]["system_prompt"]
+            == "Keep the project constraints and preserve history."
+        )
+        assert compaction.data["usage"][0]["purpose"] == "summary"
+        assert any(entry.message and entry.message.id == "u0" for entry in snapshot.entries)
+        assert not any(
+            message.id == "u0" for message in ContextProjector().project(snapshot).messages
+        )
+        await store.aclose()
+
+
+async def test_80_percent_background_is_nonblocking_and_capacity_wait_preserves_new_user_input(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(
+        tmp_path, tmp_path / "data", summary_keep_recent_tokens=20, memory_mode="off"
+    )
+    # Native file/task schemas now count toward capacity. Keep the seed below
+    # the threshold, then anchor the trigger to the fixture's real wire usage.
+    await seed(config, characters=100)
+    initial = chat_completion()
+    initial.body = (
+        initial.body.decode()
+        .replace('"prompt_tokens": 20', '"prompt_tokens": 17000')
+        .replace('"completion_tokens": 5', '"completion_tokens": 300')
+        .replace('"total_tokens": 25', '"total_tokens": 17300')
+        .encode()
+    )
+    cached = chat_completion()
+    started, release = threading.Event(), threading.Event()
+    cached.started, cached.release = started, release
+    with protocol_server([initial, cached, chat_completion()]) as (url, requests):
+        selected = provider(url)
+        selected = replace(selected, context_window=20000, max_output_tokens=1000)
+        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        pending = None
+        try:
+            first = await asyncio.wait_for(session.run(Message("initial", "user", "continue")), 5)
+            assert first.outcome == "completed"
+            assert await asyncio.to_thread(started.wait, 5)
+            assert not release.is_set() and len(requests) == 2
+            pending = asyncio.create_task(
+                session.run(Message("arrived", "user", "new input " + "y" * 7000))
+            )
+            await asyncio.sleep(0.1)
+            assert not pending.done() and len(requests) == 2
+            release.set()
+            assert (await asyncio.wait_for(pending, 5)).outcome == "completed"
+            assert len(requests) == 3
+            third = requests[2]["body"]["messages"]
+            assert any("new input " in str(message.get("content", "")) for message in third)
+            assert not any("old task 0" in str(message.get("content", "")) for message in third)
+        finally:
+            release.set()
+            if pending is not None and not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+            await session.aclose()
+
+
+async def test_native_context_overflow_forces_safe_compaction_and_meters_retry(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(
+        tmp_path, tmp_path / "data", summary_keep_recent_tokens=1500, memory_mode="off"
+    )
+    await seed(config)
+    failure = HTTPResponse(
+        json.dumps(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                    "message": "too long",
+                }
+            }
+        ).encode(),
+        status=400,
+        content_type="application/json",
+    )
+    with protocol_server([failure, chat_completion(), chat_completion()]) as (url, requests):
+        session = await open_agent_session(config, (provider(url),), "s1", refresh_models=False)
+        assert (await session.run(Message("new", "user", "continue"))).outcome == "completed"
+        await session.aclose()
+        assert len(requests) == 3
+        assert not any(
+            "old task 0" in str(message.get("content", ""))
+            for message in requests[-1]["body"]["messages"]
+        )
+        records = SQLiteRequestStore(StorageLayout(tmp_path, config.user_data).runtime_database)
+        attempts = await records.list_requests("s1")
+        assert [record.purpose for record in attempts] == ["agent", "summary", "retry"]
+        assert attempts[0].status == "failed" and attempts[0].error_code == "context_overflow"
+        assert attempts[0].usage.total_tokens is None
+        await records.aclose()
