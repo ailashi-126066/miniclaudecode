@@ -592,8 +592,6 @@ def build_worktree_manager(config):
     return WorktreeManager(config.workspace, layout.project / "worktrees")
 
 
-
-
 def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime):
     layout = StorageLayout(launcher.config.workspace, launcher.config.user_data)
     events = EventStream(

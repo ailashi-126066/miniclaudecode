@@ -10,5 +10,3 @@ def test_explicit_container_has_no_filesystem_write(tmp_path):
     assert status.workspace.exists
     assert not status.workspace.snapshot_available
     assert list(tmp_path.iterdir()) == []
-
-
