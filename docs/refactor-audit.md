@@ -1,80 +1,71 @@
 # 五阶段改造验收记录
 
-本表区分代码审查与行为验证。阶段二、三按约定只做静态检查；最终 pytest、沙箱、发行和评测
-完成前，不能用这些静态记录代替行为通过。当前仍在实施，未推送 GitHub。
+五阶段代码和用户要求的模块装配修订已完成，独立设计与代码审查通过。主线离线验收通过；
+真实模型验收也已全部通过，待最终推送。机器可读结果见 `refactor-results.json`。
+原开发提交接续 GitHub main 后的对应关系见 `git-history-map.json`。
 
-## 实施要求
+## 实施要求与证据
 
-| 要求 | 当前证据 | 待完成 |
-| --- | --- | --- |
-| 产品与评测/脚本/归档分离 | 阶段一 `a16c4fc`；evals 独立包、scripts、archive 与发行配置 | 最终发行安装复验 |
-| 删除远程团队、HTTP Hook 与旧迁移 | 阶段一删除；阶段三仅进程内 asyncio 团队 | 最终源码/命令扫描 |
-| 简化记忆并继续 LangMem | 阶段二 `3f80ef1`，独立实现审查通过 | 统一行为测试 |
-| AGENTS.md 信任边界与原生 middleware | S2 信任/大小写测试已编写；用户默认、项目仅 trust | 统一行为测试 |
-| 少量全召回、多量模型选择 | S2 全部候选参与选择，有条目/输入上限 | 统一行为测试 |
-| 主动记忆与单次后台整理 | LangMem manage/search 和 Store Manager；压缩 retained tail 已补 | 统一行为测试与真实服务 |
-| 后台 thinking 关闭、失败不重试 | S2 装配保留，S3 rebase 后核心记忆文件无差异 | 真实 DeepSeek 后台整理 |
-| 原子 JSON、密钥/长度/总数过滤、日志与 undo | S2 跨作用域 CAS/leases、取消后日志与部分成功审计已审查 | 统一行为测试 |
-| 进程内 readonly/worker、并发配置 1–4 | S3 `f21db32`，设计、实现与 rebase 均经独立审查 | 统一行为测试 |
-| spawn/send/wait/cancel/list 与任务板工具 | S3 工具、固定 actor 身份、依赖 DAG、并发 claim | 统一行为测试 |
-| 模型前收件箱、空闲 lead 唤醒、消息限额 | S3 JSONL transition、wait 结算后 ACK、取消及重启边界已审查 | 统一行为测试 |
-| 子审批统一转发、来源标注 | S3 TUI/CLI 接线及回归用例已写 | 统一 UI/CLI 测试 |
-| worker 写隔离及逐次 merge 审批 | 强制外层 gate、严格沙箱、immutable tree + source/target 指纹 | 临时 Git 与物理沙箱测试 |
-| 冲突处理、重启中断、取消收拢与成功清理 | S3 Git 适配器多轮审查；超时/迟到资源有记录与测试 | 统一行为测试 |
-| 替换旧同步只读委派，保留 fork Skill/Hook 语义 | S3 删除旧类，以团队适配同步委派 | 统一行为测试 |
-| 功能目录、公开 API、无环、无框架服务层 | S4 首轮 `d740c16`；用户模块化修订新增统一 bootstrap、14 个 feature module，静态通过 | 修订整体审查/统一行为测试 |
-| 拆 composition、集中 gates、端口实现对照、测试迁移 | 首轮迁移后按 module-assembly.md 重构：根无 feature adapter imports，子作用域保留选择，kernel 四层 | 统一行为测试 |
-| 五个复杂函数拆分 | S5 已拆；四个文件所有函数 C901≤15，inventory 扫描系列亦≤15 | 搬迁后复核及行为测试 |
-| 失败三次守卫迁入纯策略 | S5 repeated_tool_failure 与原三条件等价，独立预审通过 | 搬迁后行为测试 |
-| 本地 pyright basic | S5 装配修订后 352 文件零错误、零警告；未关闭诊断 | main 最终复验 |
-| CI | 用户已明确取消，未加入 GitHub Actions | 无 |
-| 入门 README、短设计、历史实施日志归档 | S5 已编写 macOS/Linux/PowerShell 安装配置和首条命令 | 最终命令/链接与布局复核 |
-| .env.example 正则和评测 PATH 回归 | S5 已补测试 | 统一行为测试 |
-| 显式环境透传与 Bash environment 说明 | S5 --pass-env 接 Bash/Hook/Python，凭据形态拒绝 | 统一行为测试与最终审查 |
-| 仅测试使用 API 清理 | 删除 substitute_arguments；next_turn 仅保留生产队列选择；list_events 说明诊断用途 | 搬迁后引用扫描 |
-| Python 3.12 开发环境迁出旧产物目录 | 根目录 .venv，锁文件安装与 editable dev/eval，pip check 已过 | 最终环境/命令复核 |
-| tests/.runtime-tests 清理 | 尚未删除；历史准备目录和测试证据保留 | 最终清单/大小、用户确认后清理 |
-| 原 Git 历史接续 | origin/main 4f61c2d 的 47 个提交保留；交付分支已接至阶段三 | 接阶段四/五，树和祖先复核 |
-| GitHub main 交付 | 用户指定 ailashi-126066/miniclaudecode 并授权推送 main | 所有验收后普通快进推送 |
-
-## 最终统一验证门槛
-
-所有五阶段代码和独立审查完成后，在合并结果上依次执行；修复后按影响重跑必要检查。
-
-| 门槛 | 状态 |
+| 要求 | 实施与验证结果 |
 | --- | --- |
-| 完整 pytest，PATH 包含 rg | 1192 passed、1 skipped（259.42 秒）；跳过 Windows/Linux 专用向量 |
-| ruff check / format --check / architecture | main 全部通过，649 文件格式 |
-| compileall、全产品模块导入、本地 pyright basic | 维护范围编译通过、352 产品模块导入、basic 零错误零警告 |
-| macOS scripts/verify_seatbelt.py | 真实隔离验证通过 |
-| scripts/verify_release.py 的 wheel/sdist 与全新环境安装 | with-evals 17 项检查全部通过 |
-| python -m evals coding --help 与离线 smoke（不调用云模型） | help 通过；三题本地协议 smoke 3 passed/17.65秒 |
-| DeepSeek 12 题完整编码评测两轮，与原 16384 输出额度 12/12 基线对比 | 待离线验收后执行/授权 |
-| scripts/verify_live_provider.py 与一次真实后台记忆整理 | 待离线验收后执行/授权 |
-| 最终 GitHub main 推送与远程 SHA/文件树核对 | 待运行 |
+| 产品、评测、开发脚本、归档分离 | `src/pycode` 不依赖 evals/scripts/archive；严格架构、发行内容与安装检查通过 |
+| 删除远程团队、HTTP Hook、旧迁移 | 阶段一删除，进程内 Team 替代；源码及命令检查通过 |
+| LangMem 简化记忆、可信 AGENTS、召回/主动工具 | JSON BaseStore、原生 middleware、少量全召回/多量模型选择已实现；全量测试通过 |
+| 整理、审计、undo、密钥/长度/总数过滤 | 单次后台 Store Manager、CAS/leases、取消与部分成功审计；全量测试通过；真实后台验收通过 |
+| 后台 thinking 关闭、失败不重试 | 配置和回归测试通过；真实 DeepSeek 后台整理通过 |
+| 进程内 readonly/worker、并发 1–4、任务板 | asyncio Team、工具与身份约束、依赖 DAG/并发 claim；全量测试通过 |
+| 收件箱、lead 唤醒、消息限额、审批来源 | JSONL transition、持久化后 ACK、UI/CLI 接线及取消/重启边界；全量测试通过 |
+| worker 隔离、review/逐次 merge 审批 | 严格外层 gate、不可变文件树/双端指纹、冲突/超时收拢与清理；Git 与物理沙箱验证通过 |
+| fork Skill/Hook 与同步只读委派 | 使用 Team 适配，旧委派类删除；全量测试通过 |
+| 单一应用组装口、功能模块独立可读 | `app/bootstrap.py:compose_application` +14 个功能 `module.py`；局部 README、替换/禁用与生命周期测试通过 |
+| kernel 分层、无环、纯服务与公开 API | domain/ports/services/adapters 四层；业务算法归还主要所有者；严格架构及352模块导入通过 |
+| 私有 composition 与端口实现对照 | 根不导入功能 adapter，子 scope 保留所选模块与凭据源；实际依赖图、端口映射和检查通过 |
+| 五个指定复杂函数、三次失败纯策略 | 指定拆分保持 C901≤15；守卫与原三条件等价；检查与行为测试通过 |
+| 本地类型检查 | pyright basic 352文件、0 errors/0 warnings；未禁用诊断 |
+| README、短设计与历史归档 | 安装/配置/首条命令覆盖三平台；旧实施日志归档，当前模块设计/路径已更新 |
+| 环境透传、正则/PATH 回归、测试专用 API | --pass-env 接 Bash/Hook/Python、凭据拒绝；回归通过；死 API 删除/用途说明完成 |
+| Python3.12 环境与旧产物清理 | 新根 .venv 按锁安装 dev/eval、pip check 通过；用户确认后397项清理全成功，盘点3337516KiB，保留历史/基线/报告/发行包 |
+| Git 原历史 | 原 main@4f61c2d 的47提交已是本地 main 祖先，19个重放提交逐个树等价、作者/作者日期保留 |
+| GitHub main 交付 | 用户已授权普通快进推送 main，全部验收完成，待推送；不开 PR、不加入 CI |
 
-历史静态数据位于开发工作目录的 `/private/tmp/pycode-pyright-s5-*.json` 等文件，
-不是最终发行证据。最终验收需保存与实际最终提交关联的命令、退出码和必要日志摘要。
+## 主线离线验证
 
+| 门槛 | 最终结果 |
+| --- | --- |
+| 完整 pytest | 1192 passed、1 skipped，259.42秒；唯一跳过为 Windows/Linux 专用向量 |
+| ruff check / format --check / architecture | 全通过；649文件格式 |
+| 编译、导入、pyright basic | 维护范围编译通过；352产品模块导入，类型零错误/零警告 |
+| macOS Seatbelt | 真实物理隔离通过：外部写入/私有读取/.env重命名拒绝，网络开关和on-auto符合预期 |
+| wheel/sdist 与全新 venv 安装 | with-evals 17项全部通过，含doctor、依赖、最小模型会话及help |
+| 评测入口和离线 coding smoke | help通过；三题本地模型协议3 passed，17.65秒；未调用云模型 |
 
-模块化修订静态证据：352 产品 Python 文件导入、pyright basic 零错误零警告、649 文件格式、
-ruff、严格架构、compileall 已通过；78 个旧测试文件迁至实际入口，1319 导入及3124签名核对通过。
-新增根装配/贡献/关闭/模块生命周期用例已编写，仅做导入编译，尚未执行测试函数。
-`module-assembly-import-graph.json` 记录实际源码及无环图；旧阶段四快照不作为当前最终证据。
+首次全量 pytest 为17 failed、1163 passed、1 skipped。修复 Team 工具选择、Skills 重读/recent
+上下文、拒绝分类与完整输出、消息 owner 边界及两个夹具；补增量投影安全和只读拒绝验证回归，
+独立复审后第二轮全量通过。定向测试有交集，不与全量成绩相加。
 
-模块化修订正式独立代码审查通过，所有阻断修复并复审。此结论仅为代码/静态检查通过，统一行为测试尚待执行。
+初次根目录 compileall 误遍历已忽略的历史故障注入文件而失败；随后明确维护范围，源码、测试、
+脚本和评测编译通过。原失败与修正均留存，不将历史测试产物当产品编译失败。
 
-首次主线完整 pytest：17 failed、1163 passed、1 skipped（257.58 秒）。已定位并修复
-Team控制选择、Skill重读/recent上下文、拒绝分类和完整输出、消息owner边界；两个测试夹具
-补真实会话/run_start并去时序竞态。增量安全声明保留性能并深冻结合成未知结果；拒绝扩展
-只读验证与脱敏补回归。Root15项、Context10项、Team16项、Skills/MCP等160项及结算50项
-定向组通过（有重叠，不能求和作为全量）；独立复审通过，待主线第二轮完整pytest。
+离线测试原提交 `584237f`，历史接续后的等价提交 `1936162`；发行源摘要
+`58946e5cecb675654d5bf98ca8e173ae5d562e6c2c985fe40a00e07e3e9500ae`。
+原历史接续与文档更新均未改变该源码。完整日志在保留的
+`tests/.runtime-tests/module-refactor-final-20261015/` 与 `module-refactor-release-20261015/`。
 
-第二轮主线完整 pytest 通过：1192 passed、1 skipped（259.42秒），唯一跳过为其他平台
-专用向量。main 上 lint/格式/架构/pyright 通过；compileall 明确排除已忽略的历史测试产物
-（这些故障注入文件有意不是合法 Python），维护源码/测试/脚本/评测编译通过。
-macOS 实际 Seatbelt、发行构建/全新 venv 安装/doctor/最小会话及 eval extras 17 项门槛通过；
-入口 help 和本地三题 coding smoke 通过。机器可读摘要见 refactor-results.json。
-真实 API 费用与旧运行产物删除仍待按计划确认，不将离线通过冒充真实模型通过。
+## 真实验收与交付
 
-原 GitHub main 的47个提交现已成为本地main祖先；19个本地后续提交重放后逐个文件树一致、作者信息保留，完整映射见 git-history-map.json。GitHub尚未推送。
+用户已授权 DeepSeek-flash、16384 输出额度，两轮各12道完整编码题，及真实服务与后台记忆整理。
+编码成绩逐题由独立 pytest 判定：两轮均12/12通过，每轮233项独立测试，无篡改测试；原两轮也均12/12。
+原/新四轮的provider配置、题目提示、manifest及16384输出预算完全一致；新版两轮的源码、依赖、
+锁和规范化系统提示也一致。官方比较脚本已验证全部轨迹及产物哈希。第一轮319.958秒/129请求，
+第二轮357.119秒/150请求，所有279次编码请求均completed、无API错误。两次观测不构成统计可靠性保证。
+完整可携带摘要为 `live-acceptance-results.json`，原始轨迹留在本地验收目录。
+
+真实服务独立探测通过（现有脚本4096输出上限，编码评测仍16384）：工具调用与最终回复正常，
+两次请求均completed、无错误，共9060tokens。后台真实会话自动触发一次LangMem整理，
+主请求thinking enabled/16384，后台thinking disabled/4096；后台runner/SDK重试均0，实际两请求
+attempt0/completed、无400，共5767tokens，持久化两条测试长期偏好和session_end整理审计。
+初版验收断言误要求tool_choice非空，已保留原报告并按真实自动选择接口纠正；没有改产品或追加付费调用。
+
+清理于2026-10-15按用户确认清单执行：397/397项成功、0失败；按盘点3337516KiB（约3.183GiB）。
+新根.venv、evals/cache、原Git材料、两轮16K基线、当前报告与发行包均保留；清理明细见当前证据目录
+`cleanup-results.json`。GitHub main尚未推送。
