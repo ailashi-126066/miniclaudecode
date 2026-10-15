@@ -76,3 +76,5 @@ Team控制选择、Skill重读/recent上下文、拒绝分类和完整输出、�
 macOS 实际 Seatbelt、发行构建/全新 venv 安装/doctor/最小会话及 eval extras 17 项门槛通过；
 入口 help 和本地三题 coding smoke 通过。机器可读摘要见 refactor-results.json。
 真实 API 费用与旧运行产物删除仍待按计划确认，不将离线通过冒充真实模型通过。
+
+原 GitHub main 的47个提交现已成为本地main祖先；19个本地后续提交重放后逐个文件树一致、作者信息保留，完整映射见 git-history-map.json。GitHub尚未推送。
