@@ -156,13 +156,19 @@ Hooks 支持 command、prompt、HTTP 和真实只读子 Agent 动作；同步失
 由会话收拢。MCP 支持 stdio、HTTP、direct／dispatch、资源与提示，共用 MCPAdapter 连接。
 Windows／Linux 没有 Seatbelt；macOS Bash 可选 `--sandbox on|on-auto`，
 `--sandbox-network` 显式允许网络。macOS 物理隔离仍须在目标平台验收。
-沙箱只允许写 workspace（`.git`、`.pycode`、`.env` 除外）；读权限限于 workspace、系统目录
+沙箱只允许写 workspace（`.git`、`.pycode` 和任意 `.env`／`.env.*` 除外，`.env.example` 可写）；
+读权限限于 workspace、系统目录
 （`/usr`、`/bin`、`/sbin`、`/System`、`/Library`、`/opt/homebrew`、`/private/etc` 等）、临时目录、
 当前 Python 的 prefix／site-packages 与导入路径，以及 git 全局配置文件。`~/.ssh`、`~/.aws`、
-`~/.gnupg`、`~/.config`、`~/.pycode` 和任意位置的 `.env`／`.env.*` 不可读（`.env.example` 可读）。
+`~/.gnupg`、`~/.config`、`~/.pycode` 和任意位置的 `.env`／`.env.*` 不可读，也不能改名或链接后再读
+（workspace 内的 `.env.example` 可读）。
+注意：HOME 下的其他内容在沙箱内同样不可读，例如 pyenv shims、`~/.local/bin`、`~/.cargo`、
+`~/.nvm`、uv／pip 缓存，以及 `.gitconfig` 里 `[include]`／`core.excludesfile` 指向的文件；
+依赖这些工具链的构建或测试在 `on`／`on-auto` 下可能失败，此时请用 `--sandbox off`（逐条审批）运行。
 `on-auto` 为白名单自动批准：命令每一段都是只读命令（`ls`、`pwd`、`cat`、`head`、`tail`、`wc`、
 `rg`、`grep`、不带 `-exec`／`-delete` 的 `find`、`git status|diff|log|show|branch` 等只读子命令、
-`echo`、`which`）才免审批；含重定向、`$()`／反引号、`sudo` 或任一非白名单片段的命令仍需审批。
+`echo`、`which`）才免审批；含重定向、`$()`／反引号、`sudo`、任一非白名单片段，或 `find`／`rg`／`git`
+参数里有未加引号的通配符／花括号（如 `-de*`）的命令仍需审批。
 危险命令黑名单只是纵深防御，始终先于审批生效。
 
 长期记忆使用每作用域一个 `memory.json`，区分语义事实、历史案例和程序规则；默认 auto，

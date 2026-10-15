@@ -52,6 +52,8 @@ GIT_HOME_FILES = (
     ".config/git/ignore",
     ".config/git/attributes",
 )
+DOTENV = '(regex #"/\\.env(\\.[^/]*)?$")'
+REGEX_SPECIAL = frozenset("\\.^$|?*+()[]{}")
 
 
 def python_read_paths():
@@ -98,6 +100,13 @@ def build_profile(workspace, network_enabled, home=None):
     def deny_private(paths):
         return "(deny file-read* " + " ".join(f"(subpath {quote(p)})" for p in paths) + ")"
 
+    # .env.example is re-allowed only inside the workspace. A path that cannot be
+    # written as a Seatbelt regex literal keeps .env.example denied as well.
+    example = None
+    if '"' not in str(root):
+        prefix = "".join("\\" + c if c in REGEX_SPECIAL else c for c in str(root).rstrip("/"))
+        example = f'(regex #"^{prefix}/(.*/)?\\.env\\.example$")'
+
     rules = [
         "(version 1)",
         "(deny default)",
@@ -111,10 +120,11 @@ def build_profile(workspace, network_enabled, home=None):
         # Later Seatbelt rules take precedence over earlier ones.
         deny_private(private),
         f"(allow file-read* (subpath {quote(root)}))",
-        *([deny_private(nested)] if nested else []),
         # Dotenv files stay unreadable inside and outside the workspace.
-        '(deny file-read-data (regex #"/\\.env(\\.[^/]*)?$"))',
-        '(allow file-read-data (regex #"/\\.env\\.example$"))',
+        f"(deny file-read-data {DOTENV})",
+        *([f"(allow file-read-data {example})"] if example else []),
+        # Placed after the .env.example allow so it cannot reopen private state.
+        *([deny_private(nested)] if nested else []),
         "(allow file-read* "
         + " ".join(f"(literal {quote(home / name)})" for name in GIT_HOME_FILES)
         + ")",
@@ -123,6 +133,9 @@ def build_profile(workspace, network_enabled, home=None):
         '(allow file-write-data (literal "/dev/null"))',
         f"(allow file-write* (subpath {quote(root)}))",
         f"(deny file-write-unlink (literal {quote(root)}))",
+        # Renaming or linking a dotenv file would escape the name-based read deny.
+        f"(deny file-write* {DOTENV})",
+        *([f"(allow file-write* {example})"] if example else []),
     ]
     for name in (".git", ".pycode", ".env"):
         path = quote(root / name)

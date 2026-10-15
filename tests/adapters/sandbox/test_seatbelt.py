@@ -139,7 +139,11 @@ def fake_layout(tmp_path):
     (workspace / ".env").write_text("fake-dotenv-marker")
     (workspace / ".env.local").write_text("fake-dotenv-local-marker")
     (workspace / ".env.example").write_text("EXAMPLE=1")
+    (workspace / "sub").mkdir()
+    (workspace / "sub/.env").write_text("fake-nested-dotenv-marker")
     (outside / ".env").write_text("fake-outside-dotenv-marker")
+    (outside / ".env.example").write_text("fake-outside-example-marker")
+    (home / ".ssh/.env.example").write_text("fake-ssh-example-marker")
     return home, workspace, outside
 
 
@@ -157,7 +161,10 @@ physical = pytest.mark.skipif(sys.platform != "darwin", reason="Physical Seatbel
         "home/.pycode/providers.json",
         "workspace/.env",
         "workspace/.env.local",
+        "workspace/sub/.env",
         "outside/.env",
+        "outside/.env.example",
+        "home/.ssh/.env.example",
     ],
 )
 async def test_physical_seatbelt_denies_reading_fake_sensitive_files(fake_layout, relative):
@@ -173,6 +180,45 @@ async def test_physical_seatbelt_denies_listing_fake_private_directory(fake_layo
     home, workspace, _ = fake_layout
     code, stdout, _ = await run_sandboxed(workspace, "ls " + shlex.quote(str(home / ".ssh")), home)
     assert code != 0 and "id_rsa" not in stdout
+
+
+@physical
+@pytest.mark.parametrize(
+    "command",
+    [
+        "mv .env.local notes.txt; cat notes.txt",
+        "mv sub/.env sub/x; cat sub/x",
+        "mv .env y; cat y",
+        "ln .env.local z; cat z",
+        "cp .env.local w; cat w",
+        "mv .env.local .env.example; cat .env.example",
+    ],
+)
+async def test_physical_seatbelt_denies_renaming_dotenv_to_read_it(fake_layout, command):
+    home, workspace, _ = fake_layout
+    _, stdout, _ = await run_sandboxed(workspace, command, home)
+    assert "marker" not in stdout
+    assert (workspace / ".env.local").read_text() == "fake-dotenv-local-marker"
+    assert (workspace / "sub/.env").read_text() == "fake-nested-dotenv-marker"
+
+
+@physical
+async def test_physical_seatbelt_writes_env_example_only_inside_workspace(fake_layout):
+    home, workspace, outside = fake_layout
+    code, _, stderr = await run_sandboxed(workspace, "printf NEW=1 > sub/.env.example", home)
+    assert code == 0, stderr
+    code, _, _ = await run_sandboxed(workspace, "printf NEW=1 > ../outside/.env.example", home)
+    assert code != 0
+    assert (outside / ".env.example").read_text() == "fake-outside-example-marker"
+    assert (workspace / "sub/.env.example").read_text() == "NEW=1"
+
+
+@physical
+async def test_physical_seatbelt_denies_reading_outside_the_allow_list(fake_layout):
+    # /Users is not on the allow list; only its listing is requested, never file contents.
+    home, workspace, _ = fake_layout
+    code, _, stderr = await run_sandboxed(workspace, "ls /Users", home)
+    assert code != 0 and "Operation not permitted" in stderr
 
 
 @physical

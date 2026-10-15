@@ -70,6 +70,17 @@ async def verify(root):
         rejected = await execute(sandbox, workspace, "printf changed > " + shlex.quote(str(path)))
         assert rejected["exit_code"] != 0 and path.read_text() == "protected-test-marker"
         protected[relative] = rejected
+    # /Users is outside the read allow list; only its listing is requested.
+    read_outside = await execute(sandbox, workspace, "ls /Users")
+    assert read_outside["exit_code"] != 0
+    (workspace / ".env.local").write_text("protected-test-marker")
+    renamed = shlex.quote(str(workspace / "renamed.txt"))
+    dotenv_rename = await execute(
+        sandbox,
+        workspace,
+        f"mv {shlex.quote(str(workspace / '.env.local'))} {renamed}; cat {renamed}",
+    )
+    assert "protected-test-marker" not in dotenv_rename["stdout"]
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -98,6 +109,8 @@ async def verify(root):
             "on_auto_write_inside": auto_allowed,
             "on_auto_write_outside": auto_denied,
             "protected_state": protected,
+            "read_outside_allow_list": read_outside,
+            "dotenv_rename": dotenv_rename,
             "modes": {
                 "on": {"enabled": manual.enabled, "auto_approve": manual.auto_approve},
                 "on-auto": {"enabled": automatic.enabled, "auto_approve": automatic.auto_approve},

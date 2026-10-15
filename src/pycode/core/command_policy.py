@@ -13,7 +13,6 @@ separate allow list in ``auto_approvable``, never on the absence of a deny match
 """
 
 import re
-import shlex
 
 _SHELL = r"(?:sudo\s+)?(?:ba|da|k|z)?sh\b"
 _TARGET_END = r"(?:\s|$|[;&|])"
@@ -78,27 +77,75 @@ GIT_BRANCH_LISTING = frozenset(
 # Shell syntax that substitutes commands, expands variables or redirects data.
 UNSAFE_CHARACTERS = frozenset("`$<>\\\n\r")
 SEPARATORS = frozenset({";", "&&", "||", "|"})
+OPERATOR_CHARACTERS = frozenset(";&|")
+# Unquoted pathname and brace expansion happens after this check, so a word such as
+# "-de*" or "{-delete,}" can become an option chosen by file names in the workspace.
+EXPANSION_CHARACTERS = frozenset("*?[{")
+# Commands whose options can execute programs, delete files or write output.
+OPTION_SENSITIVE = frozenset({"find", "rg", "git"})
+
+
+class _Word(str):
+    """A shell word after quote removal, remembering unquoted expansion characters."""
+
+    expands = False
 
 
 def _segments(command):
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    segments = [[]]
-    for token in lexer:
-        if token in SEPARATORS:
+    # $, backslashes and newlines are rejected beforehand, so quotes are the only
+    # escaping mechanism left and the shell's word splitting reduces to this scan.
+    segments, text, expands, operator, quote = [[]], None, False, "", None
+
+    def flush_word():
+        nonlocal text, expands
+        if text is not None:
+            word = _Word(text)
+            word.expands = expands
+            segments[-1].append(word)
+            text, expands = None, False
+
+    def flush_operator():
+        nonlocal operator
+        if operator:
+            if operator not in SEPARATORS:
+                # Background jobs (&) and unusual operators (|&, ;;) are not read-only lists.
+                raise ValueError(operator)
             segments.append([])
-        elif set(token) <= set(";&|"):
-            # Background jobs (&) and unusual operators (|&, ;;) are not read-only lists.
-            raise ValueError(token)
+            operator = ""
+
+    for character in command:
+        if quote is not None:
+            if character == quote:
+                quote = None
+            else:
+                text += character
+            continue
+        if character in OPERATOR_CHARACTERS:
+            flush_word()
+            operator += character
+            continue
+        flush_operator()
+        if character in " \t":
+            flush_word()
+            continue
+        text = text or ""
+        if character in "'\"":
+            quote = character
         else:
-            segments[-1].append(token)
+            text += character
+            expands = expands or character in EXPANSION_CHARACTERS
+    if quote is not None:
+        raise ValueError("unterminated quote")
+    flush_word()
+    flush_operator()
     return segments
 
 
 def _read_only(words):
     name, arguments = words[0], words[1:]
-    if name not in READ_ONLY_COMMANDS:
+    if name not in READ_ONLY_COMMANDS or words[0].expands:
+        return False
+    if name in OPTION_SENSITIVE and any(argument.expands for argument in arguments):
         return False
     if name == "find":
         return not FIND_UNSAFE.intersection(arguments)
