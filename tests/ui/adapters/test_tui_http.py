@@ -50,7 +50,7 @@ async def test_actual_tui_approval_precedes_effect_and_same_application_ends_wit
             state = await app.session.inspect()
             assert state["context"]["messages"][-1]["text"] == "done"
             assert len(requests) == 2 and app.title == "pycode"
-            assert "completed" in str(app.query_one("#notice", Static).render())
+            assert "任务完成" in str(app.query_one("#notice", Static).render())
 
 
 async def test_tui_clear_expires_old_approval_and_open_recovers_history_without_execution(

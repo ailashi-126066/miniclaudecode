@@ -30,7 +30,7 @@ COMMANDS = (
     Command("/new", "Start a new session", "command_new"),
     Command("/clear", "Start a new session", "command_new"),
     Command("/resume", "Resume pending work", "command_resume"),
-    Command("/model", "Select provider and model", "command_model", "PROVIDER MODEL", True),
+    Command("/model", "List or select a provider model", "command_model", "[PROVIDER MODEL]"),
     Command(
         "/memory",
         "View and manage memory",

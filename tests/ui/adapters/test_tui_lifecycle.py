@@ -2,6 +2,8 @@ import asyncio
 import threading
 from dataclasses import replace
 
+from textual.widgets import Static
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.session.adapters.test_revert_http import command_reply
@@ -62,8 +64,34 @@ async def test_tui_thinking_and_usage_are_projected_from_real_provider_messages(
             rendered = "\n".join(
                 str(widget.render()) for widget in app.query("#conversation Static")
             )
-            assert "Thinking from provider" in rendered and "cache hit 12" in rendered
-            assert "reasoning 3" in rendered
+            assert "Thinking from provider" in rendered and "缓存命中 12" in rendered
+            assert "推理 3" in rendered
+
+
+async def test_tui_uses_the_pycode_brand_and_keeps_live_output_inside_conversation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    with protocol_server([chat_completion()]) as (url, _):
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
+        async with app.run_test(size=(120, 45)):
+            await app.ready.wait()
+            assert "PYCODE" in str(app.query_one("#brand").render())
+            assert not app.query("#sidebar")
+            await app.start_live_reply()
+            assert app.query("#conversation .live-turn")
+            assert not app.query("#live-text")
+            await app.clear_live_reply()
+            await app.send_text("status")
+            await settled(app)
+            rendered = "\n".join(
+                str(widget.render()) for widget in app.query("#conversation Static")
+            )
+            assert "第 1 轮" in rendered and "输入 20" in rendered and "输出 5" in rendered
+            status = str(app.query_one("#status", Static).render())
+            assert "模型：wire-model" in status and "上下文：" in status
 
 
 async def test_cancel_after_confirmed_tool_result_does_not_redisplay_consumed_approval(

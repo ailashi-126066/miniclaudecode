@@ -14,10 +14,11 @@ from uuid import uuid4
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message as UIMessage
-from textual.widgets import Button, Footer, Input, Markdown, Select, Static, Tree
+from textual.widgets import Button, Markdown, Static
 
+from pycode import __version__
 from pycode.kernel import DomainError, Message, RunResult, StorageError, json_dumps
 from pycode.ui.adapters.agents import AgentsPanel
 from pycode.ui.adapters.approval import ApprovalPanel
@@ -51,44 +52,74 @@ def token_text(usage):
     return " · ".join(parts)
 
 
+def abbreviated_tokens(value):
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return str(value)
+
+
 def context_text(report):
     if report["tokens"] is None or report["window"] is None:
-        return "ctx unavailable"
+        return "上下文：等待首轮请求"
     return (
-        f"ctx {report['tokens']}/{report['window']} ({report['fraction'] * 100:.1f}%) "
-        f"· {report['source']}"
+        "上下文："
+        f"{report['fraction'] * 100:.1f}% "
+        f"({abbreviated_tokens(report['tokens'])} / {abbreviated_tokens(report['window'])})"
     )
+
+
+def reply_metadata(message):
+    metadata = message.get("provider_metadata", {})
+    turn = metadata.get("pycode_turn")
+    parts = [f"第 {turn} 轮"] if turn is not None else []
+    usage = message.get("usage")
+    if usage is None:
+        return " · ".join(parts)
+    fields = (("输入", "input_tokens"), ("输出", "output_tokens"), ("推理", "reasoning_tokens"))
+    for label, field in fields:
+        value = usage.get(field)
+        if value is not None:
+            parts.append(f"{label} {value}")
+    total = usage.get("total_tokens")
+    if total is not None:
+        parts.append(f"共 {total}")
+    cache_hit = usage.get("cache_read_tokens")
+    if cache_hit is not None:
+        parts.append(f"缓存命中 {cache_hit}")
+    return " · ".join(parts)
 
 
 class PyApp(App):
     TITLE = "pycode"
     CSS = """
     Screen {background: $background; color: $foreground;}
-    #title {height: 1; color: $primary; text-style: bold;}
+    #brand {height: 3; padding: 0 3; color: $primary; text-style: bold;
+      border-bottom: solid $primary-muted;}
     #main {height: 1fr;}
-    #sidebar {width: 28; background: $surface; padding: 0 1;}
-    #sidebar Button, #sidebar Select, #sidebar Input {width: 100%; margin-bottom: 1;}
-    #session-tree {height: 16; min-height: 8;}
-    #conversation {height: 1fr; padding: 0 2;}
-    #back-to-bottom {display: none; height: 3;}
+    #conversation {height: 1fr; padding: 0 3;}
+    #back-to-bottom {display: none; height: 1; color: $primary; background: $background;
+      border: none;}
     #conversation Static {height: auto;}
     #conversation Markdown {margin-bottom: 1;}
-    #live-thinking {height: auto; color: $text-muted;}
-    #live-text {height: auto;}
     #pending {height: auto; max-height: 22; overflow-y: auto;}
-    #entry {height: auto; border-top: solid $primary-muted;}
-    #chat-input {height: 4; border: solid $primary-muted;}
+    #entry {height: auto; padding: 0 3; border-top: solid $primary-muted;}
+    #chat-input {height: 3; min-height: 3; max-height: 10; border: solid $primary-muted;}
     #chat-input:focus {border: solid $primary;}
-    #actions {height: 3;}
-    #actions Button {width: auto;}
-    #queue-mode {width: 20;}
-    #status {height: auto; max-height: 4; color: $text-muted;}
-    #notice {height: auto; max-height: 6;}
+    #status {height: 1; padding: 0 3; color: $text-muted; border-top: solid $primary-muted;}
+    #notice {display: none; height: auto; max-height: 6; padding: 0 3;}
     #notice.error {color: $error;}
     #notice.success {color: $success;}
     #notice.warning {color: $warning;}
-    .message-heading {color: $primary; margin-top: 1;}
+    .user-message {color: $primary; text-style: bold; margin-top: 1;}
+    .assistant-label {color: $primary; text-style: bold; margin-top: 1;}
     .message-usage {color: $text-muted; margin-bottom: 1;}
+    .message-thinking {color: $text-muted; text-style: italic;}
+    .live-turn {height: auto; margin-top: 1;}
+    .live-phase {color: $primary; text-style: bold;}
+    .live-thinking {color: $text-muted; text-style: italic; display: none;}
+    .live-text {height: auto;}
     .tool-failed {color: $error;}
     .tool-ok {color: $success;}
     """
@@ -116,8 +147,6 @@ class PyApp(App):
         self._sandbox_status = sandbox_status
         self.session: InteractiveSession | None = None
         self._render_failed = False
-        self._tree_nodes = {}
-        self._tree_session = None
         self.session_id = None
         self.state: dict[str, Any] | None = None
         self.ready = asyncio.Event()
@@ -129,7 +158,10 @@ class PyApp(App):
         self._closed = False
         self._live_text = ""
         self._live_thinking = ""
-        self._model_choices = {}
+        self._live_turn = None
+        self._live_phase = None
+        self._live_thinking_widget = None
+        self._live_text_widget = None
         self._pending_plan = None
         self._displayed_entries = []
         self._displayed_session = None
@@ -158,48 +190,16 @@ class PyApp(App):
         return self._operation is not None and not self._operation.done()
 
     def compose(self) -> ComposeResult:
-        yield Static("pycode", id="title", markup=False)
-        with Horizontal(id="main"):
-            with VerticalScroll(id="sidebar"):
-                yield Button("New session", id="new-session", variant="primary")
-                yield Input(placeholder="Session ID", id="session-id")
-                yield Button("Open session", id="open-session")
-                yield Select([], prompt="Saved sessions", id="saved-sessions")
-                yield Select([], prompt="Provider / model", id="model-select")
-                yield Button("Select model", id="choose-model")
-                yield Tree("Session branches", id="session-tree")
-                yield Button("Branch to selection", id="branch-selection")
-                yield Select(
-                    [("Dialogue", "dialogue"), ("Code", "code"), ("Both", "both")],
-                    value="dialogue",
-                    allow_blank=False,
-                    id="revert-mode",
-                )
-                yield Button("Preview revert", id="preview-revert")
-            with Vertical():
-                yield VerticalScroll(id="conversation")
-                yield Button("New messages · Back to bottom", id="back-to-bottom")
-                yield Static("", id="live-thinking", markup=False)
-                yield Static("", id="live-text", markup=False)
-                yield Vertical(id="pending")
+        yield Static(f"PYCODE\nv{__version__}", id="brand", markup=False)
+        with Vertical(id="main"):
+            yield VerticalScroll(id="conversation")
+            yield Button("回到最新消息", id="back-to-bottom")
+            yield Vertical(id="pending")
         with Vertical(id="entry"):
             yield CompletionPopup(id="command-completion")
             yield ChatInput(id="chat-input", disabled=True)
-            with Horizontal(id="actions"):
-                yield Button("Send", id="send", variant="primary")
-                yield Select(
-                    [("Steer", "steer"), ("Follow-up", "follow_up")],
-                    value="steer",
-                    allow_blank=False,
-                    id="queue-mode",
-                )
-                yield Button("Resume", id="resume")
-                yield Button("Stop", id="stop")
-                yield Button("Compact", id="compact")
-                yield Button("Usage", id="usage")
         yield Static("", id="notice", markup=False)
-        yield Static(self._sandbox_status, id="status", markup=False)
-        yield Footer()
+        yield Static("模型：等待首轮请求 · 上下文：等待首轮请求", id="status", markup=False)
 
     async def on_mount(self):
         try:
@@ -250,19 +250,26 @@ class PyApp(App):
                 self.maybe_wake_team()
         elif event.kind == "message_start" and event.data.get("role") == "assistant":
             self._live_text = self._live_thinking = ""
-            self.query_one("#live-text", Static).update("")
-            self.query_one("#live-thinking", Static).update("")
+            await self.start_live_reply()
         elif event.kind == "message_delta":
             self._live_text += event.data["text"]
-            self.query_one("#live-text", Static).update(self._live_text)
+            if self._live_phase is not None:
+                self._live_phase.update("PYCODE")
+            if self._live_text_widget is not None:
+                self._live_text_widget.update(self._live_text)
+            self.follow_conversation(force=True)
         elif event.kind == "thinking_delta":
             self._live_thinking += event.data["text"]
-            self.query_one("#live-thinking", Static).update(self._live_thinking)
+            if self._live_thinking_widget is not None:
+                self._live_thinking_widget.display = True
+                self._live_thinking_widget.update("思考中：" + self._live_thinking)
+            self.follow_conversation(force=True)
         elif event.kind == "message_end":
-            self._live_text = self._live_thinking = ""
-            self.query_one("#live-text", Static).update("")
-            self.query_one("#live-thinking", Static).update("")
+            if event.data.get("role") == "assistant":
+                await self.clear_live_reply()
             await self.render_history()
+            if event.data.get("role") == "user":
+                self.follow_conversation(force=True)
         elif event.kind == "tool_execution_start":
             self.notice("Running " + event.data["name"])
             identifier = event.data["call_id"]
@@ -272,6 +279,7 @@ class PyApp(App):
                 )
                 self._running_tools[identifier] = card
                 await self.query_one("#conversation", VerticalScroll).mount(card)
+                self.follow_conversation()
         elif event.kind == "tool_execution_update":
             card = self._running_tools.get(event.data.get("call_id"))
             if card is not None:
@@ -281,11 +289,13 @@ class PyApp(App):
             if card is not None:
                 await card.remove()
         elif event.kind == "usage":
-            self.notice(event.data["purpose"] + " · " + token_text(event.data))
+            # Usage belongs under the completed assistant reply.  It is rendered
+            # from durable history at message_end instead of flashing in the footer.
+            return
         elif event.kind == "error":
             self.notice(event.data["message"], "error")
         elif event.kind == "summary":
-            self.notice("Summary: " + event.data.get("status", ""))
+            self.notice("上下文整理：" + event.data.get("status", ""))
         elif event.kind == "notification" and event.data.get("kind") == "hook":
             self.notice(
                 event.data["message"],
@@ -294,9 +304,10 @@ class PyApp(App):
                 else None,
             )
         elif event.kind == "result":
-            group = event.data["usage"]["main_turn"]
             self.notice(
-                event.data["outcome"] + " · main task · " + token_text(group["tokens"]),
+                "任务完成"
+                if event.data["outcome"] == "completed"
+                else "任务状态：" + event.data["outcome"],
                 "success" if event.data["outcome"] == "completed" else "warning",
             )
 
@@ -304,6 +315,37 @@ class PyApp(App):
         widget = self.query_one("#notice", Static)
         widget.set_classes(severity or "")
         widget.update(text)
+        widget.display = bool(text)
+
+    def follow_conversation(self, *, force=False):
+        area = self.query_one("#conversation", VerticalScroll)
+        if force or area.is_vertical_scroll_end:
+            self.call_after_refresh(area.scroll_end, animate=False)
+            self.query_one("#back-to-bottom", Button).display = False
+        else:
+            self.query_one("#back-to-bottom", Button).display = True
+
+    async def start_live_reply(self):
+        await self.clear_live_reply()
+        turn = Vertical(classes="live-turn")
+        await self.query_one("#conversation", VerticalScroll).mount(turn)
+        phase = Static("PYCODE 正在思考…", markup=False, classes="live-phase")
+        thinking = Static("", markup=False, classes="live-thinking")
+        text = Static("", markup=False, classes="live-text")
+        await turn.mount(phase, thinking, text)
+        self._live_turn = turn
+        self._live_phase = phase
+        self._live_thinking_widget = thinking
+        self._live_text_widget = text
+        self.follow_conversation(force=True)
+
+    async def clear_live_reply(self):
+        if self._live_turn is not None:
+            await self._live_turn.remove()
+        self._live_turn = None
+        self._live_phase = None
+        self._live_thinking_widget = None
+        self._live_text_widget = None
 
     async def switch_session(self, session_id=None):
         await self.stop_active()
@@ -322,21 +364,8 @@ class PyApp(App):
         self._pending_plan = None
         self._running_tools = {}
         self._live_text = self._live_thinking = ""
-        self.query_one("#live-text", Static).update("")
-        self.query_one("#live-thinking", Static).update("")
-        catalog = await self.active_session.model_list()
-        self._model_choices = {
-            str(index): (model.provider, model.model_id)
-            for index, model in enumerate(catalog.models)
-        }
-        self.query_one("#model-select", Select).set_options(
-            [
-                (model.provider + "/" + model.model_id + " · " + model.availability, str(index))
-                for index, model in enumerate(catalog.models)
-            ]
-        )
+        await self.clear_live_reply()
         await self.refresh_state()
-        self.query_one("#title", Static).update("pycode · " + self.session_id)
 
     async def render_history(self):
         if self.session is None or self._closed:
@@ -359,7 +388,6 @@ class PyApp(App):
                 self._displayed_entries.append(entry_id)
                 continue
             message = item["message"]
-            await area.mount(Static(message["role"], classes="message-heading", markup=False))
             if message["tool_result"] is not None:
                 await area.mount(
                     ToolOutputCard(
@@ -367,24 +395,26 @@ class PyApp(App):
                     )
                 )
             elif message["role"] == "assistant":
+                await area.mount(Static("PYCODE", classes="assistant-label", markup=False))
+                for thinking in message["thinking"]:
+                    await area.mount(
+                        Static(
+                            "思考过程：" + thinking["text"],
+                            markup=False,
+                            classes="message-thinking",
+                        )
+                    )
                 await area.mount(Markdown(message["text"], id="message-" + entry_id))
+                metadata = reply_metadata(message)
+                if metadata:
+                    await area.mount(Static(metadata, markup=False, classes="message-usage"))
             else:
-                await area.mount(Static(message["text"], markup=False))
-            for thinking in message["thinking"]:
                 await area.mount(
-                    Static("Thinking: " + thinking["text"], markup=False, classes="message-usage")
+                    Static("› " + message["text"], markup=False, classes="user-message")
                 )
-            if message["usage"] is not None:
-                usage = message["usage"]
-                shown = token_text(usage)
-                if usage["input_tokens"] and usage["cache_read_tokens"] is not None:
-                    hit_rate = usage["cache_read_tokens"] / usage["input_tokens"]
-                    shown += f" · cache hit {hit_rate * 100:.1f}%"
-                await area.mount(Static(shown, markup=False, classes="message-usage"))
             self._displayed_entries.append(entry_id)
         if at_bottom:
-            area.scroll_end(animate=False)
-            self.query_one("#back-to-bottom", Button).display = False
+            self.follow_conversation()
         elif added:
             self.query_one("#back-to-bottom", Button).display = True
 
@@ -402,22 +432,6 @@ class PyApp(App):
     async def refresh_widgets(self):
         self.refresh_commands()
         await self.render_history()
-        tree = self.query_one("#session-tree", Tree)
-        if self._tree_session != self.session_id:
-            tree.clear()
-            self._tree_nodes = {}
-            self._tree_session = self.session_id
-        nodes = self._tree_nodes
-        for entry in self.view_state["snapshot"]["entries"]:
-            if entry["id"] in nodes:
-                continue
-            parent = nodes.get(entry["parent_id"], tree.root)
-            label = (
-                entry["type"]
-                if entry["message"] is None
-                else entry["message"]["role"] + ": " + entry["message"]["text"][:35]
-            )
-            nodes[entry["id"]] = parent.add(label, data=entry["id"], expand=True)
         await self.query_one("#pending", Vertical).remove_children()
         pending = self.view_state["pending"]
         child_source = None
@@ -478,29 +492,10 @@ class PyApp(App):
             self.view_state["pending_run_id"] or self.view_state["pending_revert_id"]
         )
         self.query_one("#chat-input", ChatInput).update_completion()
-        self.query_one("#resume", Button).disabled = not bool(self.view_state["pending_run_id"])
-        sessions = await self._sessions.list_sessions()
-        self.query_one("#saved-sessions", Select).set_options(
-            [
-                (
-                    item["title"] + " · " + item["updated_at"] + " · " + item["short_id"],
-                    item["session_id"],
-                )
-                for item in sessions
-            ]
-        )
         selected = self.view_state["context"]["selection"]
-        label = (
-            selected["provider"] + "/" + selected["model_id"]
-            if selected
-            else "Choose a model or start a task"
-        )
+        label = "模型：" + selected["model_id"] if selected else "模型：等待首轮请求"
         self.query_one("#status", Static).update(
-            label
-            + " · "
-            + context_text(self.view_state["context_usage"])
-            + " · "
-            + self._sandbox_status
+            label + " · " + context_text(self.view_state["context_usage"])
         )
         if not pending and not self.query_one("#chat-input", ChatInput).disabled:
             self.query_one("#chat-input", ChatInput).focus()
@@ -550,12 +545,8 @@ class PyApp(App):
         if text.startswith("/"):
             await self.command(text)
         elif self.busy:
-            kind = self.query_one("#queue-mode", Select).value
-            if kind not in {"steer", "follow_up"} or not isinstance(kind, str):
-                self.notice("Choose steer or follow_up for the queued message", "warning")
-                return
-            await self.active_session.submit_input(Message(uuid4().hex, "user", text), kind)
-            self.notice("Queued " + kind)
+            await self.active_session.submit_input(Message(uuid4().hex, "user", text), "steer")
+            self.notice("已追加到当前任务")
         else:
             self.start_operation(self.active_session.run, Message(uuid4().hex, "user", text))
 
@@ -684,45 +675,7 @@ class PyApp(App):
         if event.button.id == "back-to-bottom":
             self.query_one("#conversation", VerticalScroll).scroll_end(animate=False)
             event.button.display = False
-            return
-        try:
-            name = event.button.id
-            if name == "send":
-                self.query_one("#chat-input", ChatInput).action_submit()
-            elif name == "new-session":
-                await self.switch_session()
-            elif name == "open-session":
-                value = (
-                    self.query_one("#session-id", Input).value
-                    or self.query_one("#saved-sessions", Select).value
-                )
-                if isinstance(value, str):
-                    await self.switch_session(value)
-            elif name == "choose-model":
-                selected = self.query_one("#model-select", Select).value
-                choice = self._model_choices.get(selected) if isinstance(selected, str) else None
-                if choice:
-                    self.start_operation(self.active_session.select_model, *choice)
-            elif name == "branch-selection":
-                node = self.query_one("#session-tree", Tree).cursor_node
-                if node is not None:
-                    self.start_operation(self.active_session.branch, node.data)
-            elif name == "resume":
-                self.start_operation(self.active_session.resume)
-            elif name == "preview-revert":
-                node = self.query_one("#session-tree", Tree).cursor_node
-                if node is not None:
-                    self.start_operation(
-                        self.preview_revert, node.data, self.query_one("#revert-mode", Select).value
-                    )
-            elif name == "stop":
-                await self.stop_active()
-            elif name == "compact":
-                self.start_operation(self.active_session.compact)
-            elif name == "usage":
-                self.push_screen(UsageScreen(await self.active_session.usage()))
-        except DomainError as error:
-            self.notice(str(error), "error")
+        return
 
     async def command(self, text):
         first, _, raw = text.partition(" ")
@@ -768,9 +721,16 @@ class PyApp(App):
         self.start_operation(self.active_session.resume)
 
     async def command_model(self, args):
-        if len(args) != 2:
+        if not args:
+            catalog = await self.active_session.model_list()
+            self.notice(
+                "可选模型："
+                + ", ".join(model.provider + "/" + model.model_id for model in catalog.models)
+            )
+        elif len(args) == 2:
+            self.start_operation(self.active_session.select_model, *args)
+        else:
             return False
-        self.start_operation(self.active_session.select_model, *args)
 
     async def command_memory(self, args):
         scope = None

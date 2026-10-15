@@ -1,7 +1,6 @@
 from dataclasses import replace
 
 import pytest
-from textual.widgets import Select
 
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
@@ -57,7 +56,7 @@ async def test_tui_revert_modes_display_preview_then_require_explicit_apply_and_
             assert app.state["pending_run_id"] is None and len(requests) == 3
 
 
-async def test_tui_model_picker_fork_and_invalid_open_preserve_selected_native_session(
+async def test_tui_model_command_fork_and_invalid_open_preserve_selected_native_session(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
@@ -67,11 +66,9 @@ async def test_tui_model_picker_fork_and_invalid_open_preserve_selected_native_s
         app = compose_application(
             AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (first, second)
         ).tui()
-        async with app.run_test(size=(120, 50)) as pilot:
+        async with app.run_test(size=(120, 50)):
             await app.ready.wait()
-            app.query_one("#model-select", Select).value = "0"
-            await pilot.pause()
-            await pilot.click("#choose-model")
+            await app.command("/model second second-model")
             await settled(app)
             if app.last_error:
                 raise app.last_error
