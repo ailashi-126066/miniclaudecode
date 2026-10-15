@@ -108,6 +108,16 @@ def thinking_preview(text):
     return ("…\n" if len(lines) > 3 else "") + "\n".join(lines[-3:])
 
 
+def tool_preview(text):
+    lines = text.splitlines()
+    return ("…\n" if len(lines) > 3 else "") + "\n".join(lines[-3:])
+
+
+def tool_title(result):
+    state = "失败" if result.get("is_error") else "已完成"
+    return result["name"] + " · " + state
+
+
 class PyApp(App):
     TITLE = "pycode"
     CSS = """
@@ -136,6 +146,8 @@ class PyApp(App):
     .message-thinking {color: $text-muted; text-style: italic;}
     .thinking-block {height: auto; margin-bottom: 1; color: $text-muted;}
     .thinking-block > CollapsibleTitle {color: $text-muted;}
+    .tool-block {height: auto; margin-bottom: 1; color: $text-muted;}
+    .tool-block > CollapsibleTitle {color: $text-muted;}
     .live-turn {height: auto; margin-top: 1;}
     .live-phase {color: $primary; text-style: bold;}
     .live-thinking {color: $text-muted; text-style: italic; display: none;}
@@ -297,22 +309,27 @@ class PyApp(App):
             if event.data.get("role") == "user":
                 self.follow_conversation(force=True)
         elif event.kind == "tool_execution_start":
-            self.notice("Running " + event.data["name"])
             identifier = event.data["call_id"]
             if identifier not in self._running_tools:
-                card = Static(
-                    "Running " + event.data["name"], markup=False, classes="message-usage"
+                body = Static("正在运行…", markup=False, classes="message-usage")
+                card = Collapsible(
+                    body,
+                    title=event.data["name"] + " · 运行中",
+                    collapsed=True,
+                    classes="tool-block",
                 )
-                self._running_tools[identifier] = card
                 await self.query_one("#conversation", VerticalScroll).mount(card)
+                self._running_tools[identifier] = (card, body)
                 self.follow_conversation()
         elif event.kind == "tool_execution_update":
-            card = self._running_tools.get(event.data.get("call_id"))
-            if card is not None:
-                card.update(event.data.get("text", "Tool is running"))
+            running = self._running_tools.get(event.data.get("call_id"))
+            if running is not None:
+                _, body = running
+                body.update("最近输出：\n" + tool_preview(event.data.get("text", "正在运行…")))
         elif event.kind == "tool_execution_end":
-            card = self._running_tools.pop(event.data["call_id"], None)
-            if card is not None:
+            running = self._running_tools.pop(event.data["call_id"], None)
+            if running is not None:
+                card, _ = running
                 await card.remove()
         elif event.kind == "usage":
             # Usage belongs under the completed assistant reply.  It is rendered
@@ -414,8 +431,13 @@ class PyApp(App):
             message = item["message"]
             if message["tool_result"] is not None:
                 await area.mount(
-                    ToolOutputCard(
-                        entry_id, message["tool_result"], self.active_session.read_tool_result
+                    Collapsible(
+                        ToolOutputCard(
+                            entry_id, message["tool_result"], self.active_session.read_tool_result
+                        ),
+                        title=tool_title(message["tool_result"]),
+                        collapsed=True,
+                        classes="tool-block",
                     )
                 )
             elif message["role"] == "assistant":

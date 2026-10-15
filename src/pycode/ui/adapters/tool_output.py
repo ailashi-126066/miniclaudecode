@@ -34,7 +34,6 @@ class ToolOutputCard(Vertical):
         return len(self.result["text"].splitlines()) > 20 or len(self.result["text"]) > 4000
 
     def compose(self) -> ComposeResult:
-        yield Static(self.result["name"], markup=False, classes="message-heading")
         yield Static(self.preview(), markup=False, id="body")
         yield Button("展开输出", id="toggle-output")
         yield Button("加载后续内容", id="more-output")
