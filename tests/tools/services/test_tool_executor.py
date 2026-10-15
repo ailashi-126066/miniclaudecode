@@ -3,9 +3,9 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.kernel.contracts.messages import ToolCall, ToolResult
-from pycode.kernel.contracts.tools import ToolContext, ToolSpec
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import ToolCall, ToolResult
+from pycode.kernel.domain.tools import ToolContext, ToolSpec
 from pycode.kernel.services.events import EventStream
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.adapters.tool_errors import execute_tool_errors

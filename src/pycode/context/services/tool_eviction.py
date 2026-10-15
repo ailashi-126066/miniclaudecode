@@ -2,9 +2,10 @@
 
 from dataclasses import dataclass
 
+from pycode.context.domain.token_estimate import estimate_messages
 from pycode.context.domain.tool_eviction import EvictionBudget, select_old_results
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel import EntryDraft, EventSink, estimate_messages
+from pycode.kernel import EntryDraft, EventSink
 from pycode.kernel import HistoryJournal as SessionStore
 
 
@@ -37,7 +38,7 @@ class ToolEvictionService:
         by_id = {entry.id: entry for entry in snapshot.entries}
         applied = []
         for identifier in selection.entry_ids:
-            result = by_id[identifier].message.tool_result
+            result = by_id[identifier].require_message().require_tool_result()
             if result.output_id is None:
                 continue
             state = f"; exit code {result.exit_code}" if result.exit_code is not None else ""

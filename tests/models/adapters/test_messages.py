@@ -1,7 +1,7 @@
 import pytest
 from langchain_core.messages import AIMessage
 
-from pycode.kernel import ModelSelection
+from pycode.kernel import ModelError, ModelSelection
 from pycode.models.adapters.messages import from_assistant, normalize_usage, to_framework
 
 
@@ -110,6 +110,16 @@ def test_malformed_tool_arguments_remain_invalid_even_with_an_empty_schema():
     normalized = from_assistant(response, ModelSelection("local", "model", "openai"), "s1", "r1")
     assert normalized.tool_calls[0].parse_error == "not valid JSON"
     assert normalized.tool_calls[0].raw_arguments == "{broken"
+
+
+@pytest.mark.parametrize("call_id", [None, "", " \t"])
+def test_missing_provider_call_id_is_rejected_before_creating_unpairable_history(call_id):
+    response = AIMessage(
+        content="", tool_calls=[{"id": call_id, "name": "write_file", "args": {"path": "code.py"}}]
+    )
+    with pytest.raises(ModelError) as failed:
+        from_assistant(response, ModelSelection("local", "model", "openai"), "s1", "r1")
+    assert failed.value.code == "invalid_tool_call"
 
 
 def test_openai_responses_reasoning_summary_is_not_lost():

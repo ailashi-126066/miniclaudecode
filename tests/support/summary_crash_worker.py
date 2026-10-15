@@ -6,9 +6,9 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 
 
@@ -32,8 +32,8 @@ async def main():
     root = Path(workspace)
     config = AppConfig(root, root / "data", summary_keep_recent_tokens=20, memory_mode="off")
     selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
-    session = await open_agent_session(
-        config, (selected,), "s1", refresh_models=False, consumers=(Crash(boundary),)
+    session = await compose_application(config, (selected,)).open_session(
+        "s1", refresh_models=False, consumers=(Crash(boundary),)
     )
     await session.run(Message("initial", "user", "continue"))
     await asyncio.Event().wait()

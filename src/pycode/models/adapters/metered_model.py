@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain.agents.middleware import ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage, convert_to_messages
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, convert_to_messages
 from langchain_core.prompt_values import PromptValue
 from langchain_core.runnables import (
     RunnableBinding,
@@ -109,6 +109,8 @@ class MeteredChatModel(BaseChatModel):
     def with_structured_output(self, schema=None, *, include_raw=False, **options):
         if "method" not in options:
             if self.supports_forced_tool_choice:
+                if schema is None:
+                    raise ValueError("Structured output requires a schema")
                 native = super().with_structured_output(schema, include_raw=include_raw, **options)
                 return transform_parsed_output(
                     validate_typed_output(native, schema, include_raw),
@@ -166,6 +168,7 @@ class MeteredChatModel(BaseChatModel):
     async def ainvoke(self, input, config=None, *, stop=None, **options):
         # The facade produces no second chat-model trace; the real SDK model
         # and the existing request ledger are the sole per-call evidence.
+        messages: list[BaseMessage]
         if isinstance(input, PromptValue):
             messages = input.to_messages()
         elif isinstance(input, str):
@@ -183,16 +186,13 @@ class MeteredChatModel(BaseChatModel):
                 ),
                 *messages,
             ]
-        payload = {"messages": [], "tools": self.schemas}
+        serialized_messages = [
+            message.model_dump(mode="json", include={"content", "additional_kwargs", "tool_calls"})
+            for message in messages
+        ]
+        payload: dict[str, object] = {"messages": serialized_messages, "tools": self.schemas}
         if self.response_schema is not None:
             payload["response_schema"] = self.response_schema
-        for message in messages:
-            payload["messages"].append(
-                message.model_dump(
-                    mode="json",
-                    include={"content", "additional_kwargs", "tool_calls"},
-                )
-            )
         tokens = estimate_text(json_dumps(payload, ensure_ascii=False)) + 8 * len(messages)
         if tokens >= self.input_limit:
             raise ModelError("component_input_overflow", "Internal model input exceeds its budget")

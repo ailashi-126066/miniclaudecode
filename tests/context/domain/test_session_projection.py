@@ -5,9 +5,9 @@ import pytest
 
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.history import SessionEntry, SessionHeader, SessionSnapshot
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult, UsageRecord
-from pycode.kernel.history_tree import SessionTree
+from pycode.kernel.domain.history import SessionEntry, SessionHeader, SessionSnapshot
+from pycode.kernel.domain.history_tree import SessionTree
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult, UsageRecord
 
 VECTORS = json.loads((Path(__file__).parents[2] / "fixtures/pi-session.json").read_text())
 

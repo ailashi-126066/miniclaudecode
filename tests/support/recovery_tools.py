@@ -1,8 +1,8 @@
 import asyncio
 from pathlib import Path
 
-from pycode.kernel.contracts.messages import ToolResult
-from pycode.kernel.contracts.tools import ToolSpec
+from pycode.kernel.domain.messages import ToolResult
+from pycode.kernel.domain.tools import ToolSpec
 
 
 class WritingEcho:

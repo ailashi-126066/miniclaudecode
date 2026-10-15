@@ -1,4 +1,4 @@
-from pycode.kernel.contracts.messages import (
+from pycode.kernel.domain.messages import (
     Message,
     ThinkingBlock,
     ToolCall,

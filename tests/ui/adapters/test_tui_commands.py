@@ -3,9 +3,9 @@ from dataclasses import replace
 import pytest
 from textual.widgets import Select
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
 from tests.context.adapters.test_summary_http import seed
 from tests.session.adapters.test_revert_http import command_reply
 from tests.snapshot.adapters.test_git_tree import git, repository
@@ -27,7 +27,7 @@ async def test_tui_revert_modes_display_preview_then_require_explicit_apply_and_
     with protocol_server(
         [command_reply("printf new > file"), chat_completion(), chat_completion()]
     ) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             await app.send_text("change")
@@ -64,7 +64,9 @@ async def test_tui_model_picker_fork_and_invalid_open_preserve_selected_native_s
     with protocol_server([chat_completion(), chat_completion()]) as (url, requests):
         first = provider(url)
         second = replace(first, name="second", model_id="second-model")
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (first, second))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (first, second)
+        ).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             app.query_one("#model-select", Select).value = "0"
@@ -103,7 +105,7 @@ async def test_tui_manual_compaction_and_next_input_use_preserved_native_source(
     )
     await seed(config)
     with protocol_server([chat_completion(), chat_completion()]) as (url, requests):
-        app = build_tui(config, (provider(url),), session_id="s1")
+        app = compose_application(config, (provider(url),)).tui(session_id="s1")
         async with app.run_test(size=(120, 50)):
             await app.ready.wait()
             await app.command("/compact")

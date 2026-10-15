@@ -1,28 +1,12 @@
 """One official selector runs after disclosure/permissions, before final budget accounting."""
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from langchain.agents.middleware import LLMToolSelectorMiddleware
+from langchain.agents.middleware import LLMToolSelectorMiddleware, ModelResponse
 from langchain_core.exceptions import OutputParserException
 
 from pycode.kernel import EntryDraft, ModelError, ToolError, data_hash, estimate_text, json_dumps
-
-REQUIRED_TOOLS = frozenset(
-    {
-        "ls",
-        "read_file",
-        "glob",
-        "grep",
-        "ReadToolResult",
-        "SkillSearch",
-        "AskUserQuestion",
-        "ExitPlanMode",
-        "manage_user_memory",
-        "search_user_memory",
-        "manage_project_memory",
-        "search_project_memory",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -47,9 +31,18 @@ def tool_declarations(tools):
 
 
 class ToolSelector:
-    def __init__(self, settings, model_factory):
+    def __init__(
+        self,
+        settings,
+        model_factory,
+        *,
+        required_tools: Iterable[str] | Callable[[], Iterable[str]] = (),
+    ):
         self.settings = settings
         self.model_factory = model_factory
+        self.required_tools = (
+            required_tools if callable(required_tools) else frozenset(required_tools)
+        )
         self.snapshots = {}
 
     async def select(self, request):
@@ -67,13 +60,8 @@ class ToolSelector:
             return self.apply(request, previous.names)
         self.snapshots.clear()
         context.selected_tool_names = None
-        always = REQUIRED_TOOLS | set(self.settings.always_include)
-        if (
-            context.plans is not None
-            and context.plans.state is not None
-            and (context.plans.state.mode == "planning")
-        ):
-            always |= {"write_file", "edit_file", "ExitPlanMode"}
+        required = self.required_tools() if callable(self.required_tools) else self.required_tools
+        always = frozenset(required) | frozenset(self.settings.always_include)
         candidates = [
             tool for tool in request.tools if not isinstance(tool, dict) and tool.name not in always
         ]
@@ -113,7 +101,7 @@ class ToolSelector:
         selected_request = request
         status, reason = "selected", None
         try:
-            owner = self.model_factory(context, boundary, validate_response)
+            owner = await self.model_factory(context, boundary, validate_response)
             selector = LLMToolSelectorMiddleware(
                 model=owner.model,
                 max_tools=self.settings.max_tools,
@@ -123,10 +111,13 @@ class ToolSelector:
             )
 
             async def capture(current):
-                return current
+                nonlocal selected_request
+                selected_request = current
+                return ModelResponse(result=[])
 
-            selected_request = await selector.awrap_model_call(request, capture)
+            await selector.awrap_model_call(request, capture)
         except (ModelError, ToolError, OutputParserException, ValueError) as error:
+            selected_request = request
             if isinstance(error, ValueError) and not isinstance(error, OutputParserException):
                 if not str(error).startswith(
                     "LLMToolSelectorMiddleware: selection model returned a malformed"

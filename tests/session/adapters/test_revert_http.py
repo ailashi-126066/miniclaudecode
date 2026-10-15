@@ -7,11 +7,11 @@ from dataclasses import asdict
 
 import pytest
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import SnapshotError, StorageError
+from pycode.kernel.domain.errors import SnapshotError, StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.snapshot.adapters.test_git_tree import git, repository
 from tests.support.execution import provider
@@ -50,8 +50,8 @@ async def test_actual_bash_snapshots_and_revert_modes_continue_through_shared_ap
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         pending = await session.run(Message("u1", "user", "change files"))
         assert (
@@ -59,7 +59,7 @@ async def test_actual_bash_snapshots_and_revert_modes_continue_through_shared_ap
                 {"operation_id": pending.pending[0]["operation_id"], "decision": "approve"}
             )
         ).outcome == "completed"
-        reader = await build_session_repository(config).open("s1")
+        reader = await compose_application(config).session_repository().open("s1")
         snapshot = await reader.snapshot()
         user = next(
             entry.id
@@ -91,7 +91,7 @@ async def test_actual_bash_snapshots_and_revert_modes_continue_through_shared_ap
         ).outcome == "completed"
         assert len(requests) == 3
         await session.aclose()
-        reader = await build_session_repository(config).open("s1")
+        reader = await compose_application(config).session_repository().open("s1")
         after = await reader.snapshot()
         projection = ContextProjector().project(after)
         assert any(entry.message and entry.message.role == "tool" for entry in after.entries)
@@ -112,14 +112,14 @@ async def test_external_change_is_visible_in_preview_and_rejected_without_file_l
         url,
         _,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         pending = await session.run(Message("u1", "user", "change"))
         await session.resume(
             {"operation_id": pending.pending[0]["operation_id"], "decision": "approve"}
         )
-        reader = await build_session_repository(config).open("s1")
+        reader = await compose_application(config).session_repository().open("s1")
         leaf = next(
             entry.id
             for entry in (await reader.snapshot()).entries
@@ -165,8 +165,8 @@ async def test_public_session_recovers_crashed_revert_and_continues_real_http_ex
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         pending = await session.run(Message("u1", "user", "change files"))
         await session.resume(
@@ -175,7 +175,7 @@ async def test_public_session_recovers_crashed_revert_and_continues_real_http_ex
                 "decision": "approve",
             }
         )
-        reader = await build_session_repository(config).open("s1")
+        reader = await compose_application(config).session_repository().open("s1")
         try:
             target = next(
                 entry.id
@@ -208,7 +208,9 @@ async def test_public_session_recovers_crashed_revert_and_continues_real_http_ex
             if child.returncode is None:
                 child.kill()
                 await child.wait()
-        session = await open_agent_session(config, (provider(url),), "s1", refresh_models=False)
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             with pytest.raises(StorageError) as error:
                 await session.run(Message("u2", "user", "continue"))

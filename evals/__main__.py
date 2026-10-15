@@ -8,11 +8,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from evals.coding.assembly import build_evaluation_runner
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli_commands import read_providers
-from pycode.app.composition import build_console_output
 from pycode.app.config import load_config
-from pycode.kernel.errors import DomainError
-from pycode.kernel.values import json_dumps
+from pycode.kernel.domain.errors import DomainError
+from pycode.kernel.domain.values import json_dumps
 
 QUALITY_SCRIPTS = """quality evaluations (run from the repository root; each accepts --help):
   python evals/scripts/run_output_quality.py
@@ -53,7 +53,7 @@ def build_parser():
 
 
 async def coding(args, config):
-    output = build_console_output(args.output_format)
+    output = compose_application(config).console(args.output_format)
     providers = await asyncio.to_thread(read_providers, args.providers)
     runner = build_evaluation_runner(
         config,

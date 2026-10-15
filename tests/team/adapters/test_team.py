@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.snapshot.adapters.test_git_tree import git, repository
@@ -58,8 +58,8 @@ async def test_spawn_readonly_has_own_history_and_cannot_write(
         return finished("child finished")
 
     with protocol_server(respond) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "lead", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "lead", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "Review the project"))
@@ -101,8 +101,8 @@ async def test_worker_native_file_write_keeps_lead_unchanged_and_history_retaine
             finished("created file; tests not run"),
         ]
     ) as (url, _):
-        session = await open_agent_session(
-            config, (provider(url),), "lead", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "lead", create=True, refresh_models=False
         )
         try:
             record = await session._team.spawn("worker", "engineer", "Create new.py", provider(url))
@@ -155,8 +155,8 @@ async def test_worker_review_merge_requires_live_user_approval_then_cleans_workt
         return finished("worker done")
 
     with protocol_server(respond) as (url, _):
-        session = await open_agent_session(
-            config, (provider(url),), "lead", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "lead", create=True, refresh_models=False
         )
         try:
             record = await session._team.spawn("worker", "engineer", "Create new.py", provider(url))

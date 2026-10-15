@@ -7,9 +7,9 @@ import pytest
 
 from pycode.app.config import AppConfig
 from pycode.app.team_runtime import child_config
-from pycode.kernel.contracts.messages import ToolCall
-from pycode.kernel.contracts.tools import ToolContext, ToolSpec
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import ToolCall
+from pycode.kernel.domain.tools import ToolContext, ToolSpec
 from pycode.sandbox.adapters.seatbelt import RequiredSandbox, UnavailableSandbox
 from pycode.sandbox.domain.sandbox import SandboxSettings
 from pycode.team.adapters.team_tools import child_tools, lead_tools

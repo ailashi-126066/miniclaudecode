@@ -6,10 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli import main
 from pycode.app.cli_commands import command
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.completion import RunResult
+from pycode.kernel.domain.completion import RunResult
 
 
 def test_diagnostics_use_shared_application(tmp_path, capsys):
@@ -61,9 +62,12 @@ async def test_cli_prints_forwarded_child_approval_and_exits_two(tmp_path, monke
         publish_result=AsyncMock(),
         aclose=AsyncMock(),
     )
-    monkeypatch.setattr(
-        "pycode.app.cli_commands.open_agent_session", AsyncMock(return_value=session)
+    config = AppConfig(tmp_path, tmp_path / "data")
+    application = compose_application(config)
+    selected = SimpleNamespace(
+        console=application.console, open_session=AsyncMock(return_value=session)
     )
+    monkeypatch.setattr("pycode.app.cli_commands.compose_application", lambda *args: selected)
     monkeypatch.setattr("pycode.app.cli_commands.read_providers", lambda path: ())
     args = SimpleNamespace(
         command="run",
@@ -75,6 +79,6 @@ async def test_cli_prints_forwarded_child_approval_and_exits_two(tmp_path, monke
         prompt="task",
         input_id="u1",
     )
-    assert await command(args, AppConfig(tmp_path, tmp_path / "data")) == 2
+    assert await command(args, config) == 2
     assert "12345678" in capsys.readouterr().out
     session.aclose.assert_awaited_once()

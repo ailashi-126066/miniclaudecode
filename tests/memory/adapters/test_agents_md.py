@@ -4,19 +4,27 @@ import json
 
 import pytest
 
-from pycode.app.composition import agents_md_sources, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.adapters.storage.prompts import InstructionFileBackend
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
 
+def instruction_paths(config):
+    application = compose_application(config)
+    paths, _ = application.modules.context.instructions(
+        config.workspace, config.user_data, trusted=config.project_trusted
+    )
+    return paths
+
+
 async def run_once(config):
     with protocol_server([chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             await session.run(Message("u1", "user", "hello"))
@@ -50,18 +58,18 @@ async def test_user_and_trusted_project_agents_md_are_injected_once(tmp_path, mo
 def test_sources_skip_missing_files_and_enforce_project_trust(tmp_path):
     data = tmp_path / "data"
     config = AppConfig(tmp_path, data, project_trusted=True)
-    assert agents_md_sources(config) == ()
+    assert instruction_paths(config) == ()
     (tmp_path / "AGENTS.md").write_text("project", encoding="utf-8")
-    assert agents_md_sources(config) == (str((tmp_path / "AGENTS.md").resolve()),)
-    assert agents_md_sources(AppConfig(tmp_path, data)) == ()
+    assert instruction_paths(config) == (str((tmp_path / "AGENTS.md").resolve()),)
+    assert instruction_paths(AppConfig(tmp_path, data)) == ()
     data.mkdir()
     (data / "AGENTS.md").write_text("user", encoding="utf-8")
-    assert agents_md_sources(config) == (
+    assert instruction_paths(config) == (
         str((data / "AGENTS.md").resolve()),
         str((tmp_path / "AGENTS.md").resolve()),
     )
     (tmp_path / "agent.md").write_text("first", encoding="utf-8")
-    assert agents_md_sources(config)[-1] == str((tmp_path / "AGENTS.md").resolve())
+    assert instruction_paths(config)[-1] == str((tmp_path / "AGENTS.md").resolve())
 
 
 def test_instruction_backend_is_read_only_and_allowlisted(tmp_path):
@@ -100,5 +108,5 @@ def test_project_agents_md_cannot_escape_through_a_symlink(tmp_path):
     outside.write_text("private", encoding="utf-8")
     (workspace / "AGENTS.md").symlink_to(outside)
     with pytest.raises(StorageError) as error:
-        agents_md_sources(AppConfig(workspace, tmp_path / "data", project_trusted=True))
+        instruction_paths(AppConfig(workspace, tmp_path / "data", project_trusted=True))
     assert error.value.code == "instructions_outside_workspace"

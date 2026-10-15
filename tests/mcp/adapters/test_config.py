@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pycode.kernel.errors import DomainError
+from pycode.kernel.domain.errors import DomainError
 from pycode.mcp.adapters.config import parse_servers
 from pycode.mcp.domain.mcp import loading_mode, mcp_spec
 

@@ -17,14 +17,15 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 
-from pycode.kernel import ToolError, file_sha256, owned_io
+from pycode.kernel import ToolError
+from pycode.kernel.adapters.path_io import file_sha256, owned_io
 
 
 class BackendOperations(Protocol):
     receipts: dict[str, str]
 
     def resolve(self, value: str) -> Path: ...
-    def error(self, error: Exception) -> str: ...
+    def error(self, error: OSError | ToolError | UnicodeError) -> str: ...
     def ls(self, path: str) -> LsResult: ...
     def read(self, file_path: str, offset=0, limit=2000) -> ReadResult: ...
     def grep(self, pattern, path=None, glob=None, *, max_count=None) -> GrepResult: ...
@@ -46,7 +47,7 @@ class SkillBackend(BackendProtocol):
         if self.selection is None or not self.selection.dispatch or result.error:
             return result
         filtered = []
-        for entry in result.entries:
+        for entry in result.entries or ():
             virtual = self.prefix.rstrip("/") + entry["path"]
             if self.selection.visible(virtual):
                 filtered.append(entry)

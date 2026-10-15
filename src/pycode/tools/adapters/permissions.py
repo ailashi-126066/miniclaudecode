@@ -41,7 +41,11 @@ class InterruptToolGate:
             and self._sandbox is not None
         ):
             # Only allow-listed read-only commands skip approval inside the sandbox.
-            if status.auto_approve and auto_approvable(call.arguments.get("command", "")):
+            if (
+                status is not None
+                and status.auto_approve
+                and auto_approvable(call.arguments.get("command", ""))
+            ):
                 return
         question = {
             "kind": "permission",

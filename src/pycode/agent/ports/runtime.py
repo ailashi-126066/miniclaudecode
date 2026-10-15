@@ -1,20 +1,27 @@
 """Consumer-owned execution capabilities; no session or framework implementation types."""
 
-from typing import Literal, Protocol
+from typing import Literal, Protocol, TypeVar
 
-from pycode.kernel import Message, ModelSelection, ProjectedContext, SessionSnapshot, ToolResult
+from pycode.kernel import (
+    Message,
+    ModelSelection,
+    ProjectedContext,
+    RunResult,
+    SessionSnapshot,
+    ToolResult,
+)
 from pycode.models import ToolSelectorSettings
+
+InputKind = Literal["steer", "follow_up"]
 
 
 class InputQueue(Protocol):
-    def has(self, kind: str) -> bool: ...
-    def take(self, kind: str, *, one_at_a_time: bool = False) -> tuple[Message, ...]: ...
+    def has(self, kind: InputKind) -> bool: ...
+    def take(self, kind: InputKind, *, one_at_a_time: bool = False) -> tuple[Message, ...]: ...
 
 
 class DurableInputDelivery(Protocol):
-    async def submit(
-        self, message: Message, kind: Literal["steer", "follow_up"], run_id: str
-    ) -> bool: ...
+    async def submit(self, message: Message, kind: InputKind, run_id: str) -> bool: ...
     async def pending(self, run_id: str) -> InputQueue: ...
     async def finish_boundary(self, run_id: str) -> InputQueue: ...
 
@@ -25,7 +32,9 @@ class HistoryProjector(Protocol):
 
 class RequestTracking(Protocol):
     active_request_id: str | None
-    selection: ModelSelection
+
+    @property
+    def selection(self) -> ModelSelection: ...
 
 
 class TeamMailbox(Protocol):
@@ -47,4 +56,20 @@ class FallbackControl(Protocol):
 
 
 class SelectorSettingsView(Protocol):
-    settings: ToolSelectorSettings
+    @property
+    def settings(self) -> ToolSelectorSettings: ...
+
+
+RuntimeContextT = TypeVar("RuntimeContextT", contravariant=True)
+
+
+class Runtime(Protocol[RuntimeContextT]):
+    async def run(
+        self,
+        inputs: tuple[Message, ...],
+        context: RuntimeContextT,
+        *,
+        history: tuple[Message, ...] = (),
+    ) -> RunResult: ...
+    async def resume(self, context: RuntimeContextT, answers: dict | None = None) -> RunResult: ...
+    def discard(self) -> None: ...

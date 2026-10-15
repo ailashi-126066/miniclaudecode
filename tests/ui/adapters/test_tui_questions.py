@@ -1,6 +1,6 @@
 from textual.widgets import Button, Checkbox, Input, Select, TabbedContent
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -34,7 +34,9 @@ async def test_actual_tui_named_question_tabs_other_checkbox_review_and_submit(
         ]
     }
     with protocol_server([question_response(questions), chat_completion()]) as (url, requests):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             await app.send_text("ask")
@@ -78,14 +80,14 @@ async def test_tui_question_reopen_has_one_interrupted_pair_and_cannot_answer_ol
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     question = {"questions": [{"type": "text", "name": "choice", "message": "Your choice?"}]}
     with protocol_server([question_response(question), chat_completion()]) as (url, requests):
-        first = build_tui(config, (provider(url),))
+        first = compose_application(config, (provider(url),)).tui()
         async with first.run_test(size=(120, 45)):
             await first.ready.wait()
             await first.send_text("ask")
             await settled(first)
             session_id = first.session_id
             assert first.state["pending"][0]["interrupt_id"]
-        app = build_tui(config, (provider(url),), session_id=session_id)
+        app = compose_application(config, (provider(url),)).tui(session_id=session_id)
         async with app.run_test(size=(120, 45)):
             await app.ready.wait()
             assert app.state["pending"] == () and len(requests) == 1

@@ -84,7 +84,7 @@ class ToolArtifactsBackend(BackendProtocol):
         if listing.error:
             return GlobResult(error=listing.error)
         matches = []
-        for entry in listing.entries:
+        for entry in listing.entries or ():
             if fnmatch.fnmatchcase(entry["path"], pattern) or fnmatch.fnmatchcase(
                 entry["path"].lstrip("/"), pattern
             ):
@@ -99,7 +99,7 @@ class ToolArtifactsBackend(BackendProtocol):
         listing = await self.als("/")
         matches = []
         ceiling = max_count if max_count is not None else 1000
-        for entry in listing.entries:
+        for entry in listing.entries or ():
             filename = entry["path"]
             if path not in {None, "/"} and filename != path:
                 continue

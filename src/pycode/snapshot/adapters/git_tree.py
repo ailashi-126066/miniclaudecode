@@ -17,14 +17,9 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from pycode.kernel import (
-    FileLease,
-    SnapshotError,
-    StorageError,
-    atomic_write,
-    json_dumps,
-    plain_data,
-)
+from pycode.kernel import SnapshotError, StorageError, json_dumps, plain_data
+from pycode.kernel.adapters.file_lease import FileLease
+from pycode.kernel.adapters.path_io import atomic_write
 from pycode.snapshot.domain.snapshots import (
     FileChange,
     FileVersion,
@@ -592,6 +587,10 @@ class GitSnapshotStore:
                 )
                 if compensate:
                     root = self.discover()
+                    if root is None:
+                        raise StorageError(
+                            "snapshot_unavailable", "Snapshot repository disappeared"
+                        )
                     for item in record.plan.files:
                         path = self.checked_path(root, item.path)
                         temporary = path.with_name(

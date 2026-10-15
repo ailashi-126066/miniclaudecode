@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pycode.app.composition import open_agent_session, open_session_view
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -51,8 +51,8 @@ async def test_real_mcp_tool_through_native_sdk_model_and_shared_executor(
         else {"server": "srv", "tool": "echo", "arguments": {"value": "wire"}}
     )
     with protocol_server([skill_reply(name, args, "call"), chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "call MCP"))
@@ -71,7 +71,7 @@ async def test_real_mcp_tool_through_native_sdk_model_and_shared_executor(
             assert report["source"] == "provider_usage" and report["tokens"] == 25
         finally:
             await session.aclose()
-        view = await open_session_view(config, "s1")
+        view = await compose_application(config).open_view("s1")
         try:
             assert (await view.inspect())["context_usage"] == report
         finally:
@@ -89,8 +89,8 @@ async def test_dispatch_default_side_effect_approval_reopens_and_executes_once(
     )
     with protocol_server([reply, chat_completion()]) as (url, requests):
         configured = provider(url)
-        session = await open_agent_session(
-            config, (configured,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         waiting = await session.run(Message("u1", "user", "change"))
         assert waiting.outcome == "needs_input" and not (tmp_path / "effects.txt").exists()

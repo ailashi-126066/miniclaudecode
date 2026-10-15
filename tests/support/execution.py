@@ -1,6 +1,6 @@
 """Shared Provider and session fixtures for actual loopback framework tests."""
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.models.domain.models import ProviderConfig
 
 
@@ -19,6 +19,6 @@ def provider(url):
 
 
 async def session_at(config, configured, tool, *, create=False):
-    return await open_agent_session(
-        config, (configured,), "s1", create=create, tools=(tool,), refresh_models=False
+    return await compose_application(config, (configured,)).open_session(
+        "s1", create=create, tools=(tool,), refresh_models=False
     )

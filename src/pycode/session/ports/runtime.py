@@ -2,13 +2,15 @@
 
 from typing import Protocol
 
+from pycode.context import SummaryReport
 from pycode.kernel import Message, RunResult
 from pycode.models import ProviderConfig
 from pycode.session.ports.history import SessionStore
+from pycode.tools import ToolOutputStore
 
 
 class RuntimeLauncher(Protocol):
-    async def cancel_wait(self, run_id: str): ...
+    async def cancel_wait(self, run_id: str) -> ToolOutputStore | None: ...
 
     async def run(
         self,
@@ -18,12 +20,14 @@ class RuntimeLauncher(Protocol):
         history: tuple[Message, ...],
     ) -> RunResult: ...
 
-    async def compact(self, provider: ProviderConfig, store: SessionStore): ...
+    async def compact(self, provider: ProviderConfig, store: SessionStore) -> SummaryReport: ...
 
     async def aclose(self) -> None: ...
 
     async def invalidate_summary(self, reason: str) -> None: ...
-    async def reconcile_hook(self, store, operation_id, action, text="", is_error=False): ...
+    async def reconcile_hook(
+        self, store, operation_id, action, text="", is_error=False
+    ) -> object: ...
 
     async def resume(
         self,

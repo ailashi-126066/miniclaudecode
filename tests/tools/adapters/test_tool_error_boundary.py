@@ -7,8 +7,8 @@ import pytest
 from langchain_core.messages import AIMessage
 from langgraph.errors import GraphInterrupt
 
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.errors import SnapshotError, StorageError, ToolError
+from pycode.kernel.domain.errors import SnapshotError, StorageError, ToolError
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.tools.adapters.tool_errors import execute_tool_errors
 from tests.agent.adapters.test_agent import assemble, tool_response
 from tests.tools.services.test_tool_executor import EchoTool, make_executor

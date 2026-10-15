@@ -7,9 +7,9 @@ from pycode.context.services.context_projector import ContextProjector
 from pycode.context.services.summary import SummaryService
 from pycode.context.services.tool_eviction import ToolEvictionService
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.contracts.tools import ToolContext
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.services.events import EventStream
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.session import JsonlSessionStore

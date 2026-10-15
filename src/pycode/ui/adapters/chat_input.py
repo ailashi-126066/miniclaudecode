@@ -11,6 +11,9 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import TextArea
 
+from pycode.ui.adapters.commands import CommandRegistry
+from pycode.ui.adapters.completion import CompletionPopup
+
 
 class ChatInput(TextArea):
     BINDINGS = [
@@ -28,8 +31,8 @@ class ChatInput(TextArea):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.registry = None
-        self.popup = None
+        self.registry: CommandRegistry | None = None
+        self.popup: CompletionPopup | None = None
         self._dismissed_text = None
 
     def update_completion(self):
@@ -54,7 +57,8 @@ class ChatInput(TextArea):
         self._dismissed_text = command.completion
         self.load_text(command.completion)
         self.move_cursor((0, len(command.completion)))
-        self.popup.hide()
+        if self.popup is not None:
+            self.popup.hide()
         self.focus()
 
     def action_complete(self):
@@ -63,7 +67,8 @@ class ChatInput(TextArea):
 
     def action_dismiss_completion(self):
         self._dismissed_text = self.text
-        self.popup.hide()
+        if self.popup is not None:
+            self.popup.hide()
 
     def action_cursor_up(self, select=False):
         if not select and self.popup is not None and self.popup.selected is not None:

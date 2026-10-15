@@ -8,9 +8,9 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 
 
@@ -26,14 +26,10 @@ class CrashAfterFact:
 async def main():
     request = json.load(sys.stdin)
     config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
-    session = await open_agent_session(
+    session = await compose_application(
         config,
         (TypeAdapter(ProviderConfig).validate_json(json.dumps(request["provider"]), strict=True),),
-        "s1",
-        create=True,
-        refresh_models=False,
-        consumers=(CrashAfterFact(),),
-    )
+    ).open_session("s1", create=True, refresh_models=False, consumers=(CrashAfterFact(),))
     try:
         waiting = await session.run(Message("u1", "user", "mutate"))
         await session.resume(

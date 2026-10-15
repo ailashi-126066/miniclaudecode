@@ -27,7 +27,7 @@ pycode = "pycode.app.cli:main"
 
 [project.optional-dependencies]
 eval = ["langfuse==4.17.0", "openevals==0.2.0", "agentevals==0.0.9"]
-dev = ["editables==0.6", "pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.17,<1", "build>=1,<2", "hatchling>=1.27,<2"]
+dev = ["editables==0.6", "pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.17,<1", "build>=1,<2", "hatchling>=1.27,<2", "pyright==1.1.414"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycode"]
@@ -54,3 +54,9 @@ exclude = [".source-cache", ".venv", ".worktrees", "archive", "tests/.runtime-te
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "ASYNC"]
+
+[tool.pyright]
+include = ["src/pycode"]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+reportMissingTypeStubs = false

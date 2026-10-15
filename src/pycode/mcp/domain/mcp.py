@@ -82,11 +82,15 @@ def result_from_mcp(content, status, artifact, *, name, call_id="", declaration=
     text = []
     media = []
     for block in blocks:
+        if isinstance(block, str):
+            text.append(block)
+            continue
         kind = block.get("type", "unknown")
+        resource = block.get("resource")
         if kind == "text":
             text.append(block["text"])
-        elif kind == "resource" and isinstance(block.get("resource"), dict):
-            text.append(block["resource"].get("text", "[binary resource]"))
+        elif kind == "resource" and isinstance(resource, dict):
+            text.append(resource.get("text", "[binary resource]"))
         else:
             text.append("[" + kind + ": " + block.get("mime_type", "") + "]")
             media.append(block)

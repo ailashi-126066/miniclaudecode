@@ -1,12 +1,12 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
-from pycode.app.composition import build_agent_runtime
+from pycode.app.composition.runtime import build_agent_runtime
 from pycode.context.domain.tool_eviction import EvictionBudget
 from pycode.context.services.context_projector import ContextProjector
 from pycode.context.services.tool_eviction import ToolEvictionService
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.contracts.tools import ToolContext
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.tools import ToolContext
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore

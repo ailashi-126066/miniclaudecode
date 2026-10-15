@@ -2,7 +2,7 @@
 
 from typing import Any, Protocol
 
-from pycode.kernel.events import Event, EventKind
+from pycode.kernel.domain.events import Event, EventKind
 
 
 class EventConsumer(Protocol):

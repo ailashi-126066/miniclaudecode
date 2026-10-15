@@ -1,0 +1,229 @@
+"""Own tool adapters, backend composition and mandatory execution policy ordering."""
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+from deepagents.backends import CompositeBackend, StateBackend
+from deepagents.backends.protocol import BackendProtocol
+from langchain_core.messages import BaseMessage
+
+from pycode.kernel import (
+    EventSink,
+    ExecutableTool,
+    HistoryJournal,
+    Message,
+    ModelSelection,
+    ToolCall,
+    ToolContext,
+    ToolSpec,
+)
+from pycode.plans import PlanService
+from pycode.sandbox import SandboxBackend, SandboxSettings
+from pycode.snapshot import SnapshotStore
+from pycode.tools.adapters.artifacts_backend import ToolArtifactsBackend
+from pycode.tools.adapters.ask_user import AskUserQuestion
+from pycode.tools.adapters.backend import PycodeBackend
+from pycode.tools.adapters.framework_tool import make_framework_tool
+from pycode.tools.adapters.output_store import FileToolOutputStore
+from pycode.tools.adapters.permissions import InterruptToolGate, TeamToolGate
+from pycode.tools.adapters.questions import InterruptQuestionPrompt
+from pycode.tools.adapters.read_tool_result import ReadToolResult
+from pycode.tools.adapters.schema import JsonSchemaValidator
+from pycode.tools.adapters.settlement import SettlementContext, ToolSettlementMiddleware
+from pycode.tools.adapters.tool_errors import execute_tool_errors
+from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
+from pycode.tools.ports.hooks import ToolHooks
+from pycode.tools.ports.outputs import SessionHeaderReader, ToolOutputStore
+from pycode.tools.ports.publication import MessagePublisher, ToolLifecycle
+from pycode.tools.ports.questions import QuestionPrompt
+from pycode.tools.ports.tools import ArgumentValidator, ToolGate
+from pycode.tools.services.hook_gate import ConfiguredActionGate
+from pycode.tools.services.permissions import (
+    MemoryToolGate,
+    NoOpToolGate,
+    ReadOnlyToolGate,
+    WorkerBoundaryGate,
+)
+from pycode.tools.services.plan_gate import PlanToolGate
+from pycode.tools.services.tool_executor import ToolExecutor
+from pycode.tools.services.tool_registry import ToolRegistry
+
+
+@dataclass(frozen=True)
+class _ScopedGate:
+    scope: ToolGate
+    parent: ToolGate
+
+    async def authorize(self, context: ToolContext, spec: ToolSpec, call: ToolCall) -> None:
+        await self.scope.authorize(context, spec, call)
+        await self.parent.authorize(context, spec, call)
+
+
+class ToolsModule:
+    framework_tool = staticmethod(make_framework_tool)
+    execute_tool_errors = staticmethod(execute_tool_errors)
+
+    def __init__(self) -> None:
+        self._validator = JsonSchemaValidator()
+
+    def validator(self) -> ArgumentValidator:
+        return self._validator
+
+    def registry(self, tools: tuple[ExecutableTool, ...]) -> ToolRegistry:
+        return ToolRegistry(self._validator, tools)
+
+    @staticmethod
+    def output_store(
+        sessions: Path,
+        session_id: str,
+        journal: HistoryJournal | None = None,
+        *,
+        header_reader: SessionHeaderReader | None = None,
+    ) -> FileToolOutputStore:
+        return FileToolOutputStore(sessions, session_id, journal, header_reader=header_reader)
+
+    @staticmethod
+    def backend(
+        workspace: Path,
+        *,
+        read_only: bool = False,
+        excluded_roots: tuple[Path, ...] = (),
+        path_guard: Callable[[str], None] | None = None,
+        search_scope: Callable[[str], tuple[str, ...]] | None = None,
+        empty_missing_root: bool = False,
+    ) -> PycodeBackend:
+        return PycodeBackend(
+            workspace,
+            read_only=read_only,
+            excluded_roots=excluded_roots,
+            path_guard=path_guard,
+            search_scope=search_scope,
+            empty_missing_root=empty_missing_root,
+        )
+
+    @staticmethod
+    def artifacts(outputs: ToolOutputStore, history: HistoryJournal) -> BackendProtocol:
+        return ToolArtifactsBackend(outputs, history)
+
+    @staticmethod
+    def composite(routes: Mapping[str, BackendProtocol]) -> CompositeBackend:
+        return CompositeBackend(default=StateBackend(), routes=dict(routes))
+
+    @staticmethod
+    def question_prompt() -> QuestionPrompt:
+        return InterruptQuestionPrompt()
+
+    @staticmethod
+    def selector_required_names() -> tuple[str, ...]:
+        return (ReadToolResult.spec.name, AskUserQuestion.spec.name)
+
+    @staticmethod
+    def default_tools(
+        outputs: ToolOutputStore, question_prompt: QuestionPrompt | None = None
+    ) -> tuple[ExecutableTool, ...]:
+        tools: list[ExecutableTool] = [ReadToolResult(outputs)]
+        if question_prompt is not None:
+            tools.append(AskUserQuestion(question_prompt))
+        return tuple(tools)
+
+    @staticmethod
+    def gate(
+        sandbox: SandboxBackend,
+        settings: SandboxSettings,
+        *,
+        interruptible: bool = True,
+        read_only: bool = False,
+        custom: ToolGate | None = None,
+        memory_specs: tuple[ToolSpec, ...] = (),
+        plans: PlanService | None = None,
+        scope: ToolGate | None = None,
+        worker: bool = False,
+        worker_sandbox: SandboxBackend | None = None,
+        isolated_worker: bool = False,
+        team: object | None = None,
+    ) -> ToolGate:
+        gate: ToolGate = (
+            InterruptToolGate(sandbox, settings)
+            if interruptible and not read_only
+            else ReadOnlyToolGate()
+        )
+        if memory_specs:
+            gate = MemoryToolGate(gate, memory_specs)
+        if plans is not None:
+            gate = PlanToolGate(plans, gate)
+        if custom is not None:
+            gate = custom
+        if scope is not None:
+            gate = _ScopedGate(scope, gate)
+        constraints: ToolGate = custom or NoOpToolGate()
+        if scope is not None:
+            constraints = _ScopedGate(scope, constraints)
+        if worker:
+            strict = worker_sandbox or sandbox
+            return WorkerBoundaryGate(
+                constraints,
+                InterruptToolGate(strict, settings),
+                readonly=read_only,
+                sandbox=strict if isolated_worker else None,
+                settings=settings,
+            )
+        if team is not None:
+            return TeamToolGate(team, gate, constraints, plans)
+        return gate
+
+    def executor(
+        self,
+        registry: ToolRegistry,
+        gate: ToolGate,
+        events: EventSink,
+        outputs: ToolOutputStore | None = None,
+        *,
+        snapshots: SnapshotStore | None = None,
+        hooks: ToolHooks | None = None,
+    ) -> ToolExecutor:
+        return ToolExecutor(
+            registry,
+            self._validator,
+            gate,
+            events,
+            outputs,
+            snapshots=snapshots,
+            hooks=hooks,
+            error_boundary=execute_tool_errors,
+        )
+
+    def configured_executor(
+        self,
+        tools: tuple[ExecutableTool, ...],
+        events: EventSink,
+        outputs: ToolOutputStore,
+        *,
+        snapshots: SnapshotStore | None = None,
+        plans: object | None = None,
+        read_only: bool = False,
+    ) -> ToolExecutor:
+        return self.executor(
+            self.registry(tools),
+            ConfiguredActionGate(plans, read_only),
+            events,
+            outputs,
+            snapshots=snapshots,
+        )
+
+    @staticmethod
+    def settlement(
+        *,
+        publisher: MessagePublisher,
+        lifecycle: ToolLifecycle[SettlementContext],
+        converter: Callable[[Message, ModelSelection], BaseMessage],
+        tool_extensions: tuple[ToolExtension, ...] = (),
+        native_bindings: tuple[NativeToolBinding, ...] = (),
+    ) -> ToolSettlementMiddleware:
+        return ToolSettlementMiddleware(
+            publisher=publisher,
+            lifecycle=lifecycle,
+            converter=converter,
+            tool_extensions=tool_extensions,
+            native_bindings=native_bindings,
+        )

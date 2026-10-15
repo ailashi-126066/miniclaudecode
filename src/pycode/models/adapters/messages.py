@@ -3,26 +3,37 @@
 from typing import Any
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.messages import (
+    ToolCall as FrameworkToolCall,
+)
 
 from pycode.kernel import (
     Message,
+    ModelError,
     ModelSelection,
     StopReason,
     ThinkingBlock,
     ToolCall,
     UsageRecord,
     clone_value,
-    model_tool_text,
 )
+from pycode.models.domain.tool_text import model_tool_text
 
 
-def to_framework(message: Message, selection: ModelSelection) -> BaseMessage:
+def to_framework(message: Message, selection: ModelSelection) -> AnyMessage:
+    blocks: list[str | dict[str, Any]]
     if message.role == "tool":
         result = message.tool_result
         if result is None:
             raise ValueError("Tool message is missing its paired result")
-        content: str | list[dict[str, Any]] = model_tool_text(result)
+        content: str | list[str | dict[str, Any]] = model_tool_text(result)
         if selection.capabilities.supports_images and result.details.get("mcp_content_blocks"):
             blocks = [{"type": "text", "text": content}]
             for block in result.details["mcp_content_blocks"]:
@@ -37,7 +48,7 @@ def to_framework(message: Message, selection: ModelSelection) -> BaseMessage:
             status="error" if result.is_error else "success",
         )
     if message.role == "assistant":
-        content: str | list[dict[str, Any]] = message.text
+        content = message.text
         additional = {}
         if selection.implementation == "deepseek" and message.thinking:
             additional["reasoning_content"] = "".join(block.text for block in message.thinking)
@@ -46,7 +57,7 @@ def to_framework(message: Message, selection: ModelSelection) -> BaseMessage:
             and selection.api_mode == "responses"
             and message.thinking
         ):
-            reasoning_blocks = [
+            reasoning_blocks: list[str | dict[str, Any]] = [
                 clone_value(block.provider_data)
                 for block in message.thinking
                 if block.provider_data.get("type") == "reasoning"
@@ -67,7 +78,7 @@ def to_framework(message: Message, selection: ModelSelection) -> BaseMessage:
             if message.text:
                 blocks.append({"type": "text", "text": message.text})
             content = blocks
-        calls = [
+        calls: list[FrameworkToolCall] = [
             {
                 "id": call.id,
                 "name": call.name,
@@ -196,10 +207,12 @@ def from_assistant(
     reasoning = response.additional_kwargs.get("reasoning_content")
     if reasoning and not thinking:
         thinking.append(ThinkingBlock(text=reasoning))
-    calls = [
-        ToolCall(id=call["id"], name=call["name"], arguments=clone_value(call["args"]))
-        for call in response.tool_calls
-    ]
+    calls = []
+    for call in response.tool_calls:
+        call_id = call["id"]
+        if call_id is None or not call_id.strip():
+            raise ModelError("invalid_tool_call", "Provider tool call is missing its ID")
+        calls.append(ToolCall(id=call_id, name=call["name"], arguments=clone_value(call["args"])))
     for call in response.invalid_tool_calls:
         calls.append(
             ToolCall(

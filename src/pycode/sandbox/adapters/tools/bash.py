@@ -14,10 +14,14 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 
-from pycode.kernel import ToolContext, ToolError, ToolResult, ToolSpec, data_hash, plain_data
+from pycode.kernel import ToolContext, ToolError, ToolResult, ToolSpec
 from pycode.sandbox.adapters.tools.process_runner import run_process
 from pycode.sandbox.domain.sandbox import SandboxSettings
-from pycode.sandbox.domain.subprocess_env import subprocess_environment
+from pycode.sandbox.domain.subprocess_env import (
+    subprocess_environment,
+    subprocess_policy_hash,
+    validate_passthrough,
+)
 from pycode.sandbox.ports.output import OutputSink
 from pycode.sandbox.ports.sandbox import SandboxBackend
 
@@ -59,14 +63,20 @@ class Bash:
         sandbox: SandboxBackend | None = None,
         settings: SandboxSettings | None = None,
         environment=None,
+        *,
+        passthrough=(),
     ) -> None:
         self._executable = executable
         self._outputs = outputs
         self._sandbox = sandbox
         self._settings = settings or SandboxSettings()
+        # Source environment, filtered at execution time; never an already trusted environment.
         self._environment = environment
-        if self._settings.mode != "off":
-            self.spec = replace(self.spec, policy_hash=data_hash(plain_data(self._settings)))
+        self._passthrough = validate_passthrough(passthrough)
+        if self._settings.mode != "off" or self._passthrough:
+            self.spec = replace(
+                self.spec, policy_hash=subprocess_policy_hash(self._settings, self._passthrough)
+            )
 
     async def execute(self, context: ToolContext, arguments: dict) -> ToolResult:
         argv = (self._executable, "-c", arguments["command"])
@@ -82,6 +92,7 @@ class Bash:
             progress=context.progress,
             # Never inherit provider keys or other credentials from the parent process.
             environment=subprocess_environment(
-                os.environ if self._environment is None else self._environment
+                os.environ if self._environment is None else self._environment,
+                passthrough=self._passthrough,
             ),
         )

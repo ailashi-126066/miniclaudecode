@@ -8,7 +8,8 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from pycode.context.domain.summaries import SummaryObject, SummarySource
-from pycode.kernel import StorageError, atomic_write, data_hash, json_dumps, plain_data
+from pycode.kernel import StorageError, data_hash, json_dumps, plain_data
+from pycode.kernel.adapters.path_io import atomic_write
 
 
 class FileSummaryStore:

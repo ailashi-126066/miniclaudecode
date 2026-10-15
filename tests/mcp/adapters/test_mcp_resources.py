@@ -1,6 +1,6 @@
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.mcp.adapters.test_mcp import mcp_config
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
@@ -22,8 +22,8 @@ async def test_resources_and_prompts_are_on_demand_and_use_parent_approval(tmp_p
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "resources"))

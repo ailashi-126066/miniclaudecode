@@ -131,6 +131,7 @@ class MCPAdapterConnections:
     async def catalog(self):
         self.start()
         owned = self._startup
+        assert owned is not None
         result = await asyncio.shield(owned)
         if self._startup is owned:
             self._startup = None

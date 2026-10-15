@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "baseline": "main@ac40d4f",
-  "direction": "importer -> imported public API",
+  "direction": "importer -> public native contract; app composition -> explicit feature module",
   "allowed_dependencies": {
     "kernel": [],
     "sandbox": [
@@ -14,84 +14,84 @@
       "kernel"
     ],
     "mcp": [
+      "context",
       "kernel"
     ],
     "skills": [
+      "context",
       "kernel",
       "sandbox"
     ],
     "plans": [
+      "context",
       "kernel",
       "sandbox"
-    ],
-    "context": [
-      "kernel",
-      "models",
-      "mcp",
-      "skills"
-    ],
-    "memory": [
-      "kernel",
-      "context"
-    ],
-    "tools": [
-      "kernel",
-      "sandbox",
-      "snapshot",
-      "skills",
-      "plans"
     ],
     "hooks": [
       "kernel",
       "sandbox"
     ],
+    "context": [
+      "kernel",
+      "models"
+    ],
+    "memory": [
+      "context",
+      "kernel",
+      "models"
+    ],
+    "tools": [
+      "kernel",
+      "plans",
+      "sandbox",
+      "snapshot"
+    ],
     "agent": [
+      "context",
+      "hooks",
       "kernel",
       "models",
-      "context",
-      "tools",
-      "skills",
       "plans",
-      "hooks",
-      "mcp"
+      "tools"
     ],
     "team": [
       "kernel",
+      "plans",
       "snapshot",
-      "tools",
-      "plans"
+      "tools"
     ],
     "session": [
-      "kernel",
       "context",
+      "kernel",
+      "memory",
       "models",
       "skills",
       "snapshot",
-      "tools",
-      "memory",
-      "team"
+      "team",
+      "tools"
     ],
     "ui": [
       "kernel",
-      "tools",
+      "mcp",
       "plans",
-      "team"
+      "team",
+      "tools"
     ],
     "app": [
-      "kernel",
-      "sandbox",
-      "snapshot",
-      "models",
-      "mcp",
-      "skills",
-      "plans",
-      "context",
-      "memory",
-      "tools",
-      "hooks",
       "agent",
-      "team",
+      "context",
+      "hooks",
+      "kernel",
+      "mcp",
+      "memory",
+      "models",
+      "plans",
+      "sandbox",
       "session",
+      "skills",
+      "snapshot",
+      "team",
+      "tools",
       "ui"
     ]
   }

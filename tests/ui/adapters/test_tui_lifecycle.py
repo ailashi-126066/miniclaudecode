@@ -2,7 +2,7 @@ import asyncio
 import threading
 from dataclasses import replace
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.session.adapters.test_revert_http import command_reply
 from tests.support.execution import provider
@@ -18,7 +18,9 @@ async def test_actual_tui_cancelled_sdk_request_is_collected_and_new_input_uses_
     started, release = threading.Event(), threading.Event()
     first.started, first.release = started, release
     with protocol_server([first, chat_completion()]) as (url, requests):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 45)) as pilot:
             try:
                 await app.ready.wait()
@@ -49,7 +51,9 @@ async def test_tui_thinking_and_usage_are_projected_from_real_provider_messages(
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     with protocol_server([chat_completion(deepseek=True)]) as (url, requests):
         selected = replace(provider(url), implementation="deepseek")
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (selected,))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (selected,)
+        ).tui()
         async with app.run_test(size=(120, 45)):
             await app.ready.wait()
             await app.send_text("think")
@@ -73,7 +77,9 @@ async def test_cancel_after_confirmed_tool_result_does_not_redisplay_consumed_ap
         url,
         requests,
     ):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 45)) as pilot:
             try:
                 await app.ready.wait()
@@ -105,7 +111,9 @@ async def test_tui_steer_is_durable_and_delivered_after_current_model_settles(
     started, release = threading.Event(), threading.Event()
     delayed.started, delayed.release = started, release
     with protocol_server([delayed, chat_completion()]) as (url, requests):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 45)):
             try:
                 await app.ready.wait()
@@ -136,7 +144,7 @@ async def test_closing_tui_collects_active_request_and_reopening_keeps_recovery_
     delayed.started, delayed.release = started, release
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([delayed, chat_completion()]) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         try:
             async with app.run_test(size=(120, 45)):
                 await app.ready.wait()
@@ -145,7 +153,7 @@ async def test_closing_tui_collects_active_request_and_reopening_keeps_recovery_
                 original = app.session_id
             assert not app.busy
             release.set()
-            reopened = build_tui(config, (provider(url),), session_id=original)
+            reopened = compose_application(config, (provider(url),)).tui(session_id=original)
             async with reopened.run_test(size=(120, 45)):
                 await reopened.ready.wait()
                 assert reopened.state["pending_run_id"] is None

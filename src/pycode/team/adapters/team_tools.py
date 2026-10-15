@@ -37,13 +37,16 @@ class TeamTool:
             result = await self.dispatch(team, actor, name, context, arguments)
         except StorageError as error:
             raise ToolError("team_storage_error", str(error)) from error
+        error_code = result.get("error_code")
+        if error_code is not None and not isinstance(error_code, str):
+            raise TypeError("Team error_code must be a string")
         return ToolResult(
             context.call_id,
             name,
             json_dumps(result, ensure_ascii=False),
             structured_content=result,
             is_error=bool(result.get("error_code")),
-            error_code=result.get("error_code"),
+            error_code=error_code,
             details={"team_message_ids": [m["id"] for m in result.get("messages", ())]}
             if name == "wait_agents"
             else {},

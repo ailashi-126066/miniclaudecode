@@ -29,6 +29,7 @@ class MCPRuntimeBindings:
         return self._framework_tools(declaration)
 
     def tool_call(self, name):
+        assert self._tool_boundary is not None
         return self._tool_boundary(self._service.declaration(name))
 
     def declaration(self, name):

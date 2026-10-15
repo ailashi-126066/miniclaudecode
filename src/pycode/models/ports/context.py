@@ -3,7 +3,6 @@
 from typing import Protocol
 
 from pycode.kernel import (
-    ExecutableTool,
     HistoryJournal,
     ModelSelection,
     ProjectedContext,
@@ -26,10 +25,6 @@ class RegistryLookup(Protocol):
     def get_spec(self, name: str) -> ToolSpec: ...
 
 
-class ResourceLookup(Protocol):
-    def get_tool(self, name: str) -> ExecutableTool | None: ...
-
-
 class CalibrationReport(Protocol):
     @property
     def applied_job_id(self) -> str | None: ...
@@ -44,6 +39,7 @@ class CalibrationContext(Protocol):
     """Native footprint state used by calibration, independent of AgentRuntime."""
 
     model_tools: tuple[ToolSpec, ...]
+    selected_tool_names: tuple[str, ...] | None
     system_hash: str
     model_source_leaf_id: str | None
 
@@ -52,9 +48,6 @@ class CalibrationContext(Protocol):
 
     @property
     def registry(self) -> RegistryLookup: ...
-
-    @property
-    def skill_resources(self) -> ResourceLookup | None: ...
 
     @property
     def history_store(self) -> HistoryJournal | None: ...

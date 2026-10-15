@@ -118,6 +118,7 @@ class ToolExecutor:
                 operation_id=context.operation_id,
             )
         if before is not None:
+            assert self.snapshots is not None
             try:
                 after = await self.snapshots.capture()
                 paths = []

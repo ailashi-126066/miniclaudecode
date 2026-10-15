@@ -1,4 +1,4 @@
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.hooks.adapters.test_hooks import hook_file
 from tests.session.adapters.test_revert_http import command_reply
@@ -37,7 +37,7 @@ async def test_tui_hook_rejects_tool_and_app_lifecycle_uses_same_event_source(
         url,
         requests,
     ):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 50)):
             await app.ready.wait()
             assert (tmp_path / "boot.txt").exists()

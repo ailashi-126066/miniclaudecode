@@ -2,9 +2,9 @@
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.hooks.adapters.test_hooks import hook_file
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -32,8 +32,8 @@ async def test_agent_hook_runs_actual_readonly_child_and_persists_its_real_resul
         url,
         requests,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "task"))

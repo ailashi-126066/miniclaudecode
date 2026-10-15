@@ -5,7 +5,8 @@
 import math
 from dataclasses import dataclass
 
-from pycode.kernel import Message, ProjectedContext, SessionEntry, json_dumps, model_tool_text
+from pycode.kernel import Message, ProjectedContext, SessionEntry, json_dumps
+from pycode.models import model_tool_text
 
 
 def utf16_units(text: str) -> int:

@@ -1,0 +1,288 @@
+"""Exercise the real application root with disabled, replaced and failed feature products."""
+
+import asyncio
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
+
+from pycode.app.bootstrap import compose_application, default_modules
+from pycode.app.composition.team import ConfiguredChildSessions
+from pycode.app.config import AppConfig
+from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
+from pycode.kernel import Message, ToolCall, ToolContext, ToolResult, ToolSpec
+from pycode.models.module import ModelsModule
+from pycode.session import SessionCatalogWriteGuard
+from pycode.session.module import SessionsModule
+from pycode.skills.module import SkillsSettings
+from pycode.tools.module import ToolsModule
+from tests.support.execution import provider
+from tests.support.skill_loading import read_skill
+
+
+def configuration(tmp_path):
+    return AppConfig(tmp_path, tmp_path / "state", memory_mode="off", allow_delegation=False)
+
+
+async def test_providerless_root_and_disabled_modules_do_not_open_feature_configuration(
+    tmp_path, monkeypatch
+):
+    config = configuration(tmp_path)
+    config.user_data.mkdir()
+    (config.user_data / "mcp.json").write_text("not valid JSON")
+    selected = replace(default_modules(config), skills=None, mcp=None)
+    application = compose_application(config, modules=selected)
+    assert application.status().workspace.exists
+    assert application.session_repository() is not None
+    configured = provider("http://127.0.0.1:9")
+    monkeypatch.setenv(configured.api_key_env, "local-test-key")
+    session = await compose_application(config, (configured,), modules=selected).open_session(
+        "disabled",
+        create=True,
+        refresh_models=False,
+        startup_hooks=False,
+    )
+    await session.aclose()
+
+
+async def test_selected_modules_and_credential_source_survive_child_scope(tmp_path):
+    config = configuration(tmp_path)
+    selected = default_modules(config)
+    repository_workspaces = []
+
+    class SelectedSessions(SessionsModule):
+        def repository(self):
+            repository_workspaces.append(self.workspace)
+
+            async def fork(*args):
+                async def close():
+                    return None
+
+                return SimpleNamespace(aclose=close)
+
+            return SimpleNamespace(fork=fork)
+
+    sessions = SelectedSessions(config.workspace, config.user_data, selected.sessions.timing)
+    credentials = {"INDEPENDENT_PROVIDER_KEY": "test-only"}
+    models = ModelsModule(tmp_path / "catalog.json", tmp_path / "custom.sqlite", credentials)
+    selected = replace(selected, sessions=sessions, models=models, skills=None, mcp=None)
+    roster = provider("http://127.0.0.1:9")
+    observed = {}
+
+    async def open_child(config, providers, session_id, **options):
+        observed.update(options)
+        return SimpleNamespace()
+
+    children = ConfiguredChildSessions(
+        config,
+        (roster,),
+        SimpleNamespace(resolve=lambda *args: roster),
+        session_opener=open_child,
+        repository_factory=lambda derived: selected.scoped(derived).sessions.repository(),
+        modules=selected,
+    )
+    child_workspace = tmp_path / "child"
+    record = {
+        "workspace": str(child_workspace),
+        "mode": "readonly",
+        "agent_id": "a1",
+        "session_id": "child",
+        "role": "review",
+        "provider": roster.name,
+        "model_id": roster.model_id,
+    }
+    await children.open(record, SimpleNamespace(), create=True, fork_from=("parent", None))
+    derived = observed["modules"]
+    assert isinstance(derived.sessions, SelectedSessions)
+    assert derived.sessions.workspace == child_workspace
+    assert repository_workspaces == [child_workspace]
+    assert derived.models.environment is credentials
+    assert derived.skills is None and derived.mcp is None
+    assert derived.tools is selected.tools and derived.context is selected.context
+
+
+async def test_replaced_mcp_owns_exactly_the_session_it_created(tmp_path):
+    config = configuration(tmp_path)
+    selected = default_modules(config)
+    closed = []
+    calls = []
+
+    class ReplacedMCP:
+        async def open_session(self, settings, credentials, **options):
+            calls.append(settings)
+
+            async def close():
+                closed.append("custom")
+
+            return SimpleNamespace(config_hash="custom", connections=None, aclose=close)
+
+    config.user_data.mkdir()
+    (config.user_data / "mcp.json").write_text("default implementation must not read this")
+    selected = replace(selected, skills=None, mcp=ReplacedMCP())
+    session = await compose_application(
+        config, (provider("http://127.0.0.1:9"),), modules=selected
+    ).open_session(
+        "custom",
+        create=True,
+        refresh_models=False,
+        startup_hooks=False,
+    )
+    await session.aclose()
+    await session.aclose()
+    assert len(calls) == 1 and closed == ["custom"]
+
+
+async def test_public_runtime_with_history_keeps_active_skill_scope(tmp_path, monkeypatch):
+    class Approved:
+        async def authorize(self, *args):
+            return None
+
+    class Probe:
+        spec = ToolSpec(
+            "ForbiddenProbe", "must remain blocked", {"type": "object"}, category="read"
+        )
+        executed = False
+
+        async def execute(self, context, arguments):
+            self.executed = True
+            return ToolResult(context.call_id, self.spec.name, "executed")
+
+    config = replace(configuration(tmp_path), tool_gate=Approved())
+    configured = provider("http://127.0.0.1:9")
+    monkeypatch.setenv(configured.api_key_env, "local-test-key")
+    document = config.user_data / "skills/locked/SKILL.md"
+    document.parent.mkdir(parents=True)
+    document.write_text(
+        "---\nname: locked\ndescription: Read-only helper\nallowed-tools: [Read]\n---\nRead only.\n"
+    )
+    application = compose_application(config, (configured,))
+    history = await application.session_repository().open("scope", create=True)
+    runtime = None
+    try:
+        await history.append_message(Message("u", "user", "follow the Skill"))
+        skills = application.modules.skills.open_session(
+            SkillsSettings(config.workspace, config.user_data),
+            history,
+            catalog_write_guard=SessionCatalogWriteGuard(),
+        )
+        await skills.initialize()
+        await read_skill(history, skills.catalog, "locked")
+        tool = Probe()
+        runtime = await application.runtime(
+            configured,
+            session_id="scope",
+            run_id="r",
+            journal=history,
+            history_store=history,
+            tools=(tool,),
+        )
+        result = await runtime.context.executor.execute(
+            ToolContext("scope", "r", "probe", str(tmp_path)),
+            ToolCall("probe", tool.spec.name, {}),
+            "tool_calls",
+        )
+        assert result.error_code == "skill_tool_not_allowed" and not tool.executed
+    finally:
+        if runtime is not None:
+            await runtime.aclose()
+        await history.aclose()
+
+
+async def test_launcher_attempts_every_closer_after_an_earlier_failure(tmp_path):
+    order = []
+
+    class Resource:
+        def __init__(self, name, fail=False):
+            self.name, self.fail = name, fail
+
+        async def aclose(self):
+            order.append(self.name)
+            if self.fail:
+                raise RuntimeError(self.name)
+
+        async def collect(self, **options):
+            order.append("collect")
+
+    launcher = ConfiguredRuntimeLauncher(
+        configuration(tmp_path),
+        (),
+        (),
+        None,
+        resource_owners=(Resource("first"), Resource("second", True)),
+    )
+    launcher._active_container = Resource("active", True)
+    launcher._hook_engines = [Resource("hook")]
+    launcher.summary = Resource("summary", True)
+    with pytest.raises(RuntimeError, match="active"):
+        await launcher.aclose()
+    with pytest.raises(RuntimeError, match="active"):
+        await launcher.aclose()
+    assert order == ["active", "collect", "hook", "summary", "second", "first"]
+
+
+async def test_launcher_cancellation_waits_for_owned_cleanup(tmp_path):
+    started, finish = asyncio.Event(), asyncio.Event()
+    closed = []
+
+    class Resource:
+        async def aclose(self):
+            started.set()
+            await finish.wait()
+            closed.append(True)
+
+    launcher = ConfiguredRuntimeLauncher(
+        configuration(tmp_path), (), (), None, resource_owners=(Resource(),)
+    )
+    waiting = asyncio.create_task(launcher.aclose())
+    async with asyncio.timeout(2):
+        await started.wait()
+        waiting.cancel()
+        await asyncio.sleep(0)
+        waiting.cancel()
+        finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+    assert closed == [True]
+    await launcher.aclose()
+
+
+async def test_view_factory_failure_closes_records_before_returning(tmp_path, monkeypatch):
+    config = configuration(tmp_path)
+    selected = replace(default_modules(config), skills=None, mcp=None)
+    application = compose_application(config, modules=selected)
+    store = await application.session_repository().open("view", create=True)
+    await store.aclose()
+    closed = []
+
+    class Records:
+        async def aclose(self):
+            closed.append(True)
+
+    monkeypatch.setattr(selected.models, "records", lambda: Records())
+
+    def broken_view(*args, **options):
+        raise RuntimeError("view construction failed")
+
+    monkeypatch.setattr("pycode.app.composition.session.SessionView", broken_view)
+    with pytest.raises(RuntimeError, match="view construction failed"):
+        await application.open_view("view")
+    assert closed == [True]
+
+
+async def test_output_factory_fails_before_request_database_is_opened(tmp_path, monkeypatch):
+    config = configuration(tmp_path)
+    selected = replace(default_modules(config), skills=None, mcp=None)
+    store = await selected.sessions.repository().open("view", create=True)
+    await store.aclose()
+    opened = []
+
+    class BrokenTools(ToolsModule):
+        @staticmethod
+        def output_store(*args, **options):
+            raise RuntimeError("output construction failed")
+
+    monkeypatch.setattr(selected.models, "records", lambda: opened.append(True))
+    selected = replace(selected, tools=BrokenTools())
+    with pytest.raises(RuntimeError, match="output construction failed"):
+        await compose_application(config, modules=selected).open_view("view")
+    assert opened == []

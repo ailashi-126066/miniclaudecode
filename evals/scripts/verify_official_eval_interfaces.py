@@ -9,9 +9,9 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.app.composition import build_background_model, build_memory_updater
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig, load_providers
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.values import plain_data
 from pycode.models.domain.requests import RetryPolicy
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,11 +64,13 @@ async def verify():
         "thinking": "disabled",
         "checks": {},
     }
-    owner = build_background_model(
-        config, provider, (), run_id, run_id, "agent", retry_policy=RetryPolicy(max_retries=0)
+    owner = await compose_application(config).background_model(
+        provider, (), run_id, run_id, "agent", retry_policy=RetryPolicy(max_retries=0)
     )
     try:
-        model = build_memory_updater(config, provider).facade(owner, "official-interface")
+        model = (
+            compose_application(config).memory_updater(provider).facade(owner, "official-interface")
+        )
         judge = create_async_llm_as_judge(
             judge=model,
             feedback_key="arithmetic_control",

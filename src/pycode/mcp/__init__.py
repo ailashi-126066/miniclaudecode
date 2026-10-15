@@ -3,11 +3,15 @@
 from pycode.mcp.domain.mcp import active_mcp, choose_tools, result_from_mcp
 from pycode.mcp.ports.mcp import MCPConnections
 from pycode.mcp.ports.schema import SchemaChecker
+from pycode.mcp.services.answers import validate_elicitation_answer
 from pycode.mcp.services.configuration import validate_mcp_recovery
 from pycode.mcp.services.mcp import MCPService
 from pycode.mcp.services.mcp_bindings import MCPRuntimeBindings
+from pycode.mcp.services.projection import MCPProjection
 
 __all__ = [
+    "validate_elicitation_answer",
+    "MCPProjection",
     "MCPConnections",
     "MCPRuntimeBindings",
     "MCPService",

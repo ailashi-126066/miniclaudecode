@@ -15,15 +15,21 @@ class SQLiteRequestStore:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path, check_same_thread=False)
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=FULL")
-        self._connection.execute(
-            "CREATE TABLE IF NOT EXISTS model_requests ("
-            "request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, "
-            "status TEXT NOT NULL, payload TEXT NOT NULL)"
-        )
-        self._connection.commit()
-        self._lock = asyncio.Lock()
+        try:
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=FULL")
+            self._connection.execute(
+                "CREATE TABLE IF NOT EXISTS model_requests ("
+                "request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, "
+                "status TEXT NOT NULL, payload TEXT NOT NULL)"
+            )
+            self._connection.commit()
+            self._lock = asyncio.Lock()
+        except BaseException:
+            # No owner receives this store when setup fails; release the handle
+            # here rather than relying on a later asynchronous close.
+            self._connection.close()
+            raise
 
     async def run_io(self, operation):
         async with self._lock:

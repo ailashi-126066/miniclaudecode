@@ -15,6 +15,7 @@ from pycode.session.domain.execution_recovery import pending_run_entry
 from pycode.session.domain.revert_state import entry_transaction_id, pending_revert
 from pycode.session.domain.session_names import session_title
 from pycode.session.ports.history import SessionStore
+from pycode.session.services.ownership import SessionCleanup
 
 
 class SessionView:
@@ -36,6 +37,7 @@ class SessionView:
         self._events = events
         self._consumers = consumers
         self._owns_history = owns_history
+        self._cleanup = SessionCleanup()
         self._context_settings = context_settings
         self._outputs = outputs
         self._entry_views = {}
@@ -118,7 +120,7 @@ class SessionView:
                     break
         history = []
         for entry in SessionTree(snapshot.index).path(snapshot.leaf_id):
-            if entry.type == "message" and entry.message.role != "system":
+            if entry.type == "message" and entry.require_message().role != "system":
                 if presentation:
                     cached = self._entry_views.get(entry.id)
                     shown_message = (
@@ -180,9 +182,8 @@ class SessionView:
         )
 
     async def aclose(self):
-        try:
-            await self._usage.aclose()
-        finally:
-            await self._events.aclose()
-            if self._owns_history:
-                await self._history.aclose()
+        closers = [self._usage.aclose, self._events.aclose]
+        if self._owns_history:
+            self._owns_history = False
+            closers.append(self._history.aclose)
+        await self._cleanup.close(tuple(closers))

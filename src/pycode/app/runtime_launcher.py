@@ -1,6 +1,7 @@
 """Own active runtime, hook and summary lifetimes through explicit factories."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import replace
 from uuid import uuid4
 
@@ -29,7 +30,8 @@ class ConfiguredRuntimeLauncher:
         consumers: tuple[EventConsumer, ...],
         event_journal: EventJournal,
         configured_hooks=(),
-        mcp_connections=None,
+        resource_owners=(),
+        projector_factory: Callable[[], ContextProjector] = ContextProjector,
         mcp_config_hash="",
         plans=None,
         plan_backend=None,
@@ -55,7 +57,8 @@ class ConfiguredRuntimeLauncher:
         self.summary: SummaryService | None = None
         self.event_journal = event_journal
         self.configured_hooks = configured_hooks
-        self.mcp_connections = mcp_connections
+        self.resource_owners = tuple(resource_owners)
+        self.projector_factory = projector_factory
         self.mcp_config_hash = mcp_config_hash
         self.plans = plans
         self.plan_backend = plan_backend
@@ -65,12 +68,14 @@ class ConfiguredRuntimeLauncher:
         self._lifecycle_engine = None
         self._lifecycle_context = None
         self._active_container = None
+        self._close_task: asyncio.Task | None = None
 
     async def startup(self, store):
         if not self.configured_hooks:
             return
         snapshot = await store.snapshot()
         lifetime = uuid4().hex
+        assert self._hook_factory is not None
         engine = self._hook_factory(self, store, snapshot, lifetime)
         self._lifecycle_engine = engine
         self._lifecycle_context = HookContext(
@@ -118,7 +123,7 @@ class ConfiguredRuntimeLauncher:
             if container.context.hooks is not None:
                 await container.context.hooks.collect(cancel=True)
         finally:
-            container.runtime.graph = None
+            container.runtime.discard()
             await container.aclose()
         return container.context.outputs
 
@@ -134,6 +139,7 @@ class ConfiguredRuntimeLauncher:
                     "run_expired", "Old execution has ended; start a new task from saved history"
                 )
         else:
+            assert self._prompt_factory is not None and self._runtime_factory is not None
             await self._prompt_factory(store).refresh()
             container = await self._runtime_factory(self, provider, store, run_id)
             self._active_container = container
@@ -167,6 +173,7 @@ class ConfiguredRuntimeLauncher:
 
     async def compact(self, provider, store):
         snapshot = await store.snapshot()
+        assert self._runtime_factory is not None
         container = await self._runtime_factory(self, provider, store, uuid4().hex)
         if container.context.hooks is not None:
             self._hook_engines.append(container.context.hooks)
@@ -174,10 +181,11 @@ class ConfiguredRuntimeLauncher:
         self.summary = container.context.summary
         container.owns_summary = False
         try:
-            if container.context.mcp is not None:
-                await container.context.mcp.refresh(container.context.registry)
-                self.summary.set_tools(container.context.registry.model_specs())
-            current = ContextProjector().project(await store.snapshot())
+            if self.summary is None:
+                raise StorageError("summary_unavailable", "This runtime has no summary service")
+            await container.prepare_tools()
+            self.summary.set_tools(container.context.registry.model_specs())
+            current = self.projector_factory().project(await store.snapshot())
             effective = []
             for declaration in current.checkpoint.get("model_tools", ()):
                 effective.append(ToolSpec(**plain_data(declaration)))
@@ -199,33 +207,51 @@ class ConfiguredRuntimeLauncher:
             await container.aclose()
 
     async def aclose(self):
-        if self._active_container is not None:
-            active, self._active_container = self._active_container, None
-            await active.aclose()
-        engines, self._hook_engines = self._hook_engines, []
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close_all())
+        interrupted = None
+        while not self._close_task.done():
+            try:
+                await asyncio.shield(self._close_task)
+            except asyncio.CancelledError as error:
+                interrupted = error
+            except BaseException:
+                break
         try:
-            try:
-                if self._lifecycle_engine is not None:
-                    context = self._lifecycle_context
-                    await self._lifecycle_engine.fire(replace(context, event_name="shutdown"))
-            finally:
-                self._lifecycle_engine, self._lifecycle_context = None, None
-                if engines:
-                    await engines[0].collect(cancel=True)
+            self._close_task.result()
         finally:
+            if interrupted is not None:
+                raise interrupted
+
+    async def _close_all(self):
+        active, self._active_container = self._active_container, None
+        engines, self._hook_engines = self._hook_engines, []
+        summary, self.summary = self.summary, None
+        owners, self.resource_owners = self.resource_owners, ()
+        lifecycle, self._lifecycle_engine = self._lifecycle_engine, None
+        lifecycle_context, self._lifecycle_context = self._lifecycle_context, None
+        errors = []
+
+        async def attempt(operation):
             try:
-                results = await asyncio.gather(
-                    *(engine.aclose() for engine in engines), return_exceptions=True
-                )
-                for result in results:
-                    if isinstance(result, BaseException):
-                        raise result
-            finally:
-                if self.summary is not None:
-                    await self.summary.aclose()
-                    self.summary = None
-                if self.mcp_connections is not None:
-                    await self.mcp_connections.aclose()
+                await operation
+            except BaseException as error:
+                errors.append(error)
+
+        if active is not None:
+            await attempt(active.aclose())
+        if lifecycle is not None and lifecycle_context is not None:
+            await attempt(lifecycle.fire(replace(lifecycle_context, event_name="shutdown")))
+        if engines:
+            await attempt(engines[0].collect(cancel=True))
+        for engine in engines:
+            await attempt(engine.aclose())
+        if summary is not None:
+            await attempt(summary.aclose())
+        for owner in reversed(owners):
+            await attempt(owner.aclose())
+        if errors:
+            raise errors[0]
 
     async def invalidate_summary(self, reason):
         if self.summary is not None:
@@ -233,6 +259,7 @@ class ConfiguredRuntimeLauncher:
 
     async def reconcile_hook(self, store, operation_id, action, text="", is_error=False):
         snapshot = await store.snapshot()
+        assert self._hook_factory is not None
         engine = self._hook_factory(self, store, snapshot, uuid4().hex)
         try:
             await engine.reconcile(operation_id, action, text, is_error)

@@ -1,6 +1,8 @@
 """One stable, bounded mapping for recoverable tool errors; storage defects stay exceptional."""
 
 import re
+from collections.abc import Mapping
+from typing import Any
 
 from pycode.kernel import SECRET_PATTERNS, ToolError, ToolResult
 
@@ -25,4 +27,13 @@ def tool_failure(error, call, *, executed=False, uncertain=False):
         details["critical_hook_failure"] = True
     return ToolResult(
         call.id, call.name, text[:1600], is_error=True, error_code=code, details=details
+    )
+
+
+def repeated_tool_failure(guard: Mapping[str, Any], name: str, arguments_hash: str) -> bool:
+    """Reject a fourth execution of the same consecutively failing declaration."""
+    return (
+        guard.get("failure_count", 0) >= 3
+        and guard.get("failure_tool") == name
+        and guard.get("failure_arguments") == arguments_hash
     )

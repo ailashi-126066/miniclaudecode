@@ -4,42 +4,25 @@ import asyncio
 import hashlib
 from dataclasses import replace
 
+from pycode.app.composition.modules import default_modules
 from pycode.app.team_runtime import child_config
 from pycode.kernel import EventStream, StorageError
-from pycode.session.adapters.storage.layout import StorageLayout
-from pycode.snapshot.adapters.git_tree import GitSnapshotStore
-from pycode.team import AgentTeam, child_prompt
-from pycode.team.adapters.worktrees import WorktreeManager
-
-
-class ChildEventRelay:
-    def __init__(self, member):
-        self.member = member
-
-    async def consume(self, event):
-        if event.kind in {"error", "tool_execution_start"}:
-            record = self.member.team.records[self.member.agent_id]
-            await self.member.team.emit(
-                "activity",
-                {
-                    "agent_id": self.member.agent_id,
-                    "role": record["role"],
-                    "event": event.kind,
-                    "data": event.data,
-                },
-            )
+from pycode.team import child_prompt
 
 
 class ConfiguredChildSessions:
-    def __init__(self, config, providers, catalog, *, session_opener, repository_factory):
+    def __init__(self, config, providers, catalog, *, session_opener, repository_factory, modules):
         self.config, self.providers, self.catalog = config, providers, catalog
         self.session_opener, self.repository_factory = session_opener, repository_factory
         self.workspace = str(config.workspace)
+        self.modules = modules
 
     async def open(self, record, member, *, create, fork_from=None, fork_entry_ids=None):
         config = child_config(self.config, record)
         if record["mode"] == "worker":
-            owned = await build_worktree_manager(self.config).inspect(record["worktree_id"])
+            owned = await build_worktree_manager(self.config, modules=self.modules).inspect(
+                record["worktree_id"]
+            )
             if owned["path"] != str(config.workspace) or owned.get("missing"):
                 raise StorageError(
                     "invalid_worktree_record", "Child workspace does not match owned worktree"
@@ -48,17 +31,19 @@ class ConfiguredChildSessions:
         if fork_from is not None:
             inherited = await self.repository_factory(config).fork(*fork_from, record["session_id"])
             await inherited.aclose()
+        child_modules = self.modules.scoped(config)
         session = await self.session_opener(
             config,
             (provider,),
             record["session_id"],
             create=create and fork_from is None,
-            consumers=(ChildEventRelay(member),),
+            consumers=(self.modules.team.event_relay(member),),
             refresh_models=False,
             startup_hooks=False,
             connect_mcp=False,
             team_member=member,
             prompt_suffix=child_prompt(record["mode"], record["agent_id"], record["role"]),
+            modules=child_modules,
         )
         if fork_entry_ids:
             await session.configure_fork_context(fork_entry_ids)
@@ -93,17 +78,19 @@ async def build_team(
     *,
     session_opener,
     repository_factory,
+    modules=None,
 ):
+    modules = default_modules(config) if modules is None else modules
     snapshot = await store.snapshot()
     identifier = "team-" + hashlib.sha256(snapshot.header.session_id.encode()).hexdigest()[:32]
     ledger = await repository_factory(config).open(identifier, create=True)
     try:
         await ledger.claim_writer()
-        layout = StorageLayout(config.workspace, config.user_data)
+        layout = modules.sessions.layout
         child_settings = replace(
             config, request_database=config.request_database or layout.runtime_database
         )
-        worktrees = build_worktree_manager(config)
+        worktrees = build_worktree_manager(config, modules=modules)
         try:
             _, git_status = await asyncio.to_thread(
                 worktrees.git, ["rev-parse", "--show-toplevel"], allowed=(0, 128)
@@ -112,7 +99,7 @@ async def build_team(
             git_status = 128
         if git_status != 0:
             worktrees = None
-        return AgentTeam(
+        return modules.team.create(
             ledger,
             store,
             ConfiguredChildSessions(
@@ -121,6 +108,7 @@ async def build_team(
                 catalog,
                 session_opener=session_opener,
                 repository_factory=repository_factory,
+                modules=modules,
             ),
             worktrees,
             EventStream(snapshot.header.session_id, "team", consumers, journal=event_journal),
@@ -133,8 +121,10 @@ async def build_team(
         raise
 
 
-def build_worktree_manager(config):
-    layout = StorageLayout(config.workspace, config.user_data)
-    return WorktreeManager(
-        config.workspace, layout.project / "worktrees", snapshot_factory=GitSnapshotStore
+def build_worktree_manager(config, *, modules=None):
+    modules = default_modules(config) if modules is None else modules
+    return modules.team.worktrees(
+        config.workspace,
+        modules.sessions.layout.project / "worktrees",
+        snapshot_factory=modules.snapshots.factory,
     )

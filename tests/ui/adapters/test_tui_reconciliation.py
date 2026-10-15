@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -36,12 +36,9 @@ async def test_process_crash_has_unknown_fact_without_replaying_effect_or_old_ap
                 await child.wait()
         assert (tmp_path / "effect.txt").read_text(encoding="utf-8") == "wire"
         tool = WritingEcho()
-        app = build_tui(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (provider(url),),
-            session_id="s1",
-            tools=(tool,),
-        )
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui(session_id="s1", tools=(tool,))
         async with app.run_test(size=(120, 50)):
             await app.ready.wait()
             await app.command("/resume")

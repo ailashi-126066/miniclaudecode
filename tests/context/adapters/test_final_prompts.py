@@ -2,11 +2,11 @@
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.adapters.storage.prompts import ProjectPromptSource
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -20,8 +20,8 @@ async def test_rules_change_only_at_new_tasks_and_snapshots_are_deduplicated(tmp
         url,
         requests,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             await session.run(Message("u1", "user", "first"))

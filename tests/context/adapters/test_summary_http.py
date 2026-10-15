@@ -3,11 +3,11 @@ import json
 import threading
 from dataclasses import replace
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.adapters.summary import SUMMARY_SYSTEM
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.adapters.storage.requests import SQLiteRequestStore
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.support.execution import provider
@@ -15,7 +15,7 @@ from tests.support.http_provider import HTTPResponse, chat_completion, protocol_
 
 
 async def seed(config, *, characters=4000):
-    store = await build_session_repository(config).open("s1", create=True)
+    store = await compose_application(config).session_repository().open("s1", create=True)
     await store.append_message(
         Message("system", "system", "Keep the project constraints and preserve history.")
     )
@@ -39,11 +39,15 @@ async def test_manual_compaction_uses_native_sdk_metering_checkpoint_and_restart
     await seed(config)
     with protocol_server([chat_completion(), chat_completion()]) as (url, received):
         selected = provider(url)
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         report = await session.compact()
         assert report.applied_job_id is not None
         await session.aclose()
-        restored = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        restored = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         assert (await restored.run(Message("new-task", "user", "continue"))).outcome == "completed"
         await restored.aclose()
         assert len(received) == 2
@@ -67,7 +71,7 @@ async def test_manual_compaction_uses_native_sdk_metering_checkpoint_and_restart
         assert [attempt.purpose for attempt in attempts] == ["summary", "agent"]
         assert all(attempt.usage.total_tokens == 25 for attempt in attempts)
         await records.aclose()
-        store = await build_session_repository(config).open("s1")
+        store = await compose_application(config).session_repository().open("s1")
         snapshot = await store.snapshot()
         compaction = next(entry for entry in snapshot.entries if entry.type == "compaction")
         assert len(compaction.data["checkpoint"]["tools"]) >= 4
@@ -107,7 +111,9 @@ async def test_80_percent_background_is_nonblocking_and_capacity_wait_preserves_
     with protocol_server([initial, cached, chat_completion()]) as (url, requests):
         selected = provider(url)
         selected = replace(selected, context_window=20000, max_output_tokens=1000)
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         pending = None
         try:
             first = await asyncio.wait_for(session.run(Message("initial", "user", "continue")), 5)
@@ -155,7 +161,9 @@ async def test_native_context_overflow_forces_safe_compaction_and_meters_retry(
         content_type="application/json",
     )
     with protocol_server([failure, chat_completion(), chat_completion()]) as (url, requests):
-        session = await open_agent_session(config, (provider(url),), "s1", refresh_models=False)
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", refresh_models=False
+        )
         assert (await session.run(Message("new", "user", "continue"))).outcome == "completed"
         await session.aclose()
         assert len(requests) == 3
@@ -195,7 +203,9 @@ async def test_next_turn_continues_while_summary_runs_then_reuses_it_without_new
         requests,
     ):
         selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (
                 await session.run(Message("trigger", "user", "continue"))
@@ -263,7 +273,9 @@ async def test_default_auto_memory_does_not_hide_capacity_or_interrupt_backgroun
 
     with protocol_server(respond) as (url, requests):
         selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         pending = None
         try:
             assert (await session.memory_list())["mode"] == "auto"

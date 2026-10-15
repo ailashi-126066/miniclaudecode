@@ -8,10 +8,10 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
-from pycode.app.composition import build_model_catalog, build_runtime
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.contracts.tools import ToolSpec
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.tools import ToolSpec
 from pycode.models.domain.models import ProviderConfig
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +107,7 @@ async def verify(args) -> int:
         else {},
     )
     config = AppConfig(ROOT, ROOT / ".acceptance" / args.provider)
-    catalog = build_model_catalog(config, (provider,))
+    catalog = compose_application(config, (provider,)).model_catalog()
     await catalog.initialize()
     snapshot = await catalog.refresh()
     report["catalog_errors"] = snapshot.errors
@@ -125,8 +125,7 @@ async def verify(args) -> int:
     journal = Journal()
     consumer = AuditConsumer()
     probe = AcceptanceProbe(journal)
-    container = build_runtime(
-        config,
+    container = await compose_application(config).runtime(
         provider,
         session_id=f"acceptance-{args.provider}",
         run_id=os.urandom(12).hex(),

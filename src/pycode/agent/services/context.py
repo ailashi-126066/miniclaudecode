@@ -25,9 +25,7 @@ from pycode.kernel import (
     ToolResult,
     ToolSpec,
 )
-from pycode.mcp import MCPRuntimeBindings
 from pycode.plans import PlanService
-from pycode.skills import SkillLoadRecorder, SkillResources, SkillSelection
 from pycode.tools import ToolExecutor, ToolOutputStore, ToolRegistry
 
 
@@ -55,14 +53,10 @@ class RunContext:
     agent_id: str = "lead"
     summary: SummaryService | None = None
     model_source_leaf_id: str | None = None
-    skill_resources: SkillResources | None = None
-    skill_recorder: SkillLoadRecorder | None = None
     plans: PlanService | None = None
     workspace_files: WorkspaceReadback | None = None
     model_tools: tuple[ToolSpec, ...] = ()
     system_hash: str = ""
-    skill_selection: SkillSelection | None = None
-    skill_boundary: bool = False
     model_fallback: FallbackControl | None = None
     tool_selector: SelectorSettingsView | None = None
     selected_tool_names: tuple[str, ...] | None = None
@@ -74,7 +68,6 @@ class RunContext:
     dispatched_calls: set[str] = field(default_factory=set)
     team: TeamMailbox | None = None
     hooks: HookEngine | None = None
-    mcp: MCPRuntimeBindings | None = None
     mcp_config_hash: str = ""
     assistant: Message | None = None
     call_order: list[str] = field(default_factory=list)

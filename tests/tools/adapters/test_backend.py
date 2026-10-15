@@ -113,8 +113,8 @@ async def test_concurrent_edits_preserve_path_lock_and_version(tmp_path):
 
 @pytest.mark.parametrize("reserved", [".PYCODE", ".PyCoDe", ".GIT", ".GiT"])
 def test_reserved_state_aliases_are_blocked_on_all_platforms(tmp_path, reserved):
-    from pycode.kernel.errors import ToolError
-    from pycode.kernel.io.workspace_path import resolve_workspace_path
+    from pycode.kernel.domain.errors import ToolError
+    from pycode.skills.adapters.workspace_path import resolve_workspace_path
 
     backend = PycodeBackend(tmp_path)
     assert backend.write(f"/{reserved}/protected.txt", "forbidden").error is not None

@@ -2,10 +2,10 @@
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.mcp.adapters.test_mcp import mcp_config
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
@@ -21,8 +21,8 @@ async def test_real_mcp_form_interrupt_answer_and_single_result(tmp_path, monkey
         url,
         requests,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             pending = await session.run(Message("u1", "user", "Ask MCP"))

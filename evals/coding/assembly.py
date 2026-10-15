@@ -11,11 +11,10 @@ from evals.coding.runner import EvaluationRunner
 from evals.coding.solver import ConfiguredEvaluationSolver
 from evals.coding.workspaces import EvaluationWorkspaces
 from evals.quality.langfuse import LangfuseEvaluationSummary
-from pycode.app.composition import build_sandbox, open_agent_session
-from pycode.kernel.errors import StorageError
-from pycode.kernel.hashing import data_hash
+from pycode.app.bootstrap import compose_application
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.hashing import data_hash
 from pycode.sandbox.domain.sandbox import SandboxSettings
-from pycode.session.adapters.storage.layout import StorageLayout
 
 
 def build_evaluation_runner(config, providers, manifest, cache, work, results, *, langfuse=False):
@@ -31,7 +30,12 @@ def build_evaluation_runner(config, providers, manifest, cache, work, results, *
     settings = SandboxSettings("on" if sys.platform == "darwin" else "off", False)
     config = replace(config, sandbox=settings)
     workspaces = EvaluationWorkspaces(
-        manifest, cache, work, results, sandbox=build_sandbox(), sandbox_settings=settings
+        manifest,
+        cache,
+        work,
+        results,
+        sandbox=compose_application(config, providers).sandbox_backend(),
+        sandbox_settings=settings,
     )
     solver = build_evaluation_solver(config, providers)
     telemetry = None
@@ -64,10 +68,9 @@ def build_evaluation_solver(config, providers):
         }
 
     def trace_path(selected, session_id):
-        return str(
-            StorageLayout(selected.workspace, selected.user_data).sessions
-            / session_id
-            / "entries.jsonl"
-        )
+        return str(compose_application(selected).session_trace_path(session_id))
 
-    return ConfiguredEvaluationSolver(config, providers, open_agent_session, identity, trace_path)
+    async def open_session(selected, roster, session_id, **options):
+        return await compose_application(selected, roster).open_session(session_id, **options)
+
+    return ConfiguredEvaluationSolver(config, providers, open_session, identity, trace_path)

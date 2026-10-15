@@ -1,10 +1,10 @@
+from pycode.context.domain.history_boundaries import valid_kept_boundary
 from pycode.context.domain.summary_source import capture_source
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.history_boundaries import valid_kept_boundary
-from pycode.kernel.history_tree import SessionTree
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.history_tree import SessionTree
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.support.requests import TestTiming
 

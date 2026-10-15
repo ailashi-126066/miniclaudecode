@@ -1,27 +1,32 @@
 # Final architecture and ownership
 
-`app/composition/` is the only cross-feature composition root. Its runtime, session,
-models, context, memory, team, UI and shared-capability modules build concrete adapters and
-inject their capabilities. `app/runtime_launcher.py` owns active runs, live waits, summary
-and Hook lifetimes. Context and memory composition own their background model lifetimes;
-none implements a second Agent loop.
+`app/bootstrap.py:compose_application` is the single public composition entry. It returns
+an Application with explicitly selected `ApplicationModules`. CLI, TUI wiring, coding evaluations
+and maintenance acceptance use it. `app/composition/` contains private application/session/run
+connections; its package no longer exports a catalogue of constructors.
 
-Source is organized as `kernel`, `agent`, `session`, `context`, `models`, `tools`, `sandbox`,
-`snapshot`, `memory`, `skills`, `mcp`, `hooks`, `plans`, `team`, `ui` and `app`. The old global
-layer packages are removed. Each feature has pure `domain/`, consumer-owned `ports/`,
-framework-free `services/`, concrete `adapters/`, and a static public `__init__.py` with explicit
-`__all__`. Cross-feature imports use that public API; only composition imports another
-feature's adapters. Adapter classes, converters and middleware are never re-exported as
-public feature APIs. Imports construct no resources.
+Each feature owns `module.py`: configuration interpretation, concrete adapter construction,
+local service products and resource lifetimes. Application wiring imports these named module
+entries and native public contracts, never feature-internal adapters. Feature modules do not
+import app, another feature's module entry, or another feature's adapters. Optional Skills/MCP
+can be replaced or disabled without changing Agent core. Child scopes rebind the chosen
+providers through their own scoped hooks, preserving implementation and credential selection.
+No default module set is silently rebuilt for child operations.
 
-The enforced DAG is recorded in `docs/design/feature-dependencies.json`: kernel has no feature
-dependencies; sandbox/snapshot/models/mcp depend only on kernel; skills/plans/hooks add sandbox;
-context adds models/mcp/skills; tools adds sandbox/snapshot/skills/plans; agent/team/memory
-compose these capabilities; session and UI sit above them; app composes everything. Domain
-imports cannot reach I/O, including through kernel's public API, and domain/ports/services do
-not import frameworks. The checker follows relative imports, aliases and public factory
-origins, rejects unexported names, delayed imports and hidden dynamic pycode APIs, and checks
-both module and feature graphs for cycles (including TYPE_CHECKING imports).
+Source is organized as kernel, agent, session, context, models, tools, sandbox, snapshot,
+memory, skills, mcp, hooks, plans, team, ui and app. Each feature has domain, ports, services
+and adapters. Kernel follows the same four layers: immutable exchange facts/algorithms,
+native interfaces, event delivery, and explicit file/clock/journal implementations. Its root
+API does not forward I/O adapters. Built-in Skill documents and the system prompt live inside
+their owning feature resources. Old global layer packages and compatibility shells are absent.
+
+The exact permitted DAG is in `docs/design/feature-dependencies.json`. Context owns no Skill,
+MCP, Memory or Plan reconstruction: immutable contributors return only their owned checkpoint
+keys and entries in a fixed order. Generic usage invalidation and system-fingerprint metadata
+keep counting independent of feature event names. Contributors currently recompute on changed
+history rather than incorrectly reuse an incremental result; unchanged revisions remain cached.
+The checker enforces layer purity, explicit module entry ownership, public origins, module and
+feature cycles, aliases/TYPE_CHECKING/dynamic imports, and real native-port implementation coverage.
 
 `agent/adapters/agent.py` builds the sole `deepagents.create_deep_agent` graph. Framework state
 is separate from the framework-free `agent/services/context.py` RunContext and its consumer
@@ -149,79 +154,94 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 
 | Consumer port | Production implementation |
 | --- | --- |
-| `agent.InputQueue` | `session.services.input_queue.PendingInputs` |
-| `agent.DurableInputDelivery` | `session.services.durable_inputs.DurableInputs` |
-| `agent.HistoryProjector` | `context.services.context_projector.ContextProjector` |
-| `agent.RequestTracking` | `models.adapters.model_requests.ModelRequestRunner` |
-| `agent.TeamMailbox` | `team.services.team.TeamMember` |
-| `agent.TitleAssignment` | `app.composition.runtime.BoundTitleAssignment` |
-| `agent.WorkspaceReadback` | `tools.adapters.backend.PycodeBackend` |
-| `agent.FallbackControl` | `models.adapters.model_fallback.ModelFallback` |
-| `agent.SelectorSettingsView` | `models.adapters.tool_selection.ToolSelector` |
-| `context.SummaryGenerator` | `app.composition.context.ConfiguredSummaryGenerator` |
-| `context.SummaryStore` | `context.adapters.storage.summaries.FileSummaryStore` |
-| `hooks.HookActions` | `hooks.adapters.actions.ConfiguredHookActions` |
-| `hooks.LifecycleHooks` | `hooks.services.hooks.HookEngine` |
-| `hooks.LifecycleContext` | `agent.services.context.RunContext` |
-| `hooks.HookExecution` | `tools.services.tool_executor.ToolExecutor` |
-| `hooks.HookPlanGuard` | `plans.services.plans.PlanService` |
-| `hooks.HookExecutorFactory` | `app.composition.runtime.build_hook_engine` (factory/callback) |
-| `kernel.MessageJournal` | `session.adapters.storage.session.JsonlSessionStore` |
-| `kernel.HistoryReader` | `session.adapters.storage.session.JsonlSessionStore` |
-| `kernel.HistoryJournal` | `session.adapters.storage.session.JsonlSessionStore` |
-| `kernel.ExecutableTool` | `sandbox.adapters.tools.bash.Bash` |
-| `kernel.EventConsumer` | `ui.adapters.console.ConsoleOutput` |
-| `kernel.EventSink` | `kernel.services.events.EventStream` |
-| `kernel.EventJournal` | `kernel.services.event_journal.MemoryEventJournal` |
-| `kernel.Timing` | `kernel.io.timing.SystemTiming` |
-| `mcp.MCPConnections` | `mcp.adapters.manager.MCPAdapterConnections` |
-| `mcp.SchemaChecker` | `tools.adapters.schema.JsonSchemaValidator` |
-| `memory.MemoryUpdater` | `app.composition.memory.ConfiguredMemoryUpdater` |
-| `models.Projector` | `context.services.context_projector.ContextProjector` |
-| `models.RunOwnership` | `session.domain.guards.SessionRunOwnership` |
-| `models.RegistryLookup` | `tools.services.tool_registry.ToolRegistry` |
-| `models.ResourceLookup` | `skills.services.skill_resources.SkillResources` |
-| `models.CalibrationReport` | `context.domain.summaries.SummaryReport` |
-| `models.SummaryBudget` | `context.services.summary.SummaryService` |
-| `models.CalibrationContext` | `agent.services.context.RunContext` |
-| `models.ModelFailureClassifier` | `models.adapters.failures.ProviderFailureClassifier` |
-| `models.RequestStore` | `models.adapters.storage.requests.SQLiteRequestStore` |
-| `models.ModelObservation` | `models.adapters.observation.ProviderObservation` |
-| `models.ModelDirectory` | `models.adapters.directory.SDKModelDirectory` |
-| `models.CatalogStore` | `models.adapters.storage.catalog.FileCatalogStore` |
-| `plans.PlanFiles` | `plans.adapters.storage.plans.FilePlanStore` |
-| `plans.QuestionPrompt` | `plans.adapters.plans.InterruptPlanPrompt` |
-| `sandbox.StreamWriter` | `tools.adapters.output_store.StreamingOutputWriter` |
-| `sandbox.OutputSink` | `tools.adapters.output_store.FileToolOutputStore` |
-| `sandbox.ProcessRunner` | `sandbox.adapters.tools.process_runner.run_process` |
-| `sandbox.SandboxBackend` | `sandbox.adapters.seatbelt.RequiredSandbox` |
-| `session.SessionStore` | `session.adapters.storage.session.JsonlSessionStore` |
-| `session.RuntimeLauncher` | `app.runtime_launcher.ConfiguredRuntimeLauncher` |
-| `session.SessionRepository` | `session.adapters.storage.session_repository.JsonlSessionRepository` |
-| `session.StorageObjects` | `session.adapters.storage.objects.FileStorageObjects` |
-| `session.WorkspaceInspector` | `session.adapters.storage.workspace.FileWorkspaceInspector` |
-| `skills.CatalogWriteGuard` | `session.domain.guards.SessionCatalogWriteGuard` |
-| `skills.SchemaChecker` | `tools.adapters.schema.JsonSchemaValidator` |
-| `skills.SkillReadGrant` | `app.composition.capabilities.skill_read_grant` |
-| `skills.SkillCatalog` | `skills.adapters.catalog.FileSkillCatalog` |
-| `skills.SkillResourceToolFactory` | `skills.adapters.python_tool.PythonSkillToolFactory` (factory/callback) |
-| `skills.SkillCatalogCommands` | `skills.services.skills.SkillService` |
-| `skills.SkillInstaller` | `skills.adapters.install.GitHubSkillInstaller` |
-| `snapshot.SnapshotStore` | `snapshot.adapters.git_tree.GitSnapshotStore` |
-| `team.ChildSession` | `session.services.agent_session.AgentSession` |
-| `team.ChildSessions` | `app.composition.team.ConfiguredChildSessions` |
-| `team.Worktrees` | `team.adapters.worktrees.WorktreeManager` |
-| `team.WorktreeSnapshot` | `snapshot.adapters.git_tree.GitSnapshotStore` |
-| `team.WorktreeSnapshotFactory` | `snapshot.adapters.git_tree.GitSnapshotStore` (factory/callback) |
-| `tools.ToolDispatch` | `mcp.adapters.tools.MCPCall` |
-| `tools.ToolHooks` | `hooks.services.tool_bridge.ToolHookBridge` |
-| `tools.OutputWriter` | `tools.adapters.output_store.StreamingOutputWriter` |
-| `tools.ToolOutputStore` | `tools.adapters.output_store.FileToolOutputStore` |
-| `tools.SessionHeaderReader` | `session.adapters.storage.header_reader.FileSessionHeaderReader` |
-| `tools.MessagePublisher` | `agent.adapters.boundaries.AgentMessagePublisher` |
-| `tools.ToolLifecycle` | `app.composition.runtime.build_runtime_bindings` (factory/callback) |
-| `tools.QuestionPrompt` | `tools.adapters.questions.InterruptQuestionPrompt` |
-| `tools.ArgumentValidator` | `tools.adapters.schema.JsonSchemaValidator` |
-| `tools.ToolGate` | `tools.services.permissions.ReadOnlyToolGate` |
-| `ui.InteractiveSession` | `session.services.agent_session.AgentSession` |
-| `ui.InteractiveSessions` | `app.composition.ui.ConfiguredInteractiveSessions` |
+| `agent.ports.runtime.InputQueue` | `session.services.input_queue.PendingInputs` |
+| `agent.ports.runtime.DurableInputDelivery` | `session.services.durable_inputs.DurableInputs` |
+| `agent.ports.runtime.HistoryProjector` | `context.services.context_projector.ContextProjector` |
+| `agent.ports.runtime.RequestTracking` | `models.adapters.model_requests.ModelRequestRunner` |
+| `agent.ports.runtime.TeamMailbox` | `team.services.team.TeamMember` |
+| `agent.ports.runtime.TitleAssignment` | `app.composition.runtime.BoundTitleAssignment` |
+| `agent.ports.runtime.WorkspaceReadback` | `tools.adapters.backend.PycodeBackend` |
+| `agent.ports.runtime.FallbackControl` | `models.adapters.model_fallback.ModelFallback` |
+| `agent.ports.runtime.SelectorSettingsView` | `models.adapters.tool_selection.ToolSelector` |
+| `context.ports.summaries.SummaryGenerator` | `context.adapters.background.ConfiguredSummaryGenerator` |
+| `context.ports.summaries.SummaryStore` | `context.adapters.storage.summaries.FileSummaryStore` |
+| `hooks.ports.hooks.HookActions` | `hooks.adapters.actions.ConfiguredHookActions` |
+| `hooks.ports.lifecycle.LifecycleHooks` | `hooks.services.hooks.HookEngine` |
+| `hooks.ports.lifecycle.LifecycleContext` | `agent.services.context.RunContext` |
+| `hooks.ports.runtime.HookExecution` | `tools.services.tool_executor.ToolExecutor` |
+| `hooks.ports.runtime.HookPlanGuard` | `plans.services.plans.PlanService` |
+| `hooks.ports.runtime.HookExecutorFactory` | `app.composition.runtime.build_hook_engine` (factory/callback) |
+| `kernel.ports.history.MessageJournal` | `session.adapters.storage.session.JsonlSessionStore` |
+| `kernel.ports.history.HistoryReader` | `session.adapters.storage.session.JsonlSessionStore` |
+| `kernel.ports.history.HistoryJournal` | `session.adapters.storage.session.JsonlSessionStore` |
+| `kernel.ports.tools.ExecutableTool` | `sandbox.adapters.tools.bash.Bash` |
+| `kernel.ports.events.EventConsumer` | `ui.adapters.console.ConsoleOutput` |
+| `kernel.ports.events.EventSink` | `kernel.services.events.EventStream` |
+| `kernel.ports.events.EventJournal` | `kernel.adapters.event_journal.MemoryEventJournal` |
+| `kernel.ports.timing.Timing` | `kernel.adapters.timing.SystemTiming` |
+| `mcp.ports.mcp.MCPConnections` | `mcp.adapters.manager.MCPAdapterConnections` |
+| `mcp.ports.schema.SchemaChecker` | `tools.adapters.schema.JsonSchemaValidator` |
+| `memory.ports.memory.MemoryUpdater` | `memory.adapters.background.ConfiguredMemoryUpdater` |
+| `models.ports.context.Projector` | `context.services.context_projector.ContextProjector` |
+| `models.ports.context.RunOwnership` | `session.domain.guards.SessionRunOwnership` |
+| `models.ports.context.RegistryLookup` | `tools.services.tool_registry.ToolRegistry` |
+| `models.ports.context.CalibrationReport` | `context.domain.summaries.SummaryReport` |
+| `models.ports.context.SummaryBudget` | `context.services.summary.SummaryService` |
+| `models.ports.context.CalibrationContext` | `agent.services.context.RunContext` |
+| `models.ports.models.ModelFailureClassifier` | `models.adapters.failures.ProviderFailureClassifier` |
+| `models.ports.models.RequestStore` | `models.adapters.storage.requests.SQLiteRequestStore` |
+| `models.ports.models.ModelObservation` | `models.adapters.observation.ProviderObservation` |
+| `models.ports.models.ModelDirectory` | `models.adapters.directory.SDKModelDirectory` |
+| `models.ports.models.CatalogStore` | `models.adapters.storage.catalog.FileCatalogStore` |
+| `plans.ports.plans.PlanFiles` | `plans.adapters.storage.plans.FilePlanStore` |
+| `plans.ports.plans.QuestionPrompt` | `plans.adapters.plans.InterruptPlanPrompt` |
+| `sandbox.ports.output.StreamWriter` | `tools.adapters.output_store.StreamingOutputWriter` |
+| `sandbox.ports.output.OutputSink` | `tools.adapters.output_store.FileToolOutputStore` |
+| `sandbox.ports.process.ProcessRunner` | `sandbox.adapters.tools.process_runner.run_process` (factory/callback) |
+| `sandbox.ports.sandbox.SandboxBackend` | `sandbox.adapters.seatbelt.RequiredSandbox` |
+| `session.ports.history.SessionStore` | `session.adapters.storage.session.JsonlSessionStore` |
+| `session.ports.runtime.RuntimeLauncher` | `app.runtime_launcher.ConfiguredRuntimeLauncher` |
+| `session.ports.sessions.SessionRepository` | `session.adapters.storage.session_repository.JsonlSessionRepository` |
+| `session.ports.storage.StorageObjects` | `session.adapters.storage.objects.FileStorageObjects` |
+| `session.ports.workspace.WorkspaceInspector` | `session.adapters.storage.workspace.FileWorkspaceInspector` |
+| `skills.ports.guard.CatalogWriteGuard` | `session.domain.guards.SessionCatalogWriteGuard` |
+| `skills.ports.guard.SchemaChecker` | `tools.adapters.schema.JsonSchemaValidator` |
+| `skills.ports.sandbox.SkillReadGrant` | `sandbox.module.skill_read_grant` (factory/callback) |
+| `skills.ports.skills.SkillCatalog` | `skills.adapters.catalog.FileSkillCatalog` |
+| `skills.ports.skills.SkillResourceToolFactory` | `skills.adapters.python_tool.PythonSkillToolFactory` (factory/callback) |
+| `skills.ports.skills.SkillCatalogCommands` | `skills.services.skills.SkillService` |
+| `skills.ports.skills.SkillInstaller` | `skills.adapters.install.GitHubSkillInstaller` |
+| `snapshot.ports.snapshots.SnapshotStore` | `snapshot.adapters.git_tree.GitSnapshotStore` |
+| `team.ports.team.ChildSession` | `session.services.agent_session.AgentSession` |
+| `team.ports.team.ChildSessions` | `app.composition.team.ConfiguredChildSessions` |
+| `team.ports.team.Worktrees` | `team.adapters.worktrees.WorktreeManager` |
+| `team.ports.team.WorktreeSnapshot` | `snapshot.adapters.git_tree.GitSnapshotStore` |
+| `team.ports.team.WorktreeSnapshotFactory` | `snapshot.adapters.git_tree.GitSnapshotStore` (factory/callback) |
+| `tools.ports.dispatch.ToolDispatch` | `mcp.adapters.tools.MCPCall` |
+| `tools.ports.hooks.ToolHooks` | `hooks.services.tool_bridge.ToolHookBridge` |
+| `tools.ports.outputs.OutputWriter` | `tools.adapters.output_store.StreamingOutputWriter` |
+| `tools.ports.outputs.ToolOutputStore` | `tools.adapters.output_store.FileToolOutputStore` |
+| `tools.ports.outputs.SessionHeaderReader` | `session.adapters.storage.header_reader.FileSessionHeaderReader` |
+| `tools.ports.publication.MessagePublisher` | `agent.adapters.boundaries.AgentMessagePublisher` |
+| `tools.ports.publication.ToolLifecycle` | `app.composition.runtime.build_runtime_bindings` (factory/callback) |
+| `tools.ports.questions.QuestionPrompt` | `tools.adapters.questions.InterruptQuestionPrompt` |
+| `tools.ports.tools.ArgumentValidator` | `tools.adapters.schema.JsonSchemaValidator` |
+| `tools.ports.tools.ToolGate` | `tools.services.permissions.ReadOnlyToolGate` |
+| `ui.ports.ui.InteractiveSession` | `session.services.agent_session.AgentSession` |
+| `ui.ports.ui.InteractiveSessions` | `app.composition.ui.ConfiguredInteractiveSessions` |
+| `ui.ports.ui.ModelChoice` | `models.domain.models.ModelDescriptor` |
+| `ui.ports.ui.ModelChoices` | `models.domain.models.CatalogSnapshot` |
+| `ui.ports.ui.SandboxAvailability` | `sandbox.domain.sandbox.SandboxStatus` |
+| `context.ports.projection.ProjectionContributor` | `context.services.prompt_projection.SystemPromptProjection` |
+| `tools.ports.extensions.ToolExtension` | `skills.adapters.extension.SkillsToolExtension` |
+| `tools.ports.extensions.NativeToolBinding` | `mcp.adapters.native.MCPNativeBinding` |
+| `agent.ports.runtime.Runtime` | `agent.adapters.agent.AgentRuntime` |
+
+Stage-five type boundaries add the UI's read-only ModelChoice/ModelChoices and
+SandboxAvailability views; their implementations are the existing native ModelDescriptor,
+CatalogSnapshot and SandboxStatus values. The private `_DataclassValue` typing helper is not
+a business port. Explicit subprocess passthrough accepts only exact ordinary environment
+names and still rejects credential-shaped names (including bare API_KEY/TOKEN/CREDENTIAL).
+Bash, Hook and Python Skill policy hashes bind sandbox settings and the validated name list;
+environment values and provider secrets never enter those policy hashes. The configured
+process/grant callbacks and strict worker sandbox remain injected through the selected module entries.

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -24,8 +24,8 @@ def fix_plan_path(reply, plan_id):
 
 
 async def open_plan_session(config, url, *, create=True):
-    return await open_agent_session(
-        config, (provider(url),), "s1", create=create, refresh_models=False
+    return await compose_application(config, (provider(url),)).open_session(
+        "s1", create=create, refresh_models=False
     )
 
 

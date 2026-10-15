@@ -3,11 +3,12 @@
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.runnables import RunnableLambda
 
-from pycode.kernel import EntryDraft, SessionTree, ToolError, plain_data
-from pycode.skills import skill_scope
+from pycode.kernel import EntryDraft, ToolError, plain_data
 
 
 async def prepare_model_boundary(request, bindings):
+    for model_filter in bindings.model_filters:
+        request = await model_filter(request)
     chain = (
         RunnableLambda(filter_model_tools)
         | RunnableLambda(bindings.select_model_tools)
@@ -18,30 +19,6 @@ async def prepare_model_boundary(request, bindings):
 
 async def filter_model_tools(request):
     context = request.runtime.context
-    if context.history_store is not None:
-        snapshot = await context.history_store.snapshot()
-        scope = skill_scope(SessionTree(snapshot.index).path(snapshot.leaf_id))
-        if scope is not None:
-            aliases = {
-                "Read": "read_file",
-                "Write": "write_file",
-                "Edit": "edit_file",
-                "Grep": "grep",
-                "Glob": "glob",
-            }
-            allowed = {"SkillSearch"}
-            for name in scope:
-                allowed.add(aliases.get(name, name))
-            filtered = []
-            for tool in request.tools:
-                name = (
-                    tool.name
-                    if not isinstance(tool, dict)
-                    else tool.get("function", tool).get("name")
-                )
-                if name in allowed:
-                    filtered.append(tool)
-            request = request.override(tools=filtered)
     selector = context.tool_selector
     if selector is not None and selector.settings.enabled:
         planning = (

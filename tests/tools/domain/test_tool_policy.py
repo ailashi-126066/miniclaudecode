@@ -1,4 +1,4 @@
-from pycode.kernel.contracts.tools import ToolSpec
+from pycode.kernel.domain.tools import ToolSpec
 from pycode.tools.domain.execution import batch_execution_mode
 
 

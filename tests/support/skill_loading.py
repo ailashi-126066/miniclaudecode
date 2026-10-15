@@ -7,8 +7,8 @@ fixtures exercise the same native file read and durable recorder boundaries.
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.values import plain_data
 from pycode.skills.adapters.backend import SkillBackend
 from pycode.skills.domain.skills import active_skills
 from pycode.skills.services.skill_resources import SkillLoadRecorder

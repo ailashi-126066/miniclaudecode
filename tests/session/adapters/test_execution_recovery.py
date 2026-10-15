@@ -9,11 +9,11 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.history import EntryDraft
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.history import EntryDraft
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.support.execution import provider, session_at
 from tests.support.http_provider import chat_completion, protocol_server
@@ -232,7 +232,7 @@ async def test_saved_input_without_first_checkpoint_is_not_automatically_schedul
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    store = await build_session_repository(config).open("s1", create=True)
+    store = await compose_application(config).session_repository().open("s1", create=True)
     await store.append_message(Message("u1", "user", "unstarted task"))
     await store.append_entry(
         EntryDraft("custom", data={"kind": "run_start", "input_id": "u1"}, run_id="unstarted-run")
@@ -319,8 +319,8 @@ async def test_independent_sessions_can_execute_concurrently_with_shared_request
         sessions = []
         for identifier in ("s1", "s2"):
             sessions.append(
-                await open_agent_session(
-                    config, (provider(url),), identifier, create=True, refresh_models=False
+                await compose_application(config, (provider(url),)).open_session(
+                    identifier, create=True, refresh_models=False
                 )
             )
         try:

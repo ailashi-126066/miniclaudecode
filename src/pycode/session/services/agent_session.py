@@ -15,6 +15,7 @@ from pycode.kernel import (
     Message,
     ModelError,
     RunResult,
+    SessionEntry,
     SessionTree,
     StorageError,
     plain_data,
@@ -26,6 +27,7 @@ from pycode.session.domain.revert_state import pending_revert
 from pycode.session.ports.history import SessionStore
 from pycode.session.ports.runtime import RuntimeLauncher
 from pycode.session.services.durable_inputs import DurableInputs
+from pycode.session.services.ownership import SessionCleanup
 from pycode.session.services.restart import recover_conversation
 from pycode.session.services.revert import RevertService
 from pycode.session.services.session_view import SessionView
@@ -75,6 +77,8 @@ class AgentSession:
         self._recover_tool = recover_tool
         self._recovery_outputs = recovery_outputs
         self._team = team
+        self._closing = False
+        self._cleanup = SessionCleanup()
 
     async def submit_input(self, message: Message, kind: InputKind) -> bool:
         if self._durable_inputs is None:
@@ -88,13 +92,17 @@ class AgentSession:
             start = self.pending_run(snapshot)
             if start is None:
                 for entry in snapshot.entries:
-                    if entry.type == "input_queued" and entry.message.id == message.id:
-                        return await self._durable_inputs.submit(message, kind, entry.run_id)
+                    if entry.type == "input_queued" and entry.require_message().id == message.id:
+                        return await self._durable_inputs.submit(
+                            message, kind, self.require_run_id(entry)
+                        )
                 raise StorageError("no_pending_run", "Start a task before queueing input")
-            return await self._durable_inputs.submit(message, kind, start.run_id)
+            return await self._durable_inputs.submit(message, kind, self.require_run_id(start))
 
     @asynccontextmanager
     async def execution(self, *, allow_revert_recovery=False):
+        if self._closing:
+            raise StorageError("session_closed", "This session is closing or closed")
         if self._execution.locked():
             raise StorageError("session_busy", "This session already has an active executor")
         async with self._execution:
@@ -111,7 +119,8 @@ class AgentSession:
                 yield
             finally:
                 self._active_task = None
-                if self._team is not None and asyncio.current_task().cancelling():
+                current = asyncio.current_task()
+                if self._team is not None and current is not None and current.cancelling():
                     await self._team.cancel_all("lead_cancelled")
 
     async def cancel(self) -> bool:
@@ -128,7 +137,7 @@ class AgentSession:
                 start = self.pending_run(await self._store.snapshot())
                 if start is None:
                     return False
-                outputs = await self._launcher.cancel_wait(start.run_id)
+                outputs = await self._launcher.cancel_wait(self.require_run_id(start))
                 await recover_conversation(
                     self._store,
                     outputs or self._recovery_outputs,
@@ -137,7 +146,7 @@ class AgentSession:
                     recover_tool=self._recover_tool,
                 )
                 if self._plans is not None:
-                    await self._plans.finish(start.run_id)
+                    await self._plans.finish(self.require_run_id(start))
                 return True
         if running is asyncio.current_task():
             raise StorageError("invalid_cancel_owner", "Cancellation must come from another task")
@@ -275,7 +284,7 @@ class AgentSession:
             (
                 entry
                 for entry in before.entries
-                if entry.type == "message" and entry.message.id == message.id
+                if entry.type == "message" and entry.require_message().id == message.id
             ),
             None,
         )
@@ -295,7 +304,9 @@ class AgentSession:
                 ):
                     final_id = entry.data.get("final_entry_id")
                     final_text = (
-                        SessionTree(before.index).get(final_id).message.text if final_id else ""
+                        SessionTree(before.index).get(final_id).require_message().text
+                        if final_id
+                        else ""
                     )
                     return RunResult(
                         entry.data["outcome"],
@@ -309,7 +320,7 @@ class AgentSession:
                 provider = await self._models.restore(self._default)
                 return await self.resume_run(provider, pending)
             if any(
-                entry.type == "message" and entry.message.role in {"assistant", "tool"}
+                entry.type == "message" and entry.require_message().role in {"assistant", "tool"}
                 for entry in following
             ):
                 raise StorageError(
@@ -370,6 +381,12 @@ class AgentSession:
             raise
         return await self.settle_run(start, result)
 
+    @staticmethod
+    def require_run_id(entry: SessionEntry) -> str:
+        if entry.run_id is None:
+            raise StorageError("invalid_run_entry", "Execution entry requires a run ID")
+        return entry.run_id
+
     def pending_run(self, snapshot):
         return pending_run_entry(snapshot)
 
@@ -389,11 +406,13 @@ class AgentSession:
             EntryDraft(
                 "custom",
                 data={"kind": "run_resume", "input_id": start.data["input_id"]},
-                run_id=start.run_id,
+                run_id=self.require_run_id(start),
             )
         )
         try:
-            result = await self._launcher.resume(provider, self._store, start.run_id, answers)
+            result = await self._launcher.resume(
+                provider, self._store, self.require_run_id(start), answers
+            )
         except asyncio.CancelledError:
             await recover_conversation(
                 self._store, self._recovery_outputs, recover_tool=self._recover_tool
@@ -406,7 +425,7 @@ class AgentSession:
             return await self.record_run_result(start, result)
 
     async def record_run_result(self, start, result):
-        result = replace(result, run_id=start.run_id)
+        result = replace(result, run_id=self.require_run_id(start))
         if result.outcome == "needs_input":
             await self._store.append_entry(
                 EntryDraft(
@@ -416,7 +435,7 @@ class AgentSession:
                         "pending": list(result.pending),
                         "checkpoint_id": result.checkpoint_id,
                     },
-                    run_id=start.run_id,
+                    run_id=self.require_run_id(start),
                 )
             )
             return result
@@ -425,15 +444,15 @@ class AgentSession:
         path = SessionTree(after.index).path(after.leaf_id)
         input_ids = [message_id]
         input_ids.extend(
-            entry.message.id
+            entry.require_message().id
             for entry in path
-            if entry.type == "input_queued" and entry.run_id == start.run_id
+            if entry.type == "input_queued" and entry.run_id == self.require_run_id(start)
         )
         final_id = None
         for entry in reversed(SessionTree(after.index).path(after.leaf_id)):
-            if entry.type == "message" and entry.message.id == message_id:
+            if entry.type == "message" and entry.require_message().id == message_id:
                 break
-            if entry.type == "message" and entry.message.role == "assistant":
+            if entry.type == "message" and entry.require_message().role == "assistant":
                 final_id = entry.id
                 break
         await self._store.append_entry(
@@ -447,39 +466,51 @@ class AgentSession:
                     "outcome": result.outcome,
                     "final_entry_id": final_id,
                 },
-                run_id=start.run_id,
+                run_id=self.require_run_id(start),
             )
         )
         if self._plans is not None:
-            await self._plans.finish(start.run_id)
+            await self._plans.finish(self.require_run_id(start))
         if self._memory is not None and result.outcome == "completed":
-            await self._memory.settled(start.run_id)
+            await self._memory.settled(self.require_run_id(start))
         return result
 
     async def aclose(self) -> None:
-        if self._execution.locked():
+        if not self._closing and self._execution.locked():
             raise StorageError("session_busy", "Cancel and collect the active run before closing")
-        try:
-            try:
-                if self._memory is not None:
-                    await self._memory.aclose()
-            finally:
-                if self._team is not None:
-                    self._team.closing = True
-                    await self._team.cancel_all("close")
-                    self._team.stopping = False
-                    self._team._closing_delegate = True
+        self._closing = True
+        closers = []
+        memory, self._memory = self._memory, None
+        if memory is not None:
+            closers.append(memory.aclose)
+        team = self._team
+        if team is not None:
+            team.closing = True
+
+            async def stop_team():
                 try:
-                    await self._launcher.aclose()
+                    await team.cancel_all("close")
                 finally:
-                    if self._team is not None:
-                        await self._team.aclose()
-        finally:
-            try:
-                if self._view is not None:
-                    await self._view.aclose()
-            finally:
-                await self._store.aclose()
+                    # SessionEnd Hooks may still use the explicitly allowed
+                    # readonly delegate before launcher shutdown completes.
+                    team.stopping = False
+                    team._closing_delegate = True
+
+            async def close_team():
+                try:
+                    await team.aclose()
+                finally:
+                    self._team = None
+
+            closers.append(stop_team)
+        closers.append(self._launcher.aclose)
+        if team is not None:
+            closers.append(close_team)
+        view, self._view = self._view, None
+        if view is not None:
+            closers.append(view.aclose)
+        closers.append(self._store.aclose)
+        await self._cleanup.close(tuple(closers))
 
     async def inspect(self, *, presentation=False):
         if self._view is None:
@@ -519,13 +550,14 @@ class AgentSession:
         return "idle" if self._team is None else await self._team.wait_lead_input()
 
     async def wake_team(self):
-        if not self.team_wake_pending() or self._execution.locked():
+        team = self._team
+        if team is None or not self.team_wake_pending() or self._execution.locked():
             return None
         async with self.execution():
             if self.pending_run(await self._store.snapshot()) is not None:
                 return None
             input_id = "team-wake-" + uuid4().hex
-            messages = await self._team.inbox.reserve("lead", "wake", input_id)
+            messages = await team.inbox.reserve("lead", "wake", input_id)
             if not messages:
                 return None
             message = Message(
@@ -537,11 +569,9 @@ class AgentSession:
             try:
                 return await self._run_locked(message)
             finally:
-                accepted = await self._team.input_accepted("lead", input_id)
+                accepted = await team.input_accepted("lead", input_id)
                 ids = [m["id"] for m in messages]
-                await (
-                    self._team.inbox.acknowledge(ids) if accepted else self._team.inbox.release(ids)
-                )
+                await (team.inbox.acknowledge(ids) if accepted else team.inbox.release(ids))
 
     async def usage(self, run_id=None):
         if self._view is None:

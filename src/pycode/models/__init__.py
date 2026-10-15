@@ -10,12 +10,12 @@ from pycode.models.domain.models import (
 from pycode.models.domain.network import is_loopback_host
 from pycode.models.domain.requests import RequestRecord, RetryPolicy
 from pycode.models.domain.selection import selector_provider
+from pycode.models.domain.tool_text import model_tool_text
 from pycode.models.ports.context import (
     CalibrationContext,
     CalibrationReport,
     Projector,
     RegistryLookup,
-    ResourceLookup,
     RunOwnership,
     SummaryBudget,
 )
@@ -31,10 +31,10 @@ from pycode.models.services.model_control import ModelControl
 from pycode.models.services.usage import UsageService
 
 __all__ = [
+    "model_tool_text",
     "CalibrationContext",
     "CalibrationReport",
     "RegistryLookup",
-    "ResourceLookup",
     "SummaryBudget",
     "CapabilityOverride",
     "CatalogStore",

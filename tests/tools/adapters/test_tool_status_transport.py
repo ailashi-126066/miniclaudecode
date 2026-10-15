@@ -1,8 +1,8 @@
 import json
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -21,8 +21,8 @@ async def test_nonzero_command_exit_is_visible_in_real_openai_tool_content(tmp_p
     )
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([response, chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         pending = await session.run(Message("u1", "user", "test command"))
         result = await session.resume(

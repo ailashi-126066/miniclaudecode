@@ -8,14 +8,16 @@ import pytest
 from pycode.hooks.adapters.actions import ConfiguredHookActions
 from pycode.hooks.adapters.config import parse_hooks
 from pycode.hooks.domain.hooks import HookAction, HookContext
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import ToolError
+from pycode.hooks.services.hooks import HookActionTool
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.tools import ToolContext
 from pycode.sandbox.adapters.seatbelt import UnavailableSandbox
 from pycode.sandbox.adapters.tools.bash import find_bash
 from pycode.sandbox.adapters.tools.process_runner import run_process
 from pycode.sandbox.domain.sandbox import SandboxSettings
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.tools.adapters.output_store import FileToolOutputStore
+from pycode.tools.domain.operations import operation_spec_hash
 
 VECTORS = json.loads(
     (Path(__file__).parents[2] / "fixtures/hook-baselines.json").read_text(encoding="utf-8")
@@ -93,3 +95,30 @@ async def test_command_receives_only_explicit_environment_references(tmp_path, m
     command = 'printf "%s|%s|%s" "${FAKE_API_KEY:-}" "$ENV.HOOK_API_KEY" "${PATH:+path}"'
     result = await runner.execute(asdict(HookAction("command", command=command)), context, tool)
     assert not result.is_error and result.text == "|referenced-secret|path"
+
+
+def test_hook_action_identity_binds_environment_grant_and_sandbox(tmp_path):
+    hook = parse_hooks([VECTORS["config"]])[0]
+    base = actions(tmp_path)
+    expanded = ConfiguredHookActions(
+        base._outputs,
+        base._shell,
+        base._sandbox,
+        base._settings,
+        {},
+        passthrough=("HTTPS_PROXY",),
+        process_runner=run_process,
+    )
+    enclosed = ConfiguredHookActions(
+        base._outputs,
+        base._shell,
+        base._sandbox,
+        SandboxSettings("on"),
+        {},
+        process_runner=run_process,
+    )
+    identities = {
+        operation_spec_hash(HookActionTool(hook, runner).spec)
+        for runner in (base, expanded, enclosed)
+    }
+    assert len(identities) == 3

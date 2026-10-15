@@ -1,6 +1,6 @@
 """Textual Pilot exercises the actual Plan interrupt and automatic execution."""
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.plans.adapters.test_plans import fix_plan_path, write_plan_reply
 from tests.skills.adapters.test_skills_http import skill_reply
@@ -19,7 +19,9 @@ async def test_tui_plan_inline_review_drives_same_live_agent(tmp_path, monkeypat
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             plan = await app.session.enter_plan()

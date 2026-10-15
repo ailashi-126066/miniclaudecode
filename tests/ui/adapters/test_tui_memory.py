@@ -2,7 +2,7 @@
 
 import hashlib
 
-from pycode.app.composition import build_tui, memory_namespaces
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.memory.adapters.storage.json_memory import JsonMemoryStore, MemoryChangeLog
 from tests.support.execution import provider
@@ -14,7 +14,7 @@ async def test_tui_memory_panel_edit_delete_and_undo(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([chat_completion()]) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 65)):
             await app.ready.wait()
             await app.send_text("Keep functions readable.")
@@ -63,14 +63,14 @@ async def test_tui_memory_panel_edit_delete_and_undo(tmp_path, monkeypatch):
 async def test_tui_memory_edit_and_delete_can_disambiguate_scope(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    user, project = memory_namespaces(config)
+    user, project = compose_application(config).modules.memory.namespaces
     store = JsonMemoryStore(
         {user: config.user_data / "memory", project: tmp_path / ".pycode" / "memory"}
     )
     await store.aput(user, "same", {"content": "user preference"})
     await store.aput(project, "same", {"content": "project preference"})
     with protocol_server([]) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 65)):
             await app.ready.wait()
             await app.command("/memory edit same changed project preference --scope project")

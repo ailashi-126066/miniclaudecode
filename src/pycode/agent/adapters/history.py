@@ -1,19 +1,22 @@
 """Deep Agents boundary extracted for sequential, readable ownership."""
 
 from dataclasses import replace
+from typing import Any, cast
 
 from langchain.agents.middleware import (
     AgentMiddleware,
     ExtendedModelResponse,
+    ModelResponse,
     hook_config,
 )
-from langchain_core.messages import RemoveMessage
+from langchain_core.messages import AIMessage, BaseMessage, RemoveMessage
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from pycode.agent.adapters.boundaries import deliver_input, prepare_model_boundary, save_message
 from pycode.agent.adapters.state import PycodeState
 from pycode.agent.domain.turn_policy import next_turn
+from pycode.agent.services.context import RunContext
 from pycode.kernel import ModelError, data_hash, plain_data
 
 
@@ -21,8 +24,6 @@ def take_queued(context):
     # The agent loop has already settled with no tool calls. Queued input is delivered after
     # any completed loop, so no stop reason is applied here.
     decision = next_turn(
-        None,
-        (),
         steering_pending=context.inputs.has("steer"),
         follow_up_pending=context.inputs.has("follow_up"),
     )
@@ -31,7 +32,7 @@ def take_queued(context):
     return decision.queue, context.inputs.take(decision.queue, one_at_a_time=context.one_at_a_time)
 
 
-class HistoryMiddleware(AgentMiddleware):
+class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
     state_schema = PycodeState
 
     def __init__(self, bindings):
@@ -52,8 +53,8 @@ class HistoryMiddleware(AgentMiddleware):
             context.model_fallback.restore_primary(context)
 
         async def maintain_context(current):
-            if current.mcp is not None:
-                await current.mcp.refresh(current.registry)
+            for callback in self.bindings.before_model:
+                await callback()
             summary = None
             if current.summary is not None:
                 current.summary.set_tools(current.model_tools or current.registry.model_specs())
@@ -81,12 +82,13 @@ class HistoryMiddleware(AgentMiddleware):
             await self.bindings.run_hook(context, "turn_start", f"{context.run_id}:turn-{turn}")
             if turn > 1:
                 await context.events.emit("turn_start", {"turn": turn})
-            updates = {"turn": turn}
+            updates: dict[str, Any] = {"turn": turn}
             if context.history_store is not None:
                 snapshot = await context.history_store.snapshot()
+                assert context.projector is not None
                 projection = context.projector.project(snapshot)
                 context.model_source_leaf_id = snapshot.leaf_id
-                messages = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
+                messages: list[BaseMessage] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
                 for message in projection.messages:
                     messages.append(self.bindings.to_framework(message, context.selection))
                 updates.update(messages=messages, branch_leaf_id=snapshot.leaf_id)
@@ -105,11 +107,13 @@ class HistoryMiddleware(AgentMiddleware):
 
     async def awrap_model_call(self, request, handler):
         context = request.runtime.context
-        boundary = f"{context.run_id}:model-{request.state['turn']}"
+        state = cast(PycodeState, request.state)
+        boundary = f"{context.run_id}:model-{state['turn']}"
         await self.bindings.run_hook(context, "pre_send", boundary)
         projection = None
         if context.history_store is not None:
             snapshot = await context.history_store.snapshot()
+            assert context.projector is not None
             projection = context.projector.project(snapshot)
             context.model_source_leaf_id = snapshot.leaf_id
             request = request.override(
@@ -129,7 +133,9 @@ class HistoryMiddleware(AgentMiddleware):
         request = request.override(
             tools=tools, model_settings={**request.model_settings, "stream": True}
         )
-        if not context.skill_boundary:
+        if not any(
+            extension.prepares_model_boundary for extension in self.bindings.framework_extensions
+        ):
             request = await prepare_model_boundary(request, self.bindings)
         requests = context.model_fallback or context.requests
         model_step = self.bindings.model_request_step(requests, handler, logical_id=boundary)
@@ -141,6 +147,7 @@ class HistoryMiddleware(AgentMiddleware):
             report = await context.summary.prepare(force=True)
             if report.applied_job_id is None:
                 raise
+            assert context.history_store is not None and context.projector is not None
             snapshot = await context.history_store.snapshot()
             projection = context.projector.project(snapshot)
             context.model_source_leaf_id = snapshot.leaf_id
@@ -154,11 +161,16 @@ class HistoryMiddleware(AgentMiddleware):
         model_response = (
             response.model_response if isinstance(response, ExtendedModelResponse) else response
         )
+        if isinstance(model_response, AIMessage):
+            model_response = ModelResponse(result=[model_response])
         if context.history_store is not None:
             snapshot = await context.history_store.snapshot()
+            assert context.projector is not None
             projection = context.projector.project(snapshot)
             context.model_source_leaf_id = snapshot.leaf_id
         assistant = model_response.result[-1]
+        if not isinstance(assistant, AIMessage):
+            raise ModelError("invalid_model_response", "Model response must end with an AI message")
         message = self.bindings.from_assistant(
             assistant, context.selection, context.session_id, context.run_id
         )
@@ -167,7 +179,7 @@ class HistoryMiddleware(AgentMiddleware):
             provider_metadata={
                 **message.provider_metadata,
                 "pycode_run_id": context.run_id,
-                "pycode_turn": request.state["turn"],
+                "pycode_turn": state["turn"],
                 "pycode_source_leaf_id": context.model_source_leaf_id,
                 "pycode_summary_config_hash": context.summary.config_hash(projection)
                 if context.summary is not None and projection is not None
@@ -217,6 +229,7 @@ class HistoryMiddleware(AgentMiddleware):
         # This hook records a boundary only. Deep Agents decides all tool routing.
         context = runtime.context
         message = context.assistant
+        assert message is not None
         outcome = "running" if message.tool_calls else "completed"
         if message.stop_reason in {"error", "aborted", "content_filter"}:
             outcome = message.stop_reason

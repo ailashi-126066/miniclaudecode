@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.adapters.summary import SUMMARY_SYSTEM
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ModelReference
 from tests.agent.adapters.test_agent import Recorder
 from tests.context.adapters.test_summary_http import seed
@@ -69,13 +69,9 @@ async def test_retry_exhaustion_then_native_fallback_accounts_actual_model_and_k
 
     with protocol_server(respond) as (url, captured):
         configs = roster(url, skip=skip)
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            configs,
-            "s1",
-            create=True,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), configs
+        ).open_session("s1", create=True, refresh_models=False)
         try:
             result = await asyncio.wait_for(session.run(Message("u", "user", "inspect")), 15)
             assert (
@@ -116,13 +112,9 @@ async def test_non_switchable_provider_error_sends_no_fallback_request(
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     with protocol_server([failure(status)]) as (url, captured):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster(url),
-            "s1",
-            create=True,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster(url)
+        ).open_session("s1", create=True, refresh_models=False)
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "error"
             assert len(captured) == 1 and captured[0]["body"]["model"] == "wire-model"
@@ -148,13 +140,10 @@ async def test_selection_is_reused_by_fallback_and_actual_schema_order_is_preser
         return chat_completion()
 
     with protocol_server(respond) as (url, _):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster(url, selector=True),
-            "s1",
-            create=True,
-            refresh_models=False,
-            tools=(Probe("probe_0"), Probe("probe_1")),
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster(url, selector=True)
+        ).open_session(
+            "s1", create=True, refresh_models=False, tools=(Probe("probe_0"), Probe("probe_1"))
         )
         try:
             assert (
@@ -175,13 +164,9 @@ async def test_cancelled_primary_attempt_does_not_start_secondary(tmp_path, monk
     started, release = threading.Event(), threading.Event()
     response.started, response.release = started, release
     with protocol_server([response]) as (url, captured):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster(url),
-            "s1",
-            create=True,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster(url)
+        ).open_session("s1", create=True, refresh_models=False)
         running = asyncio.create_task(session.run(Message("u", "user", "inspect")))
         try:
             assert await asyncio.to_thread(started.wait, 5)
@@ -212,14 +197,9 @@ async def test_completed_tool_is_not_repeated_when_a_later_model_request_switche
         return chat_completion()
 
     with protocol_server(respond) as (url, captured):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster(url),
-            "s1",
-            create=True,
-            tools=(probe,),
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster(url)
+        ).open_session("s1", create=True, tools=(probe,), refresh_models=False)
         try:
             assert (
                 await asyncio.wait_for(session.run(Message("u", "user", "inspect")), 15)
@@ -250,14 +230,9 @@ async def test_failed_stream_partials_keep_their_request_identity_without_becomi
         return response
 
     with protocol_server(respond) as (url, captured):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster(url),
-            "s1",
-            create=True,
-            consumers=(recorder,),
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster(url)
+        ).open_session("s1", create=True, consumers=(recorder,), refresh_models=False)
         try:
             assert (
                 await asyncio.wait_for(session.run(Message("u", "user", "inspect")), 15)
@@ -305,7 +280,9 @@ async def test_smaller_fallback_window_remeasures_and_safely_compacts_before_sdk
             replace(configs[0], context_window=64000),
             replace(configs[1], context_window=12000, max_output_tokens=1000),
         )
-        session = await open_agent_session(config, configs, "s1", refresh_models=False)
+        session = await compose_application(config, configs).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (
                 await asyncio.wait_for(

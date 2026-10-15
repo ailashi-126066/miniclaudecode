@@ -29,6 +29,10 @@ from pycode.kernel import (
 
 class HookActionTool:
     def __init__(self, hook, actions: HookActions):
+        # Custom embedders may omit policy metadata; configured subprocess actions bind it.
+        policy = getattr(actions, "policy_hash", None)
+        if policy is not None and not isinstance(policy, str):
+            raise TypeError("Hook action policy hash must be a string")
         self.spec = ToolSpec(
             "hook__" + hook.id,
             "Configured lifecycle action",
@@ -45,6 +49,7 @@ class HookActionTool:
             if hook.action.type == "command"
             else "external",
             implementation_hash=data_hash(plain_data(hook)),
+            policy_hash=policy,
         )
         self._actions = actions
 
@@ -60,13 +65,10 @@ class HookEngine:
         hooks,
         history,
         actions,
-        validator,
         outputs,
         events,
         *,
-        error_boundary,
         executor_factory: HookExecutorFactory,
-        snapshots=None,
         owned_tasks=None,
         plans=None,
         read_only=False,

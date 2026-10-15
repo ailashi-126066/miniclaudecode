@@ -5,6 +5,9 @@
 from dataclasses import replace
 
 from pycode.context.domain.retention import retained_context_entries
+from pycode.context.domain.tool_pairing import repair_tool_pairing
+from pycode.context.ports.projection import ProjectionContributor
+from pycode.context.services.prompt_projection import SystemPromptProjection
 from pycode.kernel import (
     Message,
     ProjectedContext,
@@ -12,13 +15,9 @@ from pycode.kernel import (
     SessionEntry,
     SessionSnapshot,
     SessionTree,
-    ToolCall,
     clone_value,
     freeze_value,
-    repair_tool_pairing,
 )
-from pycode.mcp import active_mcp
-from pycode.skills import active_skills
 
 
 class ContextProjector:
@@ -35,7 +34,19 @@ class ContextProjector:
         }
     )
 
-    def __init__(self):
+    def __init__(self, contributors: tuple[ProjectionContributor, ...] | None = None):
+        self._contributors = (
+            contributors if contributors is not None else (SystemPromptProjection(),)
+        )
+        names = set()
+        keys = set()
+        for contributor in self._contributors:
+            if contributor.name in names or keys & contributor.checkpoint_keys:
+                raise ValueError(
+                    "Projection contributors must have unique names and checkpoint keys"
+                )
+            names.add(contributor.name)
+            keys.update(contributor.checkpoint_keys)
         self._session_id = None
         self._key = None
         self._cached = None
@@ -43,7 +54,11 @@ class ContextProjector:
         self._tree = None
 
     def incremental(self, snapshot):
-        if self._cached is None:
+        # A contributor can depend on any newly appended fact, including ordinary
+        # messages. Until it has an explicit incremental contract, rebuild it.
+        if self._contributors:
+            return None
+        if self._cached is None or self._key is None:
             return None
         if snapshot.revision <= self._key[1]:
             return None
@@ -62,12 +77,12 @@ class ContextProjector:
                 "hook_context",
             }:
                 return None
-            if entry.type == "message" and entry.message.role == "system":
+            if entry.type == "message" and entry.require_message().role == "system":
                 return None
             if (
                 entry.type == "message"
-                and entry.message.model_selection is not None
-                and entry.message.model_selection != self._cached.selection
+                and entry.require_message().model_selection is not None
+                and entry.require_message().model_selection != self._cached.selection
             ):
                 return None
             added.append(entry)
@@ -100,7 +115,7 @@ class ContextProjector:
             self._key = None
             self._cached = None
         key = (snapshot.leaf_id, snapshot.revision, self.PROJECTION_VERSION)
-        if key == self._key:
+        if key == self._key and self._cached is not None:
             return self._cached
         incremental = self.incremental(snapshot)
         if incremental is not None:
@@ -108,6 +123,47 @@ class ContextProjector:
             self._cached = incremental
             return incremental
         path = SessionTree(snapshot.index).path(snapshot.leaf_id)
+        selection, thinking = self.model_context(path)
+        contributions, checkpoint, raw_messages = self.projected_entries(path)
+        messages = repair_tool_pairing(raw_messages)
+        pinned = []
+        invalidating = []
+        path_ids = {entry.id for entry in path}
+        frozen_snapshot = freeze_value(snapshot)
+        frozen_path = freeze_value(path)
+        for contributor in self._contributors:
+            contribution = contributor.contribute(
+                frozen_snapshot,
+                frozen_path,
+                freeze_value(tuple((*pinned, *contributions))),
+                freeze_value(checkpoint),
+            )
+            if not set(contribution.usage_invalidating_entry_ids) <= path_ids:
+                raise ValueError(
+                    "Projection contributor referenced facts outside the active history"
+                )
+            invalidating.extend(contribution.usage_invalidating_entry_ids)
+            written = set(contribution.checkpoint_updates) | contribution.checkpoint_removals
+            if not written <= contributor.checkpoint_keys:
+                raise ValueError("Projection contributor wrote another feature's checkpoint keys")
+            for key_to_remove in contribution.checkpoint_removals:
+                checkpoint.pop(key_to_remove, None)
+            checkpoint.update(clone_value(dict(contribution.checkpoint_updates)))
+            pinned.extend(contribution.entries)
+        return self.cache_projection(
+            snapshot,
+            key,
+            selection,
+            thinking,
+            checkpoint,
+            contributions,
+            messages,
+            raw_messages,
+            pinned,
+            tuple(dict.fromkeys(invalidating)),
+        )
+
+    def model_context(self, path):
         selection = None
         thinking = "off"
         for entry in path:
@@ -115,17 +171,12 @@ class ContextProjector:
                 selection = entry.selection
             elif entry.type == "thinking_level_change":
                 thinking = entry.data["thinking"]
-            elif entry.type == "message" and entry.message.role == "assistant":
-                if entry.message.model_selection is not None:
-                    selection = entry.message.model_selection
-        prompt_snapshot = None
-        for entry in path:
-            if entry.type == "system_prompt":
-                prompt_snapshot = entry.data
-            elif entry.type == "compaction":
-                prompt_snapshot = entry.data.get("checkpoint", {}).get(
-                    "prompt_snapshot", prompt_snapshot
-                )
+            elif entry.type == "message" and entry.require_message().role == "assistant":
+                if entry.require_message().model_selection is not None:
+                    selection = entry.require_message().model_selection
+        return selection, thinking
+
+    def projected_entries(self, path):
         context_entries = retained_context_entries(path)
         edits = {
             entry.data["target_id"]: entry
@@ -155,166 +206,21 @@ class ContextProjector:
             flattened.extend(contribution.messages)
         messages = tuple(flattened)
         raw_messages = messages
-        messages = repair_tool_pairing(messages)
-        loaded = active_skills(path)
-        pinned = []
-        memory_records = ()
-        memory_source = None
-        for entry in path:
-            if entry.type == "compaction" and "memories" in entry.data.get("checkpoint", {}):
-                memory_records = entry.data["checkpoint"]["memories"]
-                memory_source = entry
-            elif entry.type == "memory_load":
-                memory_records = entry.data["records"]
-                memory_source = entry
-        checkpoint.pop("memories", None)
-        if memory_records:
-            checkpoint["memories"] = clone_value(memory_records)
-            lines = [
-                "Saved memory references. Current user instructions and permission boundaries "
-                "take priority. "
-                "Verify project facts against current code; historical cases are references:"
-            ]
-            for record in memory_records:
-                lines.append(
-                    f"[{record['scope']} {record['memory_id']}; saved={record['updated_at']}] "
-                    + record["content"]
-                )
-            pinned.append(
-                ProjectedEntry(
-                    memory_source.id,
-                    (
-                        Message(
-                            "memory:" + memory_source.id,
-                            "system",
-                            "\n".join(lines),
-                            provider_metadata={"source_type": "memory_load"},
-                        ),
-                    ),
-                )
-            )
-        plan_state = None
-        plan_entry = None
-        for entry in path:
-            if (
-                entry.type == "plan_state"
-                and entry.data["session_id"] == snapshot.header.session_id
-            ):
-                plan_state = entry.data
-                plan_entry = entry
-        if plan_state is not None and plan_state["mode"] != "completed":
-            checkpoint["plan"] = clone_value(plan_state)
-            reminder = (
-                f"Plan mode={plan_state['mode']}; active Markdown={plan_state['virtual_path']}. "
-                f"File exists={plan_state['document_exists']}. "
-            )
-            if plan_state["mode"] == "planning":
-                reminder += (
-                    "The project is read only. Only write the exact active Plan Markdown. "
-                    "Call ExitPlanMode after writing it to request approval."
-                )
-            else:
-                reminder += (
-                    "Execute only the approved Plan snapshot within this run. "
-                    "External changes require fresh approval."
-                )
-            pinned.append(
-                ProjectedEntry(
-                    plan_entry.id, (Message("plan:" + plan_state["plan_id"], "system", reminder),)
-                )
-            )
-        if prompt_snapshot is not None:
-            checkpoint["prompt_snapshot"] = clone_value(prompt_snapshot)
-            checkpoint["system_prompt"] = prompt_snapshot["text"]
-            source_id = snapshot.leaf_id
-            for entry in reversed(path):
-                if entry.type in {"system_prompt", "compaction"}:
-                    source_id = entry.id
-                    break
-            pinned.append(
-                ProjectedEntry(
-                    source_id,
-                    (
-                        Message(
-                            "prompt:" + prompt_snapshot["sha256"],
-                            "system",
-                            prompt_snapshot["text"],
-                            provider_metadata={"source_type": "system_prompt"},
-                        ),
-                    ),
-                )
-            )
-        mcp = active_mcp(path)
-        if mcp is not None:
-            checkpoint["mcp"] = clone_value(mcp)
-            source = next((entry for entry in reversed(path) if entry.type == "mcp_catalog"), None)
-            if source is None:
-                source = next(entry for entry in reversed(path) if entry.type == "compaction")
-            message = Message(
-                "mcp:" + mcp["hash"],
-                "system",
-                mcp["text"],
-                provider_metadata={"source_type": "mcp_catalog"},
-            )
-            pinned.append(ProjectedEntry(source.id, (message,)))
-        catalog = next((entry for entry in reversed(path) if entry.type == "skill_catalog"), None)
-        if catalog is not None and catalog.data["text"]:
-            message = Message(
-                f"catalog:{catalog.id}",
-                "system",
-                catalog.data["text"],
-                provider_metadata={"source_type": "skill_catalog"},
-            )
-            pinned.append(ProjectedEntry(catalog.id, (message,)))
-        for item in loaded:
-            body_reference = item.get("message_entry_id")
-            skill_text = item.get("text", "")
-            if body_reference is not None:
-                if any(contribution.entry_id == body_reference for contribution in contributions):
-                    continue
-                original = SessionTree(snapshot.index).get(body_reference)
-                skill_text = original.message.tool_result.text
-            source = next(
-                (
-                    entry
-                    for entry in reversed(path)
-                    if entry.type == "skill_load"
-                    and entry.data["loaded_hash"] == item["loaded_hash"]
-                ),
-                None,
-            )
-            if source is None:
-                source = next(
-                    entry
-                    for entry in reversed(path)
-                    if entry.type == "compaction"
-                    and any(
-                        saved["loaded_hash"] == item["loaded_hash"]
-                        for saved in entry.data.get("checkpoint", {}).get("skills", ())
-                    )
-                )
-            message = Message(
-                f"skill:{item['name']}:{item['loaded_hash']}",
-                "system",
-                skill_text,
-                provider_metadata={"source_type": "skill_load", "skill_name": item["name"]},
-            )
-            if body_reference is not None:
-                original = self._tree.get(body_reference).message
-                result = original.tool_result
-                call = None
-                for previous in path:
-                    if previous.message is None:
-                        continue
-                    for candidate in previous.message.tool_calls:
-                        if candidate.id == result.call_id and candidate.name == "read_file":
-                            call = candidate
-                if call is None:
-                    call = ToolCall(result.call_id, "read_file", {"file_path": item["path"]})
-                replay = Message("skill-read:" + source.id, "assistant", tool_calls=(call,))
-                pinned.append(ProjectedEntry(source.id, (replay, original)))
-            else:
-                pinned.append(ProjectedEntry(source.id, (message,)))
+        return contributions, checkpoint, raw_messages
+
+    def cache_projection(
+        self,
+        snapshot,
+        key,
+        selection,
+        thinking,
+        checkpoint,
+        contributions,
+        messages,
+        raw_messages,
+        pinned,
+        invalidating,
+    ):
         pinned_by_id = {}
         for item in pinned:
             pinned_by_id.setdefault(item.entry_id, []).extend(item.messages)
@@ -329,10 +235,14 @@ class ContextProjector:
         for item in pinned:
             pinned_messages.extend(item.messages)
         messages = tuple(pinned_messages) + messages
-        if loaded:
-            checkpoint["skills"] = clone_value(list(loaded))
         projected = ProjectedContext(
-            snapshot.leaf_id, tuple(contributions), messages, selection, thinking, checkpoint
+            snapshot.leaf_id,
+            tuple(contributions),
+            messages,
+            selection,
+            thinking,
+            checkpoint,
+            invalidating,
         )
         self._cached = freeze_value(projected)
         self._key = key
@@ -350,18 +260,22 @@ class ContextProjector:
 
     def messages_for(self, entry: SessionEntry) -> tuple[Message, ...]:
         if entry.type == "message":
-            return (freeze_value(entry.message),)
+            return (freeze_value(entry.require_message()),)
         if entry.type == "input_expired":
+            assert self._tree is not None
             original = self._tree.get(entry.data["input_entry_id"])
             for saved in self._tree.path(entry.parent_id):
-                if saved.type == "message" and saved.message.id == original.message.id:
+                if (
+                    saved.type == "message"
+                    and saved.require_message().id == original.require_message().id
+                ):
                     return ()
             return (
                 Message(
                     "recovered-input:" + original.id,
                     "user",
                     "[Queued instruction recovered after interruption; old execution expired]\n"
-                    + original.message.text,
+                    + original.require_message().text,
                     provider_metadata={
                         "source_type": "input_expired",
                         "input_entry_id": original.id,
@@ -408,7 +322,10 @@ class ContextProjector:
         for message in messages:
             if message.role == "tool":
                 edited.append(
-                    replace(message, tool_result=replace(message.tool_result, text=replacement))
+                    replace(
+                        message,
+                        tool_result=replace(message.require_tool_result(), text=replacement),
+                    )
                 )
             elif message.role == "assistant":
                 edited.append(replace(message, text=replacement, thinking=(), tool_calls=()))

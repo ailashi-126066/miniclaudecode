@@ -8,9 +8,9 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 
 
@@ -23,14 +23,10 @@ async def main():
                 os._exit(81)
 
     config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
-    session = await open_agent_session(
+    session = await compose_application(
         config,
         (TypeAdapter(ProviderConfig).validate_json(json.dumps(request["provider"]), strict=True),),
-        "s1",
-        create=True,
-        refresh_models=False,
-        consumers=(CrashConsumer(),),
-    )
+    ).open_session("s1", create=True, refresh_models=False, consumers=(CrashConsumer(),))
     try:
         await session.run(Message("u1", "user", "Run parent after Hook"))
     finally:

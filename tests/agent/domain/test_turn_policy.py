@@ -4,52 +4,36 @@ from pathlib import Path
 import pytest
 
 from pycode.agent.domain.turn_policy import next_turn
-from pycode.kernel.contracts.messages import ToolCall, ToolResult
 from pycode.tools.domain.turn_guard import tool_calls_may_execute
 
 VECTORS = json.loads((Path(__file__).parents[2] / "fixtures/pi-agent-loop.json").read_text())
 
 
-@pytest.mark.parametrize("case", VECTORS["cases"], ids=lambda case: case["name"])
-def test_upstream_continuation_vectors(case):
-    if "expected_execute" in case:
-        assert tool_calls_may_execute(case["stop_reason"]) == case["expected_execute"]
-        calls = tuple(ToolCall(**call) for call in case["calls"])
-        results = tuple(
-            ToolResult(call_id=call.id, name=call.name, text="output token limit", is_error=True)
-            for call in calls
-        )
-        assert next_turn(case["stop_reason"], results).action == "request"
-        return
-    results = tuple(
-        ToolResult(name="echo", text="ok", **result) for result in case.get("results", [])
-    )
-    decision = next_turn(
-        stop_reason=case["stop_reason"],
-        results=results,
-        finish_action=case.get("finish_action"),
-        steering_pending=case.get("steering_pending", False),
-        follow_up_pending=case.get("follow_up_pending", False),
-    )
-    assert decision.action == case["expected_action"]
-    if "expected_queue" in case:
-        assert decision.queue == case["expected_queue"]
-    if "expected_context_only" in case:
-        assert decision.context_only == case["expected_context_only"]
+@pytest.mark.parametrize(
+    "case",
+    [case for case in VECTORS["cases"] if "expected_execute" in case],
+    ids=lambda case: case["name"],
+)
+def test_upstream_tool_execution_stop_reason_vectors(case):
+    assert tool_calls_may_execute(case["stop_reason"]) == case["expected_execute"]
 
 
 @pytest.mark.parametrize("reason", ["error", "aborted", "content_filter"])
-def test_failed_response_is_hard_exit_even_with_queued_inputs(reason):
+def test_failed_response_cannot_execute_its_tool_calls(reason):
     assert not tool_calls_may_execute(reason)
-    assert next_turn(reason, (), "continue", True, True).action == "end"
 
 
-def test_follow_up_is_selected_only_when_natural_work_would_end():
-    result = ToolResult(call_id="t1", name="echo", text="ok")
-    assert next_turn("tool_calls", (result,), follow_up_pending=True).queue is None
-    assert next_turn("stop", (), follow_up_pending=True).queue == "follow_up"
-
-
-def test_steer_cannot_enter_an_unsettled_batch():
-    with pytest.raises(ValueError, match="settled"):
-        next_turn("tool_calls", (), steering_pending=True, settled=False)
+@pytest.mark.parametrize(
+    "steer,follow_up,action,queue",
+    [
+        (False, False, "end", None),
+        (True, False, "request", "steer"),
+        (False, True, "request", "follow_up"),
+        (True, True, "request", "steer"),
+    ],
+)
+def test_finished_loop_selects_only_queued_inputs_with_steering_priority(
+    steer, follow_up, action, queue
+):
+    decision = next_turn(steering_pending=steer, follow_up_pending=follow_up)
+    assert (decision.action, decision.queue) == (action, queue)

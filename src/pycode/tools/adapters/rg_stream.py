@@ -36,20 +36,26 @@ class RipgrepMatches:
         self.path = virtual
         self.header.clear()
 
+    def require_path(self) -> str:
+        if self.path is None:
+            raise ToolError("search_incomplete", "rg match has no filename")
+        return self.path
+
     def finish_match(self):
+        path = self.require_path()
         self.count += 1
         if len(self.matches) < self.limit and self.bytes < MAX_BYTES - 512:
             item = (
-                {"path": self.path, "is_dir": False}
+                {"path": path, "is_dir": False}
                 if self.files
                 else {
-                    "path": self.path,
+                    "path": path,
                     "line": self.line,
                     "text": self.text.decode("utf-8", "replace"),
                 }
             )
             self.matches.append(item)
-            self.bytes += len(self.path.encode()) + len(self.text) + 32
+            self.bytes += len(path.encode()) + len(self.text) + 32
         else:
             self.truncated = True
         self.text.clear()
@@ -103,7 +109,7 @@ class RipgrepMatches:
                 self.filename()
                 if self.count:
                     yield b"\n"
-                prefix = ("/workspace" + self.path).encode()
+                prefix = ("/workspace" + self.require_path()).encode()
                 if self.files:
                     yield prefix
                     self.finish_match()
@@ -117,7 +123,7 @@ class RipgrepMatches:
                 if self.line < 1:
                     raise ToolError("search_incomplete", "Invalid rg line number")
                 self.header.clear()
-                yield ("/workspace" + self.path + ":" + str(self.line) + ":").encode()
+                yield ("/workspace" + self.require_path() + ":" + str(self.line) + ":").encode()
                 self.phase = "text"
 
     def finish(self):

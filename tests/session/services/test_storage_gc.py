@@ -2,9 +2,9 @@
 
 import pytest
 
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.tools import ToolContext
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.layout import StorageLayout
 from pycode.session.adapters.storage.objects import FileStorageObjects

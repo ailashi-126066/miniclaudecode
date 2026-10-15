@@ -1,7 +1,7 @@
 import pytest
 
 from pycode.kernel import ModelCapabilities
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
 from pycode.models.adapters.storage.catalog import FileCatalogStore
 from pycode.models.domain.models import CatalogSnapshot, ModelDescriptor
 

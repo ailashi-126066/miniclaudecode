@@ -1,4 +1,4 @@
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
@@ -20,7 +20,7 @@ async def test_resource_skill_command_shows_ordinary_approval_then_executes_owne
             chat_completion(),
         ]
     ) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             await app.command("/skill:resource")

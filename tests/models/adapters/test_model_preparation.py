@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
@@ -9,12 +10,13 @@ from langchain_core.messages import AIMessage
 from pydantic import Field
 
 from pycode.agent.adapters.history import HistoryMiddleware
-from pycode.app.composition import build_agent_runtime, build_runtime_bindings
+from pycode.agent.module import AgentModule
+from pycode.app.composition.runtime import build_runtime_bindings
 from pycode.context.domain.summaries import SummaryReport
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import ModelError
+from pycode.kernel.domain.errors import ModelError
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.agent.adapters.test_agent import Journal, assemble
 from tests.support.model import ScriptedChatModel
@@ -80,20 +82,20 @@ class SteeringJournal(Journal):
 def preparation():
     trace = []
     _, context, _, _, _, _ = assemble([])
-    context.mcp = MCP(trace)
+    refresh = MCP(trace)
     context.summary = Summary(trace)
     context.eviction = Eviction(trace)
     context.hooks = Hooks(trace)
     context.journal = SteeringJournal(trace)
     context.inputs.submit(Message("steer", "user", "new instruction"), "steer")
-    return context, trace
+    return context, trace, refresh
 
 
 async def test_preparation_keeps_refresh_summary_protection_steering_and_turn_order():
-    context, trace = preparation()
-    updates = await HistoryMiddleware(build_runtime_bindings()).abefore_model(
-        {"turn": 1}, SimpleNamespace(context=context)
-    )
+    context, trace, refresh = preparation()
+    updates = await HistoryMiddleware(
+        build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),))
+    ).abefore_model({"turn": 1}, SimpleNamespace(context=context))
     assert trace == [
         "refresh",
         "tools",
@@ -112,17 +114,17 @@ async def test_preparation_keeps_refresh_summary_protection_steering_and_turn_or
 
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_failed_or_cancelled_refresh_does_not_execute_dependent_steps(cancel):
-    context, trace = preparation()
-    context.mcp.blocked = cancel
+    context, trace, refresh = preparation()
+    refresh.blocked = cancel
     if not cancel:
-        context.mcp.failure = ModelError("refresh_failed", "test")
+        refresh.failure = ModelError("refresh_failed", "test")
     running = asyncio.create_task(
-        HistoryMiddleware(build_runtime_bindings()).abefore_model(
-            {"turn": 0}, SimpleNamespace(context=context)
-        )
+        HistoryMiddleware(
+            build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),))
+        ).abefore_model({"turn": 0}, SimpleNamespace(context=context))
     )
     try:
-        await asyncio.wait_for(context.mcp.started.wait(), 5)
+        await asyncio.wait_for(refresh.started.wait(), 5)
         if cancel:
             running.cancel()
         with pytest.raises(asyncio.CancelledError if cancel else ModelError):
@@ -168,9 +170,12 @@ async def test_dynamic_tools_after_skills_disclosure_are_in_final_budget_snapsho
         async def refresh(self, registry):
             registry.replace_source("mcp:", (NewTool(),))
 
-    context.mcp = RefreshingMCP()
+    refresh = RefreshingMCP()
     model = ToolCapturingModel(responses=[AIMessage(content="done")])
-    runtime = build_agent_runtime(model, skills=[])
+    runtime = AgentModule().runtime(
+        model,
+        bindings=build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),)),
+    )
     try:
         result = await runtime.run((Message("user", "user", "inspect"),), context)
         assert result.outcome == "completed"

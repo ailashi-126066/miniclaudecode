@@ -4,13 +4,13 @@ import asyncio
 
 import pytest
 
-from pycode.app.composition import build_memory_service, build_session_repository
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.history import EntryDraft
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import ModelError, StorageError, ToolError
-from pycode.kernel.io.path_io import atomic_write
+from pycode.kernel.adapters.path_io import atomic_write
+from pycode.kernel.domain.errors import ModelError, StorageError, ToolError
+from pycode.kernel.domain.history import EntryDraft
+from pycode.kernel.domain.messages import Message
+from pycode.kernel.domain.tools import ToolContext
 from pycode.memory.adapters.memory_tools import ScopedMemoryTool, memory_tools
 from pycode.memory.services.memory import MemoryService, consolidation_source
 
@@ -44,10 +44,10 @@ def text(content):
 async def service_at(tmp_path, updater=None, *, trusted=False):
     tmp_path.mkdir(parents=True, exist_ok=True)
     config = AppConfig(tmp_path, tmp_path / "data", allow_delegation=False, project_trusted=trusted)
-    history = await build_session_repository(config).open("s", create=True)
+    history = await compose_application(config).session_repository().open("s", create=True)
     await history.append_message(Message("u1", "user", "Always use pytest, please."))
     await history.append_message(Message("a1", "assistant", "Understood."))
-    service = build_memory_service(config, history)
+    service = compose_application(config).memory_service(history)
     service.updater = updater
     await service.initialize()
     return config, history, service

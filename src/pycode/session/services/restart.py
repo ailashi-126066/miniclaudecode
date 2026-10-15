@@ -85,6 +85,7 @@ async def recover_conversation(
                 Message(f"interrupted:{message.id}:{call.id}", "tool", tool_result=result)
             )
             if output_id is not None:
+                assert outputs is not None
                 await outputs.bind(output_id, result_entry_id)
             paired.add(key)
     for start in starts:

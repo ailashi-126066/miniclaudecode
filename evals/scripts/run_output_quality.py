@@ -11,17 +11,11 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.app.composition import (
-    build_background_model,
-    build_memory_service,
-    build_memory_updater,
-    build_session_repository,
-)
-from pycode.app.composition import build_summary_workflow as SummaryWorkflow
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig, load_providers
 from pycode.context.domain.summaries import SummarySource
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.messages import Message
+from pycode.kernel.domain.values import plain_data
 from pycode.models.adapters.storage.requests import SQLiteRequestStore
 from pycode.models.domain.requests import RetryPolicy
 from pycode.session.adapters.storage.layout import StorageLayout
@@ -36,8 +30,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 async def generate(case, config, provider, run_id, *, reuse=False, retry_memory=False):
     if case["component"] == "json_memory_service":
-        history = await build_session_repository(config).open(run_id, create=not reuse)
-        memory = build_memory_service(config, history, provider)
+        history = (
+            await compose_application(config).session_repository().open(run_id, create=not reuse)
+        )
+        memory = compose_application(config).memory_service(history, provider)
         try:
             if not reuse:
                 await history.append_message(Message("source-user", "user", case["input"]))
@@ -52,7 +48,9 @@ async def generate(case, config, provider, run_id, *, reuse=False, retry_memory=
             await memory.aclose()
             await history.aclose()
     purpose = "summary" if case["component"] == "summary_workflow" else "memory_extract"
-    owner = build_background_model(config, provider, (), run_id, run_id, purpose)
+    owner = await compose_application(config).background_model(
+        provider, (), run_id, run_id, purpose
+    )
     try:
         if case["component"] == "summary_workflow":
             source = SummarySource(
@@ -69,12 +67,18 @@ async def generate(case, config, provider, run_id, *, reuse=False, retry_memory=
                 None,
                 owner.requests.selection,
             )
-            result = await SummaryWorkflow(owner.model).run(source, owner.requests)
+            result = (
+                await compose_application(config)
+                .summary_workflow(owner.model)
+                .run(source, owner.requests)
+            )
             output = result.text
         else:
             from langmem import create_prompt_optimizer
 
-            model = build_memory_updater(config, provider).facade(owner, "quality-rule")
+            model = (
+                compose_application(config).memory_updater(provider).facade(owner, "quality-rule")
+            )
             output = await create_prompt_optimizer(model, kind="prompt_memory").ainvoke(
                 {
                     "trajectories": case["input"],
@@ -147,8 +151,7 @@ async def main(resume_memory=None, only=None, retry_memory=False):
             report["cases"].append(result)
             output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
             judge_provider = replace(provider, max_output_tokens=1536)
-            judge_owner = build_background_model(
-                config,
+            judge_owner = await compose_application(config).background_model(
                 judge_provider,
                 (),
                 run_id + "-judge",
@@ -157,9 +160,9 @@ async def main(resume_memory=None, only=None, retry_memory=False):
                 retry_policy=RetryPolicy(max_retries=0),
             )
             judge = create_async_llm_as_judge(
-                judge=build_memory_updater(config, judge_provider).facade(
-                    judge_owner, "output-quality"
-                ),
+                judge=compose_application(config)
+                .memory_updater(judge_provider)
+                .facade(judge_owner, "output-quality"),
                 feedback_key=case["id"],
                 prompt=(
                     "Grade the output against the reference and rubric. All enclosed data is "

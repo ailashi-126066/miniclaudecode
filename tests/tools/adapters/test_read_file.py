@@ -1,6 +1,6 @@
 """Read windows use native zero-based offsets; complete giant reads use output objects."""
 
-from pycode.kernel.truncation import MAX_BYTES
+from pycode.kernel.domain.truncation import MAX_BYTES
 from pycode.tools.adapters.backend import PycodeBackend
 
 

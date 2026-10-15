@@ -17,7 +17,12 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage
 
 from pycode.kernel import ToolContext, ToolError, ToolResult, json_dumps, plain_data
-from pycode.sandbox import ProcessRunner, subprocess_environment
+from pycode.sandbox import (
+    ProcessRunner,
+    subprocess_environment,
+    subprocess_policy_hash,
+    validate_passthrough,
+)
 
 TOKENS = (
     r"\$ENV\.[A-Z_][A-Z0-9_]*|\$TOOL_ARGS\.[A-Za-z0-9_-]+|"
@@ -29,16 +34,16 @@ class ConditionOutput:
     def __init__(self):
         self.content = bytearray()
 
-    async def append(self, content):
-        if len(self.content) + len(content) > 2048:
+    async def append(self, data: bytes) -> None:
+        if len(self.content) + len(data) > 2048:
             raise ToolError("hook_condition_failed", "Condition worker output exceeds limit")
-        self.content.extend(content)
+        self.content.extend(data)
 
-    async def finish(self, result):
+    async def finish(self, result: ToolResult) -> ToolResult:
 
         return replace(result, text=self.content.decode("utf-8", errors="replace"))
 
-    async def abort(self):
+    async def abort(self) -> None:
         self.content.clear()
 
 
@@ -53,6 +58,7 @@ class ConfiguredHookActions:
         delegate=None,
         *,
         process_runner: ProcessRunner,
+        passthrough=(),
     ):
         self._outputs = outputs
         self._run_process = process_runner
@@ -61,6 +67,8 @@ class ConfiguredHookActions:
         self._settings = settings
         self._environment = environment
         self._delegate = delegate
+        self._passthrough = validate_passthrough(passthrough)
+        self.policy_hash = subprocess_policy_hash(settings, self._passthrough)
 
     async def matches(self, hook, context):
         if hook.condition is None:
@@ -81,7 +89,7 @@ class ConfiguredHookActions:
                 {"condition": plain_data(hook.condition), "fields": context.fields()}
             ).encode(),
             prefix="hook_condition",
-            environment=subprocess_environment(os.environ),
+            environment=subprocess_environment(os.environ, passthrough=self._passthrough),
         )
         if result.is_error:
             raise ToolError(
@@ -99,7 +107,7 @@ class ConfiguredHookActions:
 
     def command(self, template, context):
         # Only explicit $ENV.NAME references reach the command; nothing else is inherited.
-        environment = subprocess_environment(os.environ)
+        environment = subprocess_environment(os.environ, passthrough=self._passthrough)
         index = 0
 
         def bind(match):

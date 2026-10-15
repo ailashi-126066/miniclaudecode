@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli import main
-from pycode.app.composition import open_session_view
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.app.test_execution_cli import setup_cli
 from tests.hooks.adapters.test_hooks import hook_file, open_session
 from tests.support.execution import provider
@@ -46,7 +46,7 @@ def test_cli_reviews_cancelled_background_hook_and_retries_only_on_explicit_requ
                         await asyncio.sleep(0.02)
             finally:
                 await session.aclose()
-            view = await open_session_view(config, "s1")
+            view = await compose_application(config).open_view("s1")
             try:
                 entries = (await view.inspect())["snapshot"]["entries"]
                 return next(

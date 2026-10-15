@@ -4,7 +4,8 @@
 
 from dataclasses import dataclass
 
-from pycode.kernel import ProjectedContext, SessionSnapshot, estimate_text, model_tool_text
+from pycode.kernel import ProjectedContext, SessionSnapshot, estimate_text
+from pycode.models import model_tool_text
 
 
 @dataclass(frozen=True)

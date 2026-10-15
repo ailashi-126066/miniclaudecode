@@ -2,15 +2,15 @@
 
 import pytest
 
-from pycode.app.composition import build_session_view
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.history import SessionEntry, SessionHeader
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.history import SessionEntry, SessionHeader
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.support.requests import TestTiming
 
 
-async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_path):
+async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_path, monkeypatch):
     store = JsonlSessionStore(
         tmp_path / "session", SessionHeader("s", str(tmp_path), "t"), TestTiming()
     )
@@ -31,9 +31,16 @@ async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_
         )
         parent = identifier
     await store.import_path(tuple(entries), parent)
-    view = build_session_view(
-        AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), store, session_id="s"
-    )
+    application = compose_application(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"))
+    repository = application.session_repository()
+
+    async def open_supplied_store(session_id):
+        assert session_id == "s"
+        return store
+
+    monkeypatch.setattr(repository, "open", open_supplied_store)
+    monkeypatch.setattr(application.modules.sessions, "repository", lambda: repository)
+    view = await application.open_view("s")
     try:
         first = await view.inspect(presentation=True)
         second = await view.inspect(presentation=True)
@@ -47,4 +54,3 @@ async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_
         assert added["history"][-1]["message"]["text"] == "new"
     finally:
         await view.aclose()
-        await store.aclose()

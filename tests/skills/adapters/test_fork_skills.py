@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -39,8 +39,8 @@ async def test_fork_skill_native_task_has_own_history_and_loaded_state(
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "lead", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "lead", create=True, refresh_models=False
         )
         try:
             await session.run(Message("old", "user", "OLD CONTEXT"))
@@ -60,7 +60,9 @@ async def test_fork_skill_native_task_has_own_history_and_loaded_state(
             assert "PRIVATE FORK INSTRUCTIONS" not in str(requests[4]["body"]["messages"])
         finally:
             await session.aclose()
-        restored = await open_agent_session(config, (provider(url),), child, refresh_models=False)
+        restored = await compose_application(config, (provider(url),)).open_session(
+            child, refresh_models=False
+        )
         try:
             state = await restored.inspect()
             loads = [

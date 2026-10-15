@@ -1,14 +1,9 @@
 from dataclasses import replace
 
-from pycode.app.composition import (
-    build_model_catalog,
-    build_model_control,
-    build_runtime,
-    build_session_repository,
-)
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -26,24 +21,18 @@ async def test_selected_provider_and_branch_context_drive_real_framework_after_r
             base, name="second", implementation="openai", openai_api="chat_completions"
         )
         config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-        repository = build_session_repository(config)
+        repository = compose_application(config).session_repository()
         store = await repository.open("s1", create=True)
-        catalog = build_model_catalog(config, (base, second))
-        control = build_model_control(catalog, store)
+        catalog = compose_application(config, (base, second)).model_catalog()
+        control = compose_application(config).model_control(store, catalog=catalog)
         await control.list_models(refresh=False)
         await control.select(base.name, base.model_id)
 
         async def run(input_id, text):
             provider = await control.restore()
             history = ContextProjector().project(await store.snapshot()).messages
-            container = build_runtime(
-                config,
-                provider,
-                session_id="s1",
-                run_id=input_id,
-                journal=store,
-                tools=(),
-                consumers=(),
+            container = await compose_application(config).runtime(
+                provider, session_id="s1", run_id=input_id, journal=store, tools=(), consumers=()
             )
             try:
                 return await container.runtime.run(
@@ -58,7 +47,7 @@ async def test_selected_provider_and_branch_context_drive_real_framework_after_r
         assert (await run("u2", "second provider")).outcome == "completed"
         await store.aclose()
         store = await repository.open("s1")
-        control = build_model_control(catalog, store)
+        control = compose_application(config).model_control(store, catalog=catalog)
         assert (await control.restore()).name == "second"
         await store.branch(first_branch)
         assert (await control.restore()).name == "first"

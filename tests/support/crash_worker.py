@@ -5,9 +5,9 @@ import os
 import sys
 from pathlib import Path
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.layout import StorageLayout
@@ -98,9 +98,9 @@ async def main():
         openai_api="chat_completions",
         supports_tools=True,
     )
-    session = await open_agent_session(
-        AppConfig(workspace, workspace / "data", memory_mode="off"),
-        (configured,),
+    session = await compose_application(
+        AppConfig(workspace, workspace / "data", memory_mode="off"), (configured,)
+    ).open_session(
         "s1",
         create=True,
         tools=(CrashTool(boundary),),

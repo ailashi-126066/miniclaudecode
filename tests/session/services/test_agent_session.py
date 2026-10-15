@@ -3,9 +3,9 @@ import asyncio
 import pytest
 
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.completion import RunResult
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.completion import RunResult
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.session.services.agent_session import AgentSession
 from tests.models.adapters.test_factory import configuration
 from tests.models.services.test_model_control import controller, store_for

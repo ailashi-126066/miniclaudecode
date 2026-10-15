@@ -2,9 +2,9 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import build_runtime
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 from pycode.models.domain.requests import RetryPolicy
 from pycode.session.services.input_queue import PendingInputs
@@ -37,8 +37,9 @@ async def test_unfinished_stream_retries_before_executing_partial_calls(tmp_path
         )
         journal = Journal()
         tool = EchoTool(journal, PendingInputs())
-        container = build_runtime(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
+        container = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+        ).runtime(
             provider,
             session_id="s1",
             run_id="r1",
@@ -98,8 +99,9 @@ async def test_public_provider_sdk_tool_loop_over_real_http(tmp_path, monkeypatc
         journal = Journal()
         recorder = Recorder()
         tool = EchoTool(journal, PendingInputs())
-        container = build_runtime(
-            AppConfig(tmp_path, tmp_path / "user-data", memory_mode="off"),
+        container = await compose_application(
+            AppConfig(tmp_path, tmp_path / "user-data", memory_mode="off")
+        ).runtime(
             provider,
             session_id="wire-session",
             run_id="wire-run",
@@ -169,8 +171,9 @@ async def test_actual_sdk_http_error_retry_counts_are_owned_by_runtime(
             openai_api="chat_completions",
         )
         recorder = Recorder()
-        container = build_runtime(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
+        container = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+        ).runtime(
             provider,
             session_id="s1",
             run_id="r1",

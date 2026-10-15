@@ -1,6 +1,8 @@
 """A catalogue budget boundary around the public native SkillsMiddleware loader."""
 
-from deepagents.middleware.skills import SkillsMiddleware
+from typing import cast
+
+from deepagents.middleware.skills import SkillsMiddleware, SkillsState
 
 
 class PycodeSkillsMiddleware(SkillsMiddleware):
@@ -21,7 +23,7 @@ class PycodeSkillsMiddleware(SkillsMiddleware):
             loaded = await super().abefore_agent({**state, "skills_metadata": None}, runtime, {})
             updates.update(loaded or {})
             self.loaded_revision = self.selection.revision
-        pinned = await super().abefore_model({**state, **updates}, runtime)
+        pinned = await super().abefore_model(cast(SkillsState, {**state, **updates}), runtime)
         updates.update(pinned or {})
         return updates or None
 

@@ -1,6 +1,6 @@
 from textual.widgets import Static
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.ui.adapters.usage import UsageScreen
 from tests.support.execution import provider
@@ -13,7 +13,9 @@ async def test_tui_usage_is_readable_has_unknown_cache_values_and_closes_with_es
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     with protocol_server([chat_completion()]) as (url, requests):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             await app.send_text("usage")

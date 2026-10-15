@@ -10,10 +10,17 @@
 import asyncio
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
-from pycode.kernel import ToolResult, json_dumps, resolve_workspace_path
-from pycode.sandbox import ProcessRunner, subprocess_environment
+from pycode.kernel import ToolResult, json_dumps
+from pycode.sandbox import (
+    ProcessRunner,
+    subprocess_environment,
+    subprocess_policy_hash,
+    validate_passthrough,
+)
+from pycode.skills.adapters.workspace_path import resolve_workspace_path
 from pycode.skills.domain.skills import resource_spec
 from pycode.skills.ports.sandbox import SkillReadGrant
 
@@ -31,8 +38,13 @@ class PythonSkillTool:
         process_runner: ProcessRunner,
         skill_read_grant: SkillReadGrant,
         timeout=120,
+        passthrough=(),
     ):
-        self.spec = resource_spec(declaration)
+        self._passthrough = validate_passthrough(passthrough)
+        self.spec = replace(
+            resource_spec(declaration),
+            policy_hash=subprocess_policy_hash(settings, self._passthrough),
+        )
         self._declaration = declaration
         self._activation = activation
         self._catalog = catalog
@@ -42,8 +54,6 @@ class PythonSkillTool:
         self._run_process = process_runner
         self._skill_read_grant = skill_read_grant
         self._timeout = timeout
-        self._run_process = process_runner
-        self._skill_read_grant = skill_read_grant
 
     async def execute(self, context, arguments):
         await self._catalog.verify_resources(self._activation)
@@ -84,7 +94,7 @@ class PythonSkillTool:
             limit_seconds=self._timeout,
             stdin=json_dumps(request, ensure_ascii=False).encode("utf-8"),
             prefix="skill_python",
-            environment=subprocess_environment(os.environ),
+            environment=subprocess_environment(os.environ, passthrough=self._passthrough),
             progress=context.progress,
         )
 
@@ -99,8 +109,10 @@ class PythonSkillToolFactory:
         *,
         process_runner: ProcessRunner,
         skill_read_grant: SkillReadGrant,
+        passthrough=(),
     ):
         self._catalog = catalog
+        self._passthrough = validate_passthrough(passthrough)
         self._outputs = outputs
         self._sandbox = sandbox
         self._settings = settings
@@ -117,4 +129,5 @@ class PythonSkillToolFactory:
             self._settings,
             process_runner=self._run_process,
             skill_read_grant=self._skill_read_grant,
+            passthrough=self._passthrough,
         )

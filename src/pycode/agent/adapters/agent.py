@@ -10,12 +10,13 @@ from deepagents import (
     create_deep_agent,
     register_harness_profile,
 )
-from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.filesystem import FilesystemMiddleware, FsToolName
 from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import (
     TodoListMiddleware,
 )
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
@@ -26,7 +27,7 @@ from pycode.agent.adapters.history import HistoryMiddleware
 from pycode.agent.adapters.state import PycodeState
 from pycode.agent.ports import TitleAssignment
 from pycode.agent.services.context import RunContext
-from pycode.kernel import EntryDraft, ModelError, RunResult, StorageError, ToolError
+from pycode.kernel import ModelError, RunResult, StorageError
 from pycode.tools import validate_operation_answer
 
 AGENTS_MD_PROMPT = (
@@ -36,21 +37,11 @@ AGENTS_MD_PROMPT = (
 )
 
 
-def validate_runtime_answer(question, answer, validator):
+def validate_runtime_answer(question, answer, validator, extensions=()):
+    for extension in extensions:
+        if extension.validate(question, answer, validator):
+            return
     validate_operation_answer(question, answer)
-    if question.get("type") != "mcp_elicitation":
-        return
-    for request in question["requests"]:
-        response = answer["responses"][request["key"]]
-        if request["mode"] != "form" or response["action"] != "accept":
-            continue
-        try:
-            validator.check_schema(request["requested_schema"])
-            validator.validate(request["requested_schema"], response["content"])
-        except ToolError as error:
-            raise StorageError(
-                "invalid_resume", "MCP answer does not satisfy the requested schema"
-            ) from error
 
 
 class AgentRuntime:
@@ -62,7 +53,6 @@ class AgentRuntime:
         title_assignment: TitleAssignment | None = None,
         checkpointer=None,
         backend=None,
-        skills=None,
         subagents=(),
         read_only=False,
         instructions=(),
@@ -72,7 +62,6 @@ class AgentRuntime:
         self.bindings = bindings
         self.title_assignment = title_assignment
         self.backend = backend
-        self.skills = skills
         self.subagents = subagents
         self.read_only = read_only
         # AGENTS.md paths loaded by MemoryMiddleware through a read-only allowlisted backend.
@@ -97,7 +86,7 @@ class AgentRuntime:
         tools = []
         for spec in context.registry.model_specs():
             tools.append(self.bindings.make_framework_tool(spec, context))
-        file_tools = ["ls", "read_file", "glob", "grep"]
+        file_tools: list[FsToolName] = ["ls", "read_file", "glob", "grep"]
         if not self.read_only:
             file_tools.extend(["write_file", "edit_file"])
         filesystem = FilesystemMiddleware(
@@ -126,35 +115,15 @@ class AgentRuntime:
                     system_prompt=AGENTS_MD_PROMPT,
                 )
             )
-        if self.skills is not None:
-
-            async def resolve_skill_tools(group, runtime):
-                current = runtime.context
-                if current.skill_resources is None:
-                    return []
-                domain_tools = await current.skill_resources.resolve_group(group)
-                resolved = []
-                for tool in domain_tools:
-                    resolved.append(
-                        self.bindings.make_framework_tool(tool.spec, current, domain_tool=tool)
-                    )
-                return resolved
-
-            options = {
-                "backend": self.backend,
-                "sources": self.skills,
-                "tools": resolve_skill_tools,
-            }
-            context.skill_boundary = True
+        for extension in self.bindings.framework_extensions:
             middleware.append(
-                self.bindings.skills_middleware_factory(
-                    selection=context.skill_selection,
-                    model_boundary=lambda request: prepare_model_boundary(request, self.bindings),
-                    **options,
+                extension.middleware(
+                    context,
+                    self.backend,
+                    lambda request: prepare_model_boundary(request, self.bindings),
+                    self.bindings.make_framework_tool,
                 )
             )
-        # Skills owns disclosure before the history/meter boundary sees the
-        # final tool schemas. Supplying it explicitly avoids a second loader.
         middleware.extend(
             [HistoryMiddleware(self.bindings), self.bindings.settlement_middleware_factory(context)]
         )
@@ -162,7 +131,6 @@ class AgentRuntime:
             model=self.model,
             tools=tools,
             backend=self.backend,
-            skills=None,
             subagents=list(self.subagents),
             middleware=middleware,
             state_schema=PycodeState,
@@ -171,7 +139,7 @@ class AgentRuntime:
             name="pycode",
         )
 
-    def config(self, context):
+    def config(self, context) -> RunnableConfig:
         return {
             "configurable": {"thread_id": f"{context.session_id}:{context.run_id}"},
             "callbacks": [
@@ -205,6 +173,9 @@ class AgentRuntime:
             context,
         )
 
+    def discard(self) -> None:
+        self.graph = None
+
     async def resume(self, context, answers=None):
         if self.graph is None:
             raise StorageError(
@@ -223,11 +194,19 @@ class AgentRuntime:
                 for item in interrupts:
                     if item.id in answers:
                         validate_runtime_answer(
-                            item.value, answers[item.id], context.executor.validator
+                            item.value,
+                            answers[item.id],
+                            context.executor.validator,
+                            self.bindings.question_extensions,
                         )
                 value = Command(resume=answers)
             elif len(interrupts) == 1:
-                validate_runtime_answer(interrupts[0].value, answers, context.executor.validator)
+                validate_runtime_answer(
+                    interrupts[0].value,
+                    answers,
+                    context.executor.validator,
+                    self.bindings.question_extensions,
+                )
                 value = Command(resume={interrupts[0].id: answers})
             else:
                 raise StorageError("invalid_resume", "Multiple questions require interrupt IDs")
@@ -236,8 +215,11 @@ class AgentRuntime:
         return await self.invoke(value, context)
 
     async def invoke(self, value, context):
+        graph = self.graph
+        if graph is None:
+            raise StorageError("run_expired", "This runtime has no live execution graph")
         try:
-            state = await self.graph.ainvoke(value, config=self.config(context), context=context)
+            state = await graph.ainvoke(value, config=self.config(context), context=context)
         except asyncio.CancelledError:
             await self.collect_tools(context)
             if context.summary is not None:
@@ -255,26 +237,14 @@ class AgentRuntime:
                 await context.summary.cancel_background()
             raise
         pending = []
-        checkpoint = await self.graph.aget_state(self.config(context))
-        checkpoint_id = checkpoint.config["configurable"]["checkpoint_id"]
+        checkpoint = await graph.aget_state(self.config(context))
+        checkpoint_id = checkpoint.config.get("configurable", {}).get("checkpoint_id")
+        if not isinstance(checkpoint_id, str):
+            raise StorageError("checkpoint_missing", "Live execution checkpoint has no identity")
         for item in state.get("__interrupt__", ()):
             question = {"interrupt_id": item.id, "checkpoint_id": checkpoint_id, **item.value}
-            if item.value.get("type") == "mcp_elicitation":
-                question["kind"] = "mcp_elicitation"
-                if context.history_store is not None:
-                    snapshot = await context.history_store.snapshot()
-                    recorded = False
-                    for entry in snapshot.entries:
-                        if (
-                            entry.type == "mcp_elicitation"
-                            and entry.data.get("interrupt_id") == item.id
-                        ):
-                            recorded = True
-                            break
-                    if not recorded:
-                        await context.history_store.append_entry(
-                            EntryDraft("mcp_elicitation", data=question, run_id=context.run_id)
-                        )
+            for extension in self.bindings.question_extensions:
+                question = await extension.prepare(question, context.history_store, context.run_id)
             pending.append(question)
             await context.events.emit("needs_input", question)
         if pending:
@@ -298,6 +268,8 @@ class AgentRuntime:
             for message in context.completed:
                 if message.tool_result is not None:
                     await context.team.settle_tool(message.tool_result, accepted=True)
-            for call in context.assistant.tool_calls if context.assistant is not None else ():
-                operation_id = f"{context.run_id}:{context.assistant.id}:{call.id}"
-                await context.team.settle_tool(operation_id, accepted=False)
+            assistant = context.assistant
+            if assistant is not None:
+                for call in assistant.tool_calls:
+                    operation_id = f"{context.run_id}:{assistant.id}:{call.id}"
+                    await context.team.settle_tool(operation_id, accepted=False)

@@ -6,10 +6,10 @@ import json
 import pytest
 from langchain_core.messages import AIMessage
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.tools.adapters.tool_errors import execute_tool_errors
 from pycode.tools.services.tool_executor import ToolExecutor
 from tests.agent.adapters.test_agent import assemble, tool_response
@@ -83,8 +83,8 @@ async def test_real_failing_pretool_hook_is_paired_and_stops_before_next_model(
     with protocol_server(
         [skill_reply("read_file", {"file_path": "/workspace/code.py"}, "read"), chat_completion()]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s", create=True, refresh_models=False
         )
         try:
             with pytest.raises(StorageError) as error:

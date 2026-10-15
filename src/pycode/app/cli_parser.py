@@ -3,6 +3,7 @@
 import argparse
 
 from pycode import __version__
+from pycode.sandbox import passthrough_name
 
 
 def execution_options(parser, *, suppress=False):
@@ -30,6 +31,14 @@ def build_parser():
     parser.add_argument("--data-dir", help="User configuration and storage directory")
     parser.add_argument("--memory-mode", choices=("auto", "off"))
     parser.add_argument("--max-agents", type=int, choices=range(1, 5), default=4)
+    parser.add_argument(
+        "--pass-env",
+        action="append",
+        default=[],
+        type=passthrough_name,
+        metavar="NAME",
+        help="Pass one exact non-credential environment variable to child processes; repeatable",
+    )
     parser.add_argument(
         "--trust-project", action="store_true", help="Enable this project's Skill sources"
     )

@@ -11,10 +11,16 @@ import os
 import stat
 import sys
 import types
+from collections.abc import Awaitable
 from dataclasses import is_dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 from pycode.kernel import json_dumps
+
+
+class ErrorResult(Protocol):
+    is_error: bool
 
 
 def linked(path):
@@ -45,6 +51,10 @@ def implementation_files(root):
     return hashes
 
 
+async def resolve_awaitable(value: Awaitable[object]) -> object:
+    return await value
+
+
 def execute(request):
     root = Path(request["skill_path"]).parent
     files = implementation_files(root)
@@ -65,10 +75,10 @@ def execute(request):
         raise ValueError("Resource module must export callable execute")
     value = function(**request["arguments"])
     if inspect.isawaitable(value):
-        value = asyncio.run(value)
+        value = asyncio.run(resolve_awaitable(value))
     if is_dataclass(value) and hasattr(value, "is_error"):
         print(getattr(value, "text", getattr(value, "output", str(value))), flush=True)
-        return 1 if value.is_error else 0
+        return 1 if cast(ErrorResult, value).is_error else 0
     print(
         json_dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value),
         flush=True,

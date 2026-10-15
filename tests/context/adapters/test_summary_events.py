@@ -2,9 +2,9 @@ import asyncio
 import threading
 from dataclasses import replace
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -39,13 +39,9 @@ async def test_summary_can_publish_ready_while_main_runtime_is_closed_and_user_i
     summary.started, summary.release = started, release
     observer = Observer()
     with protocol_server([initial, summary, chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config,
-            (replace(provider(url), context_window=20000, max_output_tokens=1000),),
-            "s1",
-            consumers=(observer,),
-            refresh_models=False,
-        )
+        session = await compose_application(
+            config, (replace(provider(url), context_window=20000, max_output_tokens=1000),)
+        ).open_session("s1", consumers=(observer,), refresh_models=False)
         try:
             assert (
                 await session.run(Message("initial", "user", "continue"))

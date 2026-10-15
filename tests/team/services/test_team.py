@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from pycode.kernel.contracts.completion import RunResult
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.completion import RunResult
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.session.services.durable_inputs import DurableInputs
 from pycode.team.services.team import AgentTeam
 from tests.models.services.test_model_control import store_for

@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 import pycode.skills.adapters.install as installation
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.skills.adapters.github_source import parse_skill_url
 from pycode.skills.adapters.install import GitHubSkillInstaller
 

@@ -2,11 +2,11 @@ import hashlib
 
 import pytest
 
-from pycode.kernel.contracts.history import EntryDraft, SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import ToolError
-from pycode.kernel.truncation import MAX_BYTES, MAX_LINES
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.history import EntryDraft, SessionHeader
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.tools import ToolContext
+from pycode.kernel.domain.truncation import MAX_BYTES, MAX_LINES
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from pycode.session.adapters.storage.session_repository import JsonlSessionRepository

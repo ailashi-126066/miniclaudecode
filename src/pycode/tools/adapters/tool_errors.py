@@ -1,6 +1,7 @@
 """The official error boundary wraps execution only, inside durable tool settlement."""
 
 from langchain.agents.middleware import ToolErrorMiddleware
+from langchain.tools import ToolRuntime
 from langchain.tools.tool_node import ToolCallRequest
 from langchain_core.messages import ToolMessage
 
@@ -13,7 +14,14 @@ async def execute_tool_errors(call, spec, action):
         tool_call={"type": "tool_call", "id": call.id, "name": call.name, "args": call.arguments},
         tool=None,
         state={},
-        runtime=None,
+        runtime=ToolRuntime(
+            state={},
+            context=None,
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id=call.id,
+            store=None,
+        ),
     )
     failure = None
 

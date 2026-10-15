@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from pycode.kernel.errors import StorageError, ToolError
+from pycode.kernel.domain.errors import StorageError, ToolError
 from pycode.memory.adapters.storage.json_memory import JsonMemoryStore, MemoryChangeLog
 
 USER = ("memories", "user", "u1")

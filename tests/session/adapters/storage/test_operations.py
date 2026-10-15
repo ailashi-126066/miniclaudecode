@@ -1,7 +1,7 @@
 """JSONL is the only durable tool-fact journal; no independent operation table."""
 
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from pycode.session.services.restart import recover_conversation
 from tests.support.requests import TestTiming

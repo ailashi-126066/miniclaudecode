@@ -2,8 +2,8 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.kernel.contracts.messages import UsageRecord
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import UsageRecord
 from pycode.models.adapters.storage.requests import SQLiteRequestStore
 from pycode.models.domain.requests import RequestRecord
 
@@ -64,3 +64,40 @@ async def test_settlement_cannot_change_the_recorded_attempt_identity(tmp_path):
             await store.settle(replace(initial_record(), status="completed", session_id="other"))
     finally:
         await store.aclose()
+
+
+@pytest.mark.parametrize(
+    "failed_statement", ["PRAGMA journal_mode", "PRAGMA synchronous", "CREATE TABLE", "COMMIT"]
+)
+def test_constructor_failure_closes_connection_before_returning(
+    tmp_path, monkeypatch, failed_statement
+):
+    import sqlite3
+
+    from pycode.models.adapters.storage import requests as request_module
+
+    original_connect = sqlite3.connect
+    opened = []
+
+    class FailingConnection(sqlite3.Connection):
+        def execute(self, statement, parameters=()):
+            if statement.startswith(failed_statement):
+                raise sqlite3.OperationalError("injected initialization failure")
+            return super().execute(statement, parameters)
+
+        def commit(self):
+            if failed_statement == "COMMIT":
+                raise sqlite3.OperationalError("injected initialization failure")
+            return super().commit()
+
+    def connect(path, **options):
+        connection = original_connect(path, factory=FailingConnection, **options)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(request_module.sqlite3, "connect", connect)
+    with pytest.raises(sqlite3.OperationalError, match="injected initialization failure"):
+        SQLiteRequestStore(tmp_path / "failed.sqlite3")
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")

@@ -28,7 +28,7 @@ def retained_context_entries(path: tuple[SessionEntry, ...]) -> tuple[SessionEnt
     for entry in path[:latest]:
         if entry.id == kept_id:
             keeping = True
-        if keeping and not (entry.type == "message" and entry.message.role == "system"):
+        if keeping and not (entry.type == "message" and entry.require_message().role == "system"):
             selected.append(entry)
     selected.extend(path[latest + 1 :])
     return tuple(selected)

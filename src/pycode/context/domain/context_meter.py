@@ -3,15 +3,8 @@
 # Adaptation: extracted existing phase-5 estimator for identical runtime/UI accounting.
 """One pure context estimator, with provenance rather than fabricated live counts."""
 
-from pycode.kernel import (
-    SessionTree,
-    clone_value,
-    data_hash,
-    estimate_messages,
-    estimate_text,
-    json_dumps,
-    plain_data,
-)
+from pycode.context.domain.token_estimate import estimate_messages
+from pycode.kernel import SessionTree, clone_value, data_hash, estimate_text, json_dumps, plain_data
 
 
 class ContextMeter:
@@ -24,8 +17,7 @@ class ContextMeter:
             message.text
             for message in projection.messages
             if message.role == "system"
-            and message.provider_metadata.get("source_type")
-            not in {"skill_catalog", "skill_load", "mcp_catalog"}
+            and message.provider_metadata.get("context_config_system_prompt", True)
         ]
         checkpoint.update(
             system_prompt="\n\n".join(system) if system else None,
@@ -50,7 +42,8 @@ class ContextMeter:
             (
                 index
                 for index, entry in enumerate(path)
-                if entry.type
+                if entry.id in projection.usage_invalidating_entry_ids
+                or entry.type
                 in {
                     "context_edit",
                     "compaction",
@@ -58,7 +51,6 @@ class ContextMeter:
                     "thinking_level_change",
                     "prompt_change",
                     "tool_set_change",
-                    "skill_load",
                 }
             ),
             default=-1,
@@ -81,7 +73,9 @@ class ContextMeter:
             # unchanged recall must not discard authoritative provider usage.
             if message.provider_metadata.get("pycode_summary_config_hash") != fingerprint:
                 continue
-            if positions.get(by_message.get(message.id), -1) <= invalidating:
+            entry_id = by_message.get(message.id)
+            position = positions.get(entry_id, -1) if entry_id is not None else -1
+            if position <= invalidating:
                 continue
             reported = (
                 usage.input_tokens + usage.output_tokens

@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -67,8 +67,8 @@ async def test_public_agent_executes_parallel_read_searches_without_approval_and
     (tmp_path / "nested/你好.py").write_text("needle two\n", encoding="utf-8")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([search_response(root), chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "search project"))
@@ -97,7 +97,7 @@ async def test_public_agent_executes_parallel_read_searches_without_approval_and
             assert len(requests) == 2
         finally:
             await session.aclose()
-    reader = await build_session_repository(config).open("s1")
+    reader = await compose_application(config).session_repository().open("s1")
     try:
         snapshot = await reader.snapshot()
         assert (

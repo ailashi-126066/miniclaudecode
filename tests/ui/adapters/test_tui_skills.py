@@ -1,4 +1,4 @@
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.skills.services.test_skills import write_skill
@@ -23,7 +23,7 @@ async def test_tui_skill_arguments_reload_and_new_session_do_not_leak_activation
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 50)):
             await app.ready.wait()
             await app.command('/skill:example keep "quotes"')

@@ -10,10 +10,10 @@ from pycode.context.domain.summaries import SummaryCompletion, SummarySettings
 from pycode.context.services.context_projector import ContextProjector
 from pycode.context.services.summary import SummaryService
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.history import EntryDraft, SessionHeader
-from pycode.kernel.contracts.messages import Message, UsageRecord
-from pycode.kernel.errors import ModelError
-from pycode.kernel.history_tree import SessionTree
+from pycode.kernel.domain.errors import ModelError
+from pycode.kernel.domain.history import EntryDraft, SessionHeader
+from pycode.kernel.domain.history_tree import SessionTree
+from pycode.kernel.domain.messages import Message, UsageRecord
 from pycode.kernel.services.events import EventStream
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.support.requests import TestTiming

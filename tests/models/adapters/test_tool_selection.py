@@ -7,11 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.contracts.tools import ToolSpec
-from pycode.models.adapters.tool_selection import REQUIRED_TOOLS
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.tools import ToolSpec
 from pycode.models.domain.models import ModelReference, ToolSelectorSettings
 from tests.agent.adapters.test_agent import Recorder
 from tests.mcp.adapters.test_mcp import mcp_config
@@ -23,6 +22,24 @@ from tests.support.http_provider import (
     anthropic_message,
     chat_completion,
     protocol_server,
+)
+
+# Integration expectation belongs to the test composition, not the model core.
+REQUIRED_TOOLS = frozenset(
+    {
+        "ls",
+        "read_file",
+        "glob",
+        "grep",
+        "ReadToolResult",
+        "SkillSearch",
+        "AskUserQuestion",
+        "ExitPlanMode",
+        "manage_user_memory",
+        "search_user_memory",
+        "manage_project_memory",
+        "search_project_memory",
+    }
 )
 
 
@@ -89,15 +106,9 @@ async def test_sdk_selection_permissions_snapshot_metering_and_error_fallback(
 
     with protocol_server(respond) as (url, requests):
         configured = replace(provider(url), tool_selector=selection_settings())
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=probes,
-            consumers=(recorder,),
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session("s1", create=True, tools=probes, consumers=(recorder,), refresh_models=False)
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
             assert len(choices) == len(main) == 1 and len(requests) == 2
@@ -150,13 +161,10 @@ async def test_main_retry_reuses_selection_and_exact_tools_snapshot(tmp_path, mo
 
     with protocol_server(respond) as (url, requests):
         configured = replace(provider(url), tool_selector=selection_settings())
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
@@ -182,14 +190,9 @@ async def test_model_cannot_execute_an_unselected_registered_tool(tmp_path, monk
 
     with protocol_server(respond) as (url, _):
         configured = replace(provider(url), tool_selector=selection_settings())
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=probes,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session("s1", create=True, tools=probes, refresh_models=False)
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
             assert probes[1].calls == 0
@@ -224,13 +227,10 @@ async def test_cross_provider_selector_identity_and_primary_preference_remain_di
             tool_selector=selection_settings(model=ModelReference("selector", "selector-model")),
         )
         secondary = replace(provider(url), name="selector", model_id="selector-model")
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (primary, secondary),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (primary, secondary)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
@@ -270,13 +270,10 @@ async def test_plan_restrictions_precede_always_include_and_selector_candidates(
         configured = replace(
             provider(url), tool_selector=selection_settings(always_include=("Bash",))
         )
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             await session.enter_plan()
@@ -306,13 +303,10 @@ async def test_cancelled_selection_sends_no_primary_request_and_settles_internal
 
     with protocol_server(respond) as (url, _):
         configured = replace(provider(url), tool_selector=selection_settings())
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         running = asyncio.create_task(session.run(Message("u", "user", "inspect")))
         try:
@@ -355,8 +349,8 @@ async def test_native_mcp_candidate_is_selected_without_execution_or_registry_re
 
     with protocol_server(respond) as (url, _):
         configured = replace(provider(url), tool_selector=selection_settings())
-        session = await open_agent_session(
-            config, (configured,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "inspect MCP"))).outcome == "completed"
@@ -396,13 +390,8 @@ async def test_skill_allowlist_precedes_selection_and_no_hidden_body_is_loaded(
         configured = replace(
             provider(url), tool_selector=selection_settings(always_include=("Bash",))
         )
-        session = await open_agent_session(
-            config,
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "use example"))).outcome == "completed"
@@ -443,13 +432,10 @@ async def test_selection_budget_capability_and_strict_failure_do_not_send_invali
                     provider(url), name="incompatible", model_id="no-tools", supports_tools=False
                 ),
             )
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            roster,
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), roster
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             result = await session.run(Message("u", "user", "inspect"))
@@ -497,13 +483,10 @@ async def test_selection_schema_protocol_uses_current_provider_sdk(tmp_path, mon
         configured = replace(
             provider(url), implementation=kind, openai_api=None, tool_selector=selection_settings()
         )
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
@@ -547,13 +530,10 @@ async def test_readonly_role_cannot_restore_disallowed_tools_through_always_incl
             provider(url),
             tool_selector=selection_settings(always_include=("Bash", "write_file", "edit_file")),
         )
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off", read_only=True),
-            (configured,),
-            "s1",
-            create=True,
-            tools=(Probe("probe_0"), Probe("probe_1")),
-            refresh_models=False,
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off", read_only=True), (configured,)
+        ).open_session(
+            "s1", create=True, tools=(Probe("probe_0"), Probe("probe_1")), refresh_models=False
         )
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
@@ -572,13 +552,9 @@ async def test_small_or_disabled_selection_sends_only_the_primary_sdk_request(
     with protocol_server([chat_completion()]) as (url, captured):
         settings = ToolSelectorSettings(enabled=enabled, max_tools=100)
         configured = replace(provider(url), tool_selector=settings)
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (configured,),
-            "s1",
-            create=True,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (configured,)
+        ).open_session("s1", create=True, refresh_models=False)
         try:
             assert (await session.run(Message("u", "user", "inspect"))).outcome == "completed"
             assert len(captured) == 1 and not selection_request(captured[0])

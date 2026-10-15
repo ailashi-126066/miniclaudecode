@@ -1,8 +1,8 @@
 """An oversized catalogue discloses selected paths through native middleware only."""
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.skills.services.test_skills import write_skill
 from tests.support.execution import provider
@@ -22,8 +22,8 @@ async def test_skill_search_bounds_native_catalogue_and_leaves_unselected_bodies
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             done = await session.run(Message("u1", "user", "Find a relevant Skill"))

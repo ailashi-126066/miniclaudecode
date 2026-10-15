@@ -33,10 +33,6 @@ class SkillIndex:
     issues: tuple[str, ...] = ()
 
 
-def substitute_arguments(body: str, args: str) -> str:
-    return body.replace("$ARGUMENTS", args)
-
-
 def skill_entry(data):
     return SkillEntry(
         data["name"],

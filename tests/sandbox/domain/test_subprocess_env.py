@@ -1,6 +1,6 @@
 import pytest
 
-from pycode.sandbox.domain.subprocess_env import subprocess_environment
+from pycode.sandbox.domain.subprocess_env import subprocess_environment, validate_passthrough
 
 
 def test_allowlisted_names_and_locale_prefix_are_kept():
@@ -43,3 +43,26 @@ def test_allowlisted_names_and_locale_prefix_are_kept():
 )
 def test_credential_shaped_names_are_dropped(name):
     assert subprocess_environment({name: "value", "PATH": "/bin"}) == {"PATH": "/bin"}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "OPENAI_API_KEY",
+        "API_KEY",
+        "api_key",
+        "APIKEY",
+        "TOKEN",
+        "token",
+        "CREDENTIAL",
+        "CREDENTIALS",
+        "credentials",
+        "AWS_REGION",
+        "DB_PASSWORD",
+        "*_PROXY",
+        "A=B",
+    ],
+)
+def test_explicit_passthrough_rejects_credentials_patterns_and_assignments(name):
+    with pytest.raises(ValueError):
+        validate_passthrough((name,))

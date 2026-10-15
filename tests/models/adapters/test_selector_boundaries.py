@@ -10,9 +10,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import StructuredTool
 
-from pycode.app.composition import build_agent_runtime
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.app.composition.runtime import build_agent_runtime
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.kernel.services.events import EventStream
 from pycode.models.adapters.tool_selection import ToolSelector
 from tests.agent.adapters.test_agent import assemble, tool_response
@@ -70,11 +70,18 @@ def request_for_selection():
     return request, context
 
 
+def owned_factory(owner):
+    async def create(*args):
+        return owner
+
+    return create
+
+
 async def test_provider_dictionary_is_preserved_without_becoming_a_selector_candidate():
     request, context = request_for_selection()
     request = request.override(tools=[*request.tools, {"type": "web_search"}])
     owner = Owner(["two"])
-    selector = ToolSelector(selection_settings(), lambda *_: owner)
+    selector = ToolSelector(selection_settings(), owned_factory(owner), required_tools=())
     selected = await selector.select(request)
     assert [tool.name for tool in selected.tools if not isinstance(tool, dict)] == ["two"]
     assert selected.tools[-1] == {"type": "web_search"}
@@ -86,10 +93,10 @@ async def test_provider_dictionary_is_preserved_without_becoming_a_selector_cand
 async def test_programming_error_is_not_silently_recovered_as_all_tools():
     request, _ = request_for_selection()
 
-    def fail(*args):
+    async def fail(*args):
         raise ValueError("programming defect")
 
-    selector = ToolSelector(selection_settings(), fail)
+    selector = ToolSelector(selection_settings(), fail, required_tools=())
     with pytest.raises(ValueError, match="programming defect"):
         await selector.select(request)
     assert selector.snapshots == {}
@@ -104,7 +111,7 @@ async def test_failed_audit_persistence_propagates_after_owned_model_is_closed()
 
     context.history_store = History()
     owner = Owner(["two"])
-    selector = ToolSelector(selection_settings(), lambda *_: owner)
+    selector = ToolSelector(selection_settings(), owned_factory(owner), required_tools=())
     with pytest.raises(StorageError) as error:
         await selector.select(request)
     assert error.value.code == "disk_failed" and owner.closed
@@ -113,7 +120,9 @@ async def test_failed_audit_persistence_propagates_after_owned_model_is_closed()
 async def test_selected_tool_changed_after_model_declaration_is_not_executed():
     _, context, _, tool, journal, _ = assemble([])
     owner = Owner(["echo"])
-    context.tool_selector = ToolSelector(selection_settings(), lambda *_: owner)
+    context.tool_selector = ToolSelector(
+        selection_settings(), owned_factory(owner), required_tools=()
+    )
 
     class ChangingModel(ScriptedChatModel):
         context: Any
@@ -140,3 +149,30 @@ async def test_selected_tool_changed_after_model_declaration_is_not_executed():
     ]
     assert len(results) == 1 and results[0].error_code == "tool_declaration_changed"
     assert results[0].details["executed"] is False
+
+
+async def test_required_tool_names_are_explicit_composition_input():
+    request, _ = request_for_selection()
+    owner = Owner(["two"])
+    required = ["one"]
+    selector = ToolSelector(selection_settings(), owned_factory(owner), required_tools=required)
+    required.clear()
+    selected = await selector.select(request)
+    assert {tool.name for tool in selected.tools} == {"one", "two"}
+    assert selector.required_tools == frozenset({"one"})
+    assert owner.closed
+
+
+async def test_module_required_names_are_refreshed_for_each_new_model_turn():
+    request, _ = request_for_selection()
+    owner = Owner(["two"])
+    current = ["one"]
+    selector = ToolSelector(
+        selection_settings(), owned_factory(owner), required_tools=lambda: current
+    )
+    first = await selector.select(request)
+    assert {tool.name for tool in first.tools} == {"one", "two"}
+    current[:] = ["three"]
+    request.state["turn"] = 2
+    second = await selector.select(request)
+    assert {tool.name for tool in second.tools} == {"three", "two"}

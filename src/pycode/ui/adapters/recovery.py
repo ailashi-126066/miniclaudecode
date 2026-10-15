@@ -31,6 +31,8 @@ class RevertPanel(Vertical):
                 yield Button("Compensate", id="restore-compensate", variant="warning")
             return
         plan = self._plan
+        if plan is None:
+            raise ValueError("Revert preview requires a plan or recovery transaction")
         yield Static(
             f"Revert mode: {plan.mode} · target {plan.target_leaf_id or 'root'}", markup=False
         )

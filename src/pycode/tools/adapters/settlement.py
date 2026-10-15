@@ -1,14 +1,10 @@
 """Deep Agents boundary extracted for sequential, readable ownership."""
 
 import asyncio
-import json
 import re
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
-from typing import Protocol, TypedDict
+from typing import Protocol, TypedDict, cast
 
-from deepagents.middleware.skills import disclosed_skill_tool_names
 from langchain.agents.middleware import (
     AgentMiddleware,
     ToolRetryMiddleware,
@@ -19,6 +15,7 @@ from langgraph.types import Command
 
 from pycode.kernel import (
     EventSink,
+    ExecutionMode,
     Message,
     ModelSelection,
     StorageError,
@@ -31,11 +28,12 @@ from pycode.kernel import (
     json_dumps,
 )
 from pycode.plans import PlanService
-from pycode.skills import SkillLoadRecorder, SkillResources, SkillSelection
 from pycode.tools import ToolExecutor, ToolOutputStore, ToolRegistry
 from pycode.tools.adapters.framework_tool import make_framework_tool
 from pycode.tools.adapters.state import ToolSettlementState
 from pycode.tools.domain.execution import batch_execution_mode
+from pycode.tools.domain.tool_failures import repeated_tool_failure
+from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
 from pycode.tools.ports.publication import MessagePublisher, ToolLifecycle
 
 
@@ -64,12 +62,6 @@ class WorkspaceTools(Protocol):
     ) -> ToolResult: ...
 
 
-class MCPBoundary(Protocol):
-    tool_call: Callable[[str], AbstractAsyncContextManager[object]] | None
-
-    def declaration(self, name: str) -> dict: ...
-
-
 class SettlementContext(Protocol):
     """The fields settlement actually uses, without depending on AgentRuntime state."""
 
@@ -84,7 +76,7 @@ class SettlementContext(Protocol):
     registry: ToolRegistry
     completed: list[Message]
     call_order: list[str]
-    execution_mode: str
+    execution_mode: ExecutionMode
     failure_guard: FailureGuard
     serial_failure_signature: str | None
     tool_tasks: set[asyncio.Task]
@@ -99,11 +91,7 @@ class SettlementContext(Protocol):
     turn_end_sent: bool
     outputs: ToolOutputStore | None
     plans: PlanService | None
-    skill_resources: SkillResources | None
-    skill_recorder: SkillLoadRecorder | None
-    skill_selection: SkillSelection | None
     team: SettlementMailbox | None
-    mcp: MCPBoundary | None
     workspace_files: WorkspaceTools | None
 
 
@@ -111,7 +99,7 @@ def retryable_read_tool_error(error):
     return isinstance(error, ToolError) and error.retryable
 
 
-class ToolSettlementMiddleware(AgentMiddleware):
+class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
     state_schema = ToolSettlementState
 
     def __init__(
@@ -120,16 +108,19 @@ class ToolSettlementMiddleware(AgentMiddleware):
         publisher: MessagePublisher,
         lifecycle: ToolLifecycle[SettlementContext],
         converter,
-        result_normalizer,
+        tool_extensions: tuple[ToolExtension, ...] = (),
+        native_bindings: tuple[NativeToolBinding, ...] = (),
     ):
         self.publisher = publisher
         self.lifecycle = lifecycle
         self.converter = converter
-        self.result_normalizer = result_normalizer
+        self.tool_extensions = tuple(tool_extensions)
+        self.native_bindings = tuple(native_bindings)
 
     async def awrap_tool_call(self, request, handler):
-        context: SettlementContext = request.runtime.context
+        context = cast(SettlementContext, request.runtime.context)
         owner = asyncio.current_task()
+        assert owner is not None
         context.tool_tasks.add(owner)
         try:
             return await self.ordered_call(request, handler)
@@ -137,15 +128,13 @@ class ToolSettlementMiddleware(AgentMiddleware):
             context.tool_tasks.discard(owner)
 
     async def ordered_call(self, request, handler):
-        context: SettlementContext = request.runtime.context
+        context = cast(SettlementContext, request.runtime.context)
         specifications = []
         for call in context.assistant.tool_calls if context.assistant is not None else ():
             try:
                 spec = context.registry.get_spec(call.name)
             except ToolError:
-                resource = (
-                    context.skill_resources.get_tool(call.name) if context.skill_resources else None
-                )
+                resource = self.extension_tool(call.name, request.state)
                 if resource is not None:
                     spec = resource.spec
                 else:
@@ -175,7 +164,7 @@ class ToolSettlementMiddleware(AgentMiddleware):
         return await self.settle_call(request, handler)
 
     async def settle_call(self, request, handler):
-        context: SettlementContext = request.runtime.context
+        context = cast(SettlementContext, request.runtime.context)
         raw = request.tool_call
         call = ToolCall(raw["id"], raw["name"], raw["args"])
         if context.assistant is None or call.id not in context.call_order:
@@ -195,239 +184,25 @@ class ToolSettlementMiddleware(AgentMiddleware):
             call.name,
             agent_id=context.agent_id,
         )
-        result = None
         framework_updates = {}
-        for message in context.completed:
-            if (
-                message.tool_result is not None
-                and message.tool_result.operation_id == tool_context.operation_id
-            ):
-                result = message.tool_result
-                break
-        digest = data_hash(call.arguments)
-        if context.serial_failure_signature == call.name + ":" + digest:
-            async with context.duplicate_calls:
-                preceding = set()
-                for candidate in context.assistant.tool_calls:
-                    if candidate.id == call.id:
-                        break
-                    if candidate.name == call.name and data_hash(candidate.arguments) == digest:
-                        preceding.add(candidate.id)
-                await context.duplicate_calls.wait_for(
-                    lambda: preceding <= context.dispatched_calls
-                )
-        guard = context.failure_guard or request.state
-        if (
-            result is None
-            and guard.get("failure_count", 0) >= 3
-            and guard.get("failure_tool") == call.name
-            and guard.get("failure_arguments") == digest
-        ):
-            result = ToolResult(
-                call.id,
-                call.name,
-                "repeated_tool_failure: read the current state or choose another approach",
-                is_error=True,
-                error_code="repeated_tool_failure",
-                details={"executed": False},
-            )
-        if (
-            result is None
-            and context.selected_tool_names is not None
-            and (call.name not in context.selected_tool_names)
-        ):
-            result = ToolResult(
-                call.id,
-                call.name,
-                "Tool was not declared for this model request",
-                is_error=True,
-                error_code="tool_not_declared",
-                details={"executed": False},
-            )
+        result = await self.initial_result(context, request, call, tool_context)
         if result is None:
-            try:
-                spec = context.registry.get_spec(call.name)
-                request = request.override(tool=make_framework_tool(spec, context, tool_context))
-            except ToolError:
-                resource = (
-                    context.skill_resources.get_tool(call.name)
-                    if context.skill_resources is not None
-                    else None
-                )
-                if resource is not None and call.name in disclosed_skill_tool_names(request.state):
-                    spec = resource.spec
-                    request = request.override(
-                        tool=make_framework_tool(spec, context, tool_context, resource)
-                    )
-                else:
-                    if request.tool is None:
-                        result = ToolResult(
-                            call.id,
-                            call.name,
-                            "Unknown tool: " + call.name,
-                            is_error=True,
-                            error_code="unknown_tool",
-                            details={"executed": False},
-                        )
-                    category = (
-                        "read"
-                        if call.name
-                        in {
-                            "read_file",
-                            "ls",
-                            "glob",
-                            "grep",
-                            "write_todos",
-                            "task",
-                        }
-                        else "write"
-                    )
-                    schema = request.tool.args_schema if request.tool is not None else {}
-                    if not isinstance(schema, dict):
-                        schema = schema.model_json_schema()
-                    spec = ToolSpec(
-                        call.name,
-                        "Deep Agents tool",
-                        schema,
-                        category=category,
-                        execution_mode="parallel" if category == "read" else "sequential",
-                    )
+            request, spec, result = self.resolve_tool(request, context, call, tool_context)
 
             async def invoke(current_context, current_call, current_spec):
-                if (
-                    current_call.name == "read_file"
-                    and context.agent_id == "lead"
-                    and current_call.arguments.get("file_path", "").startswith("/skills/")
-                    and context.skill_recorder is not None
-                ):
-                    selected = await context.skill_recorder.selected_entry(
-                        current_call.arguments["file_path"]
-                    )
-                    if selected is not None and selected.mode == "fork":
-                        raise ToolError(
-                            "skill_requires_subagent",
-                            "Use task with subagent_type=skill-" + selected.name,
-                        )
-                current_request = request
-                try:
-                    domain = context.registry.get(current_call.name)
-                except ToolError:
-                    domain = (
-                        context.skill_resources.get_tool(current_call.name)
-                        if context.skill_resources is not None
-                        else None
-                    )
-                if domain is not None:
-                    current_request = request.override(
-                        tool_call={
-                            "type": "tool_call",
-                            "id": current_call.id,
-                            "name": current_call.name,
-                            "args": current_call.arguments,
-                        },
-                        tool=make_framework_tool(current_spec, context, current_context, domain),
-                    )
-                mcp_call = (
-                    current_spec.source.startswith("mcp:") and current_spec.source != "mcp:catalog"
-                )
-                if mcp_call and context.mcp is not None and context.mcp.tool_call is not None:
-                    async with context.mcp.tool_call(current_call.name):
-                        response = await handler(current_request)
-                elif current_call.name in {"grep", "glob"} and context.workspace_files is not None:
-                    token, invocation = context.workspace_files.begin_invocation(
-                        current_context, context.outputs
-                    )
-                    try:
-                        response = await handler(current_request)
-                    finally:
-                        context.workspace_files.end_invocation(token)
-                    if invocation.result is not None:
-                        return invocation.result
-                elif current_spec.category == "read":
-                    retry = ToolRetryMiddleware(
-                        max_retries=3,
-                        retry_on=retryable_read_tool_error,
-                        on_failure="error",
-                        initial_delay=0,
-                        jitter=False,
-                    )
-                    response = await retry.awrap_tool_call(current_request, handler)
-                else:
-                    response = await handler(current_request)
-                if isinstance(response, Command):
-                    if not isinstance(response.update, dict):
-                        raise TypeError("Expected dictionary state updates from framework tool")
-                    for key, value in response.update.items():
-                        if key != "messages":
-                            framework_updates[key] = value
-                    tool_messages = response.update.get("messages", ())
-                    if len(tool_messages) != 1:
-                        raise TypeError("Framework tool must return one paired ToolMessage")
-                    response = tool_messages[0]
-                if not isinstance(response, ToolMessage):
-                    raise TypeError("Expected a ToolMessage from framework tool execution")
-                if isinstance(response.artifact, ToolResult):
-                    return response.artifact
-                if mcp_call:
-                    return self.result_normalizer(
-                        response.content,
-                        response.status,
-                        response.artifact,
-                        name=call.name,
-                        call_id=call.id,
-                        declaration=context.mcp.declaration(current_call.name),
-                    )
-                if (
-                    current_call.name == "read_file"
-                    and response.status == "success"
-                    and isinstance(response.content, str)
-                    and "Long line clipped;" in response.content
-                    and current_call.arguments.get("file_path", "").startswith("/workspace/")
-                    and context.workspace_files is not None
-                    and context.outputs is not None
-                ):
-                    return await context.workspace_files.offload_read(
-                        current_context, current_call.arguments, context.outputs
-                    )
-                content = (
-                    response.content
-                    if isinstance(response.content, str)
-                    else json_dumps(response.content, ensure_ascii=False)
-                )
-                code = None
-                if response.status == "error":
-                    error_text = content.removeprefix("Error: ")
-                    candidate = error_text.partition(":")[0]
-                    code = (
-                        candidate if re.fullmatch(r"[a-z_]+", candidate) else "tool_execution_error"
-                    )
-                return ToolResult(
-                    call.id,
-                    call.name,
-                    content,
-                    is_error=response.status == "error",
-                    error_code=code,
-                    structured_content=response.artifact,
+                return await self.invoke_framework(
+                    request,
+                    handler,
+                    context,
+                    call,
+                    framework_updates,
+                    current_context,
+                    current_call,
+                    current_spec,
                 )
 
-            if result is None and context.selected_tool_names is not None:
-                for declared in context.model_tools:
-                    if declared.name != call.name or declared.source == "deepagents":
-                        continue
-                    if (
-                        data_hash(declared.input_schema) != data_hash(spec.input_schema)
-                        or declared.implementation_hash != spec.implementation_hash
-                        or declared.policy_hash != spec.policy_hash
-                    ):
-                        result = ToolResult(
-                            call.id,
-                            call.name,
-                            "Tool declaration changed after model input",
-                            is_error=True,
-                            error_code="tool_declaration_changed",
-                            details={"executed": False},
-                        )
-                    break
+            if result is None:
+                result = self.declaration_error(context, call, spec)
 
             if result is None:
                 try:
@@ -450,15 +225,8 @@ class ToolSettlementMiddleware(AgentMiddleware):
             operation_id=tool_context.operation_id,
             details={**result.details, "source_assistant_id": context.assistant.id},
         )
-        skill_path = call.arguments.get("file_path", "")
-        is_skill = (
-            call.name == "read_file"
-            and skill_path.startswith("/skills/")
-            and not result.is_error
-            and context.skill_recorder is not None
-        )
-        if is_skill:
-            result = replace(result, details={**result.details, "protected_content": True})
+        for extension in self.tool_extensions:
+            result = extension.prepare_result(call, result)
         async with context.settlement:
             context.ready_results[call.id] = (call, result, framework_updates)
             while call.id not in context.settled_calls:
@@ -474,6 +242,7 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 await self.lifecycle(
                     context, "turn_end", context.assistant.id, message=context.assistant.text
                 )
+        assert result.operation_id is not None
         message = self.converter(
             Message("result:" + result.operation_id, "tool", tool_result=result),
             context.selection,
@@ -484,6 +253,280 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 "messages": [message],
                 **context.failure_guard,
             }
+        )
+
+    async def initial_result(self, context, request, call, tool_context):
+        result = None
+        for message in context.completed:
+            if (
+                message.tool_result is not None
+                and message.tool_result.operation_id == tool_context.operation_id
+            ):
+                result = message.tool_result
+                break
+        digest = data_hash(call.arguments)
+        if context.serial_failure_signature == call.name + ":" + digest:
+            async with context.duplicate_calls:
+                preceding = set()
+                for candidate in context.assistant.tool_calls:
+                    if candidate.id == call.id:
+                        break
+                    if candidate.name == call.name and data_hash(candidate.arguments) == digest:
+                        preceding.add(candidate.id)
+                await context.duplicate_calls.wait_for(
+                    lambda: preceding <= context.dispatched_calls
+                )
+        guard = context.failure_guard or request.state
+        if result is None and repeated_tool_failure(guard, call.name, digest):
+            result = ToolResult(
+                call.id,
+                call.name,
+                "repeated_tool_failure: read the current state or choose another approach",
+                is_error=True,
+                error_code="repeated_tool_failure",
+                details={"executed": False},
+            )
+        if (
+            result is None
+            and context.selected_tool_names is not None
+            and (call.name not in context.selected_tool_names)
+        ):
+            result = ToolResult(
+                call.id,
+                call.name,
+                "Tool was not declared for this model request",
+                is_error=True,
+                error_code="tool_not_declared",
+                details={"executed": False},
+            )
+        return result
+
+    def resolve_tool(self, request, context, call, tool_context):
+        result = None
+        try:
+            spec = context.registry.get_spec(call.name)
+            request = request.override(tool=self.framework_tool(spec, context, tool_context))
+        except ToolError:
+            resource = self.extension_tool(call.name, request.state)
+            if resource is not None:
+                spec = resource.spec
+                request = request.override(
+                    tool=self.framework_tool(spec, context, tool_context, resource)
+                )
+            else:
+                if request.tool is None:
+                    result = ToolResult(
+                        call.id,
+                        call.name,
+                        "Unknown tool: " + call.name,
+                        is_error=True,
+                        error_code="unknown_tool",
+                        details={"executed": False},
+                    )
+                category = (
+                    "read"
+                    if call.name
+                    in {
+                        "read_file",
+                        "ls",
+                        "glob",
+                        "grep",
+                        "write_todos",
+                        "task",
+                    }
+                    else "write"
+                )
+                schema = request.tool.args_schema if request.tool is not None else {}
+                if not isinstance(schema, dict):
+                    schema = schema.model_json_schema()
+                spec = ToolSpec(
+                    call.name,
+                    "Deep Agents tool",
+                    schema,
+                    category=category,
+                    execution_mode="parallel" if category == "read" else "sequential",
+                )
+        return request, spec, result
+
+    def declaration_error(self, context, call, spec):
+        result = None
+        if context.selected_tool_names is not None:
+            for declared in context.model_tools:
+                if declared.name != call.name or declared.source == "deepagents":
+                    continue
+                if (
+                    data_hash(declared.input_schema) != data_hash(spec.input_schema)
+                    or declared.implementation_hash != spec.implementation_hash
+                    or declared.policy_hash != spec.policy_hash
+                ):
+                    result = ToolResult(
+                        call.id,
+                        call.name,
+                        "Tool declaration changed after model input",
+                        is_error=True,
+                        error_code="tool_declaration_changed",
+                        details={"executed": False},
+                    )
+                break
+        return result
+
+    def framework_tool(self, *args):
+        return make_framework_tool(*args, native_bindings=self.native_bindings)
+
+    def extension_tool(self, name, state):
+        for extension in self.tool_extensions:
+            tool = extension.lookup(name, state=state)
+            if tool is not None:
+                return tool
+        return None
+
+    def native_binding(self, name):
+        for binding in self.native_bindings:
+            if binding.framework_tool(name) is not None:
+                return binding
+        return None
+
+    def domain_request(self, request, context, current_context, current_call, current_spec):
+        current_request = request
+        try:
+            domain = context.registry.get(current_call.name)
+        except ToolError:
+            domain = self.extension_tool(current_call.name, request.state)
+        if domain is not None:
+            current_request = request.override(
+                tool_call={
+                    "type": "tool_call",
+                    "id": current_call.id,
+                    "name": current_call.name,
+                    "args": current_call.arguments,
+                },
+                tool=self.framework_tool(current_spec, context, current_context, domain),
+            )
+        return current_request
+
+    async def call_framework_handler(
+        self,
+        current_request,
+        handler,
+        context,
+        current_context,
+        current_call,
+        current_spec,
+        native_binding,
+    ):
+        if native_binding is not None:
+            async with native_binding.call_scope(current_call.name):
+                response = await handler(current_request)
+        elif current_call.name in {"grep", "glob"} and context.workspace_files is not None:
+            token, invocation = context.workspace_files.begin_invocation(
+                current_context, context.outputs
+            )
+            try:
+                response = await handler(current_request)
+            finally:
+                context.workspace_files.end_invocation(token)
+            if invocation.result is not None:
+                return None, invocation.result
+        elif current_spec.category == "read":
+            retry = ToolRetryMiddleware(
+                max_retries=3,
+                retry_on=retryable_read_tool_error,
+                on_failure="error",
+                initial_delay=0,
+                jitter=False,
+            )
+            response = await retry.awrap_tool_call(current_request, handler)
+        else:
+            response = await handler(current_request)
+
+        return response, None
+
+    def unwrap_tool_message(self, response, framework_updates):
+        if isinstance(response, Command):
+            if not isinstance(response.update, dict):
+                raise TypeError("Expected dictionary state updates from framework tool")
+            for key, value in response.update.items():
+                if key != "messages":
+                    framework_updates[key] = value
+            tool_messages = response.update.get("messages", ())
+            if len(tool_messages) != 1:
+                raise TypeError("Framework tool must return one paired ToolMessage")
+            response = tool_messages[0]
+        if not isinstance(response, ToolMessage):
+            raise TypeError("Expected a ToolMessage from framework tool execution")
+        return response
+
+    async def framework_result(
+        self, response, context, call, current_context, current_call, native_binding
+    ):
+        if native_binding is not None:
+            return native_binding.normalize(
+                current_call.name, response.content, response.status, response.artifact, call.id
+            )
+        if (
+            current_call.name == "read_file"
+            and response.status == "success"
+            and isinstance(response.content, str)
+            and "Long line clipped;" in response.content
+            and current_call.arguments.get("file_path", "").startswith("/workspace/")
+            and context.workspace_files is not None
+            and context.outputs is not None
+        ):
+            return await context.workspace_files.offload_read(
+                current_context, current_call.arguments, context.outputs
+            )
+        content = (
+            response.content
+            if isinstance(response.content, str)
+            else json_dumps(response.content, ensure_ascii=False)
+        )
+        code = None
+        if response.status == "error":
+            error_text = content.removeprefix("Error: ")
+            candidate = error_text.partition(":")[0]
+            code = candidate if re.fullmatch(r"[a-z_]+", candidate) else "tool_execution_error"
+        return ToolResult(
+            call.id,
+            call.name,
+            content,
+            is_error=response.status == "error",
+            error_code=code,
+            structured_content=response.artifact,
+        )
+
+    async def invoke_framework(
+        self,
+        request,
+        handler,
+        context,
+        call,
+        framework_updates,
+        current_context,
+        current_call,
+        current_spec,
+    ):
+        for extension in self.tool_extensions:
+            await extension.before_call(current_context, current_call)
+        current_request = self.domain_request(
+            request, context, current_context, current_call, current_spec
+        )
+        native_binding = self.native_binding(current_call.name)
+        response, direct = await self.call_framework_handler(
+            current_request,
+            handler,
+            context,
+            current_context,
+            current_call,
+            current_spec,
+            native_binding,
+        )
+        if direct is not None:
+            return direct
+        response = self.unwrap_tool_message(response, framework_updates)
+        if isinstance(response.artifact, ToolResult):
+            return response.artifact
+        return await self.framework_result(
+            response, context, call, current_context, current_call, native_binding
         )
 
     async def settle_ready(self, context: SettlementContext):
@@ -514,23 +557,11 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 else saved_result.error_code or "",
                 "failure_count": count,
             }
+            assert saved_result.operation_id is not None
             entry_id = await self.publisher.publish(
                 Message("result:" + saved_result.operation_id, "tool", tool_result=saved_result),
                 emit_start=True,
             )
-            if (
-                saved_call.name == "SkillSearch"
-                and not saved_result.is_error
-                and context.skill_selection is not None
-                and context.skill_selection.dispatch
-            ):
-                selected = saved_result.structured_content
-                if selected is None:
-                    selected = json.loads(saved_result.text)
-                paths = []
-                for item in selected:
-                    paths.append(item["path"])
-                context.skill_selection.select(paths)
             saved_path = saved_call.arguments.get("file_path", "")
             if (
                 context.plans is not None
@@ -539,13 +570,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 and not saved_result.is_error
             ):
                 await context.plans.update_exists()
-            if (
-                saved_call.name == "read_file"
-                and saved_path.startswith("/skills/")
-                and not saved_result.is_error
-                and context.skill_recorder is not None
-            ):
-                await context.skill_recorder.record(saved_path, saved_result, entry_id)
             context.settled_calls.add(identifier)
             saved_context = ToolContext(
                 context.session_id,
@@ -556,6 +580,8 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 saved_call.name,
                 agent_id=context.agent_id,
             )
+            for extension in self.tool_extensions:
+                await extension.after_persist(saved_context, saved_call, saved_result, entry_id)
             if context.team is not None:
                 await context.team.settle_tool(saved_result, accepted=True)
             await context.executor.completed(saved_context, saved_call, saved_result)

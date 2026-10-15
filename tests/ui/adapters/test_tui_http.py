@@ -2,7 +2,7 @@ import asyncio
 
 from textual.widgets import Static
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.ui.adapters.chat_input import ChatInput
 from tests.session.adapters.test_revert_http import command_reply
@@ -24,7 +24,9 @@ async def test_actual_tui_approval_precedes_effect_and_same_application_ends_wit
         url,
         requests,
     ):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(120, 45)) as pilot:
             await asyncio.wait_for(app.ready.wait(), 5)
             await app.send_text("create file")
@@ -59,7 +61,7 @@ async def test_tui_clear_expires_old_approval_and_open_recovers_history_without_
     with protocol_server(
         [command_reply("printf restored > old.txt"), chat_completion(), chat_completion()]
     ) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 45)) as pilot:
             await app.ready.wait()
             await app.send_text("old pending task")
@@ -92,14 +94,14 @@ async def test_tui_close_and_reopen_expires_interrupt_and_keeps_one_interrupted_
         url,
         requests,
     ):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(120, 45)):
             await app.ready.wait()
             await app.send_text("pending")
             await settled(app)
             session_id = app.session_id
             assert app.state["pending"][0]["interrupt_id"]
-        restored = build_tui(config, (provider(url),), session_id=session_id)
+        restored = compose_application(config, (provider(url),)).tui(session_id=session_id)
         async with restored.run_test(size=(120, 45)):
             await restored.ready.wait()
             assert restored.state["pending"] == () and not restored.query("#perm-inline")

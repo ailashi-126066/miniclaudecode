@@ -6,10 +6,10 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.models.adapters.storage.requests import SQLiteRequestStore
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.context.adapters.test_summary_http import seed
@@ -54,7 +54,9 @@ async def test_real_summary_process_death_uses_completed_object_or_regenerates_l
                 child.kill()
                 await child.wait()
         selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
-        restored = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        restored = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             try:
                 await restored.resume()

@@ -53,7 +53,7 @@ async def run_process(
     writer,
     result,
     *,
-    limit_seconds=120,
+    limit_seconds: float = 120,
     stdin=None,
     prefix="command",
     environment=None,
@@ -97,15 +97,21 @@ async def run_process(
                     "command_group_unavailable", "Cannot own the process group"
                 ) from error
         if stdin is not None:
-            process.stdin.write(stdin)
-            await process.stdin.drain()
-            process.stdin.close()
-            await process.stdin.wait_closed()
+            input_stream = process.stdin
+            if input_stream is None:
+                raise ToolError("command_input_unavailable", "Process input pipe was not created")
+            input_stream.write(stdin)
+            await input_stream.drain()
+            input_stream.close()
+            await input_stream.wait_closed()
+        output_stream = process.stdout
+        if output_stream is None:
+            raise ToolError("command_output_unavailable", "Process output pipe was not created")
 
         async def collect():
             decoder = codecs.getincrementaldecoder("utf-8")("replace")
             while True:
-                data = await process.stdout.read(64 * 1024)
+                data = await output_stream.read(64 * 1024)
                 if not data:
                     tail = decoder.decode(b"", final=True)
                     if tail and progress is not None:

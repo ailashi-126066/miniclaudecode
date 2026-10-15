@@ -1,7 +1,7 @@
 import pytest
 
-from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
-from pycode.kernel.contracts.tools import ToolContext
+from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
+from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.services.events import EventStream
 from pycode.mcp.adapters.tools import MCPCall, MCPTool, ToolSearch
 from pycode.mcp.services.mcp import MCPService

@@ -3,6 +3,7 @@
 """Conversation navigation and selected file restoration share a reviewable plan."""
 
 from dataclasses import replace
+from typing import Literal, cast
 from uuid import uuid4
 
 from pycode.kernel import EntryDraft, SessionTree, SnapshotError, StorageError, plain_data
@@ -33,7 +34,7 @@ class RevertService:
             raise StorageError(
                 "revert_branch_conflict", "Revert target must be on the current branch"
             )
-        boundary = positions.get(target_leaf_id, -1)
+        boundary = positions.get(target_leaf_id, -1) if target_leaf_id is not None else -1
         targets, expected = {}, {}
         if mode in {"code", "both"}:
             for entry in path:
@@ -71,7 +72,7 @@ class RevertService:
             snapshot.header.session_id,
             snapshot.leaf_id,
             target_leaf_id,
-            mode,
+            cast(Literal["dialogue", "code", "both"], mode),
             files,
             files.restore_id if files is not None else uuid4().hex,
         )
@@ -243,7 +244,7 @@ class RevertService:
             )
             if boundary is not None and boundary not in positions:
                 raise StorageError("revert_transaction_stale", "Revert branch changed")
-            later = path[positions.get(boundary, -1) + 1 :]
+            later = path[(positions.get(boundary, -1) if boundary is not None else -1) + 1 :]
         else:
             raise StorageError("revert_transaction_stale", "Revert branch changed")
         if any(entry.data.get("transaction_id") != restore_id for entry in later):

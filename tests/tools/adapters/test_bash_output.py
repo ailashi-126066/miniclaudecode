@@ -1,14 +1,18 @@
 import asyncio
+import os
 import shlex
 import sys
+from dataclasses import replace
 
 import pytest
 
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolCall
-from pycode.kernel.contracts.tools import ToolContext
+from pycode.app.bootstrap import compose_application
+from pycode.app.config import AppConfig
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message, ToolCall
+from pycode.kernel.domain.tools import ToolContext
+from pycode.kernel.domain.truncation import MAX_BYTES
 from pycode.kernel.services.events import EventStream
-from pycode.kernel.truncation import MAX_BYTES
 from pycode.sandbox.adapters.tools.bash import Bash, find_bash
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.session import JsonlSessionStore
@@ -26,7 +30,7 @@ class ApprovedGate:
         return None
 
 
-async def assemble(tmp_path):
+async def assemble(tmp_path, *, passthrough=()):
     sessions = tmp_path / "sessions"
     journal = JsonlSessionStore(
         sessions / "s1", SessionHeader("s1", str(tmp_path), "t"), TestTiming()
@@ -36,7 +40,7 @@ async def assemble(tmp_path):
         sessions, "s1", journal, header_reader=FileSessionHeaderReader(sessions)
     )
     validator = JsonSchemaValidator()
-    registry = ToolRegistry(validator, (Bash(find_bash(), outputs),))
+    registry = ToolRegistry(validator, (Bash(find_bash(), outputs, passthrough=passthrough),))
     executor = ToolExecutor(
         registry,
         validator,
@@ -89,6 +93,51 @@ async def test_command_environment_excludes_inherited_credentials(tmp_path, monk
         assert "PYCODE_UNLISTED_VALUE" not in variables
         assert variables["PATH"]
         assert variables["HOME"]
+    finally:
+        await journal.aclose()
+
+
+async def test_explicit_proxy_and_agent_socket_passthrough_does_not_include_other_values(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HTTPS_PROXY", "https://proxy.example.test:8443")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/explicit-agent.sock")
+    monkeypatch.setenv("FAKE_API_KEY", "fake-secret-value")
+    monkeypatch.setenv("PYCODE_UNLISTED_VALUE", "unlisted")
+    executor, context, journal, _ = await assemble(
+        tmp_path, passthrough=("HTTPS_PROXY", "SSH_AUTH_SOCK")
+    )
+    try:
+        result = await executor.execute(
+            context, ToolCall("call-1", "Bash", {"command": "env"}), "tool_calls"
+        )
+        assert not result.is_error
+        variables = dict(line.split("=", 1) for line in result.text.splitlines() if "=" in line)
+        assert variables["HTTPS_PROXY"] == "https://proxy.example.test:8443"
+        assert variables["SSH_AUTH_SOCK"] == "/tmp/explicit-agent.sock"
+        assert "FAKE_API_KEY" not in variables and "PYCODE_UNLISTED_VALUE" not in variables
+    finally:
+        await journal.aclose()
+
+
+async def test_evaluation_path_prefix_survives_final_child_environment_filter(
+    tmp_path, monkeypatch
+):
+    _, context, journal, outputs = await assemble(tmp_path)
+    context = replace(context, call_id="path-prefix", tool_name="Bash")
+    prefix = tmp_path / "evaluation-python-bin"
+    config = AppConfig(tmp_path, tmp_path / "state", bash_path_prefix=(str(prefix),))
+    bash = compose_application(config).modules.sandbox.bash(outputs)
+    captured = {}
+
+    async def capture_process(argv, workspace, writer, result, **options):
+        captured.update(options["environment"])
+        return await writer.finish(result)
+
+    monkeypatch.setattr("pycode.sandbox.adapters.tools.bash.run_process", capture_process)
+    try:
+        await bash.execute(context, {"command": "true"})
+        assert captured["PATH"].split(os.pathsep)[0] == str(prefix)
     finally:
         await journal.aclose()
 

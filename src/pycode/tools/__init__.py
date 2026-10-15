@@ -2,7 +2,9 @@
 
 from pycode.tools.domain.approvals import validate_operation_answer
 from pycode.tools.domain.questions import validate_question_answer
+from pycode.tools.domain.tool_failures import repeated_tool_failure
 from pycode.tools.ports.dispatch import ToolDispatch
+from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
 from pycode.tools.ports.hooks import ToolHooks
 from pycode.tools.ports.outputs import OutputWriter, SessionHeaderReader, ToolOutputStore
 from pycode.tools.ports.publication import ContextT, MessagePublisher, ToolLifecycle
@@ -16,11 +18,13 @@ from pycode.tools.services.permissions import (
     WorkerBoundaryGate,
 )
 from pycode.tools.services.plan_gate import PlanToolGate
-from pycode.tools.services.skill_gate import SkillToolGate
 from pycode.tools.services.tool_executor import ToolExecutor
 from pycode.tools.services.tool_registry import ToolRegistry
 
 __all__ = [
+    "ToolExtension",
+    "NativeToolBinding",
+    "repeated_tool_failure",
     "ArgumentValidator",
     "ConfiguredActionGate",
     "ContextT",
@@ -32,7 +36,6 @@ __all__ = [
     "QuestionPrompt",
     "ReadOnlyToolGate",
     "SessionHeaderReader",
-    "SkillToolGate",
     "ToolDispatch",
     "ToolExecutor",
     "ToolGate",

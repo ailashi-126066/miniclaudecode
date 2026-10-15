@@ -3,14 +3,14 @@ import json
 
 import pytest
 
-from pycode.app.composition import skill_read_grant
-from pycode.kernel.contracts.messages import Message, ToolCall
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import Message, ToolCall
+from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.services.events import EventStream
 from pycode.sandbox.adapters.seatbelt import UnavailableSandbox
 from pycode.sandbox.adapters.tools.process_runner import run_process
 from pycode.sandbox.domain.sandbox import SandboxSettings
+from pycode.sandbox.module import SandboxModule
 from pycode.session import SessionCatalogWriteGuard
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.skills.adapters.catalog import FileSkillCatalog
@@ -20,6 +20,7 @@ from pycode.skills.services.skills import SkillService
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.adapters.tool_errors import execute_tool_errors
+from pycode.tools.domain.operations import operation_spec_hash
 from pycode.tools.services.tool_executor import ToolExecutor
 from pycode.tools.services.tool_registry import ToolRegistry
 from tests.models.services.test_model_control import store_for
@@ -51,7 +52,7 @@ async def activate(tmp_path, *, code=None, limit_seconds=120):
         SandboxSettings(),
         timeout=limit_seconds,
         process_runner=run_process,
-        skill_read_grant=skill_read_grant,
+        skill_read_grant=SandboxModule.skill_read_grant,
     )
     return store, tool, outputs
 
@@ -113,7 +114,7 @@ async def test_bad_declarations_fail_before_activation_or_import(tmp_path, defec
                 UnavailableSandbox(),
                 SandboxSettings(),
                 process_runner=run_process,
-                skill_read_grant=skill_read_grant,
+                skill_read_grant=SandboxModule.skill_read_grant,
             ),
             index.entries,
             reserved_tools=("resource_probe",) if defect == "collision" else (),
@@ -238,5 +239,29 @@ async def test_declared_file_arguments_preserve_workspace_scope(tmp_path, file_p
             assert not result.is_error and result.text.strip() == "True:resume content"
         else:
             assert result.is_error and result.error_code == "outside_workspace"
+    finally:
+        await store.aclose()
+
+
+async def test_python_skill_identity_binds_environment_grant_and_sandbox(tmp_path):
+    store, tool, outputs = await activate(tmp_path)
+    try:
+
+        def configured(settings, passthrough=()):
+            return PythonSkillTool(
+                tool._declaration,
+                tool._activation,
+                tool._catalog,
+                outputs,
+                UnavailableSandbox(),
+                settings,
+                passthrough=passthrough,
+                process_runner=run_process,
+                skill_read_grant=SandboxModule.skill_read_grant,
+            )
+
+        expanded = configured(SandboxSettings(), ("HTTPS_PROXY",))
+        enclosed = configured(SandboxSettings("on"))
+        assert len({operation_spec_hash(item.spec) for item in (tool, expanded, enclosed)}) == 3
     finally:
         await store.aclose()

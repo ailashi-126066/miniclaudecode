@@ -2,7 +2,7 @@
 
 import pytest
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.memory.domain.memory import (
     MAX_ENTRY_CHARS,
     check_memory_write,

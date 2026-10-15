@@ -64,8 +64,8 @@ class ModelFactory:
                 "default_headers": common["default_headers"],
             }
             root = openai.OpenAI(**sdk_options)
-            asynchronous = openai.AsyncOpenAI(**sdk_options)
             self._owned_clients.append(root)
+            asynchronous = openai.AsyncOpenAI(**sdk_options)
             self._owned_async_clients.append(asynchronous)
             common.update(
                 client=ObservedResource(root.chat.completions, self._observation),
@@ -105,8 +105,8 @@ class ModelFactory:
                 "default_headers": common["default_headers"],
             }
             root = anthropic.Anthropic(**sdk_options)
-            asynchronous = anthropic.AsyncAnthropic(**sdk_options)
             self._owned_clients.append(root)
+            asynchronous = anthropic.AsyncAnthropic(**sdk_options)
             self._owned_async_clients.append(asynchronous)
             return ManagedChatAnthropic(
                 **common,
@@ -121,9 +121,20 @@ class ModelFactory:
         return model_selection(config)
 
     async def aclose(self) -> None:
-        for client in self._owned_clients:
-            client.close()
-        for client in self._owned_async_clients:
-            await client.close()
-        self._owned_clients.clear()
-        self._owned_async_clients.clear()
+        # Keep closing the remaining SDK clients even if one client fails. Clear
+        # ownership first so a later cleanup attempt cannot double-close them.
+        clients, self._owned_clients = self._owned_clients, []
+        asynchronous, self._owned_async_clients = self._owned_async_clients, []
+        failure: BaseException | None = None
+        for client in clients:
+            try:
+                client.close()
+            except BaseException as error:
+                failure = failure or error
+        for client in asynchronous:
+            try:
+                await client.close()
+            except BaseException as error:
+                failure = failure or error
+        if failure is not None:
+            raise failure

@@ -10,10 +10,14 @@ from pycode.skills.ports.skills import (
     SkillInstaller,
     SkillResourceToolFactory,
 )
+from pycode.skills.services.projection import SkillsProjection
+from pycode.skills.services.scope import SkillsScopeConstraint
 from pycode.skills.services.skill_resources import SkillLoadRecorder, SkillResources
 from pycode.skills.services.skills import SkillService
 
 __all__ = [
+    "SkillsProjection",
+    "SkillsScopeConstraint",
     "CatalogWriteGuard",
     "SchemaChecker",
     "SkillCatalog",

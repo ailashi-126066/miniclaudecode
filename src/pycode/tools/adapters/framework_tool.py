@@ -1,14 +1,16 @@
 """Adapt declared tools without constructing a second execution loop."""
 
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 
 from pycode.kernel import ToolContext
 
 
-def make_framework_tool(spec, context, tool_context=None, domain_tool=None):
-    if context.mcp is not None and context.mcp.framework_tool is not None:
-        native = context.mcp.framework_tool(spec.name)
+def make_framework_tool(spec, context, tool_context=None, domain_tool=None, *, native_bindings=()):
+    for binding in native_bindings:
+        native = binding.framework_tool(spec.name)
         if native is not None:
+            if not isinstance(native, BaseTool):
+                raise TypeError("Native binding must return a framework BaseTool")
             return native
 
     async def execute(**arguments):

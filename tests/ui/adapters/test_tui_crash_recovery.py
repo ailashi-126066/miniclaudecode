@@ -7,9 +7,9 @@ from dataclasses import asdict
 
 import pytest
 
-from pycode.app.composition import build_tui, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.session.adapters.test_revert_http import command_reply
 from tests.snapshot.adapters.test_git_tree import git, repository
@@ -32,8 +32,8 @@ async def test_actual_process_exit_after_revert_branch_is_recovered_by_tui_contr
     with protocol_server(
         [command_reply("printf new > file.txt"), chat_completion(), chat_completion()]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             waiting = await session.run(Message("u1", "user", "change"))
@@ -71,7 +71,7 @@ async def test_actual_process_exit_after_revert_branch_is_recovered_by_tui_contr
             if child.returncode is None:
                 child.kill()
                 await child.wait()
-        app = build_tui(config, (provider(url),), session_id="s1")
+        app = compose_application(config, (provider(url),)).tui(session_id="s1")
         async with app.run_test(size=(120, 50)) as pilot:
             await app.ready.wait()
             assert app.query("#revert-inline") and len(requests) == 2

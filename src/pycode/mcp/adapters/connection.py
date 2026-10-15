@@ -2,8 +2,11 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from typing import cast
 
-from fastmcp.exceptions import MCPError
+from fastmcp.client import Client
+from fastmcp.client.transports import ClientTransport
+from fastmcp.exceptions import McpError as MCPError
 from langchain.mcp import MCPAdapter
 
 from pycode.kernel import StorageError, ToolError
@@ -13,7 +16,7 @@ class MCPAdapterConnection:
     def __init__(self, config, environment):
         self.config = config
         self.environment = environment
-        self.adapter = None
+        self.adapter: MCPAdapter | None = None
         self.tools = {}
         self.info = {}
         self.closed = False
@@ -63,8 +66,9 @@ class MCPAdapterConnection:
         self.adapter = adapter
         for tool in declared:
             self.tools[tool.name] = tool
-        server_info = adapter.client.server_info
-        capabilities = adapter.client.server_capabilities
+        client = self.single_client(adapter)
+        server_info = client.server_info
+        capabilities = client.server_capabilities
         self.info = {
             "serverInfo": server_info.model_dump(mode="json", exclude_none=True)
             if server_info is not None
@@ -72,14 +76,26 @@ class MCPAdapterConnection:
             "capabilities": capabilities.model_dump(mode="json", exclude_none=True)
             if capabilities is not None
             else {},
-            "instructions": adapter.client.instructions,
+            "instructions": client.instructions,
         }
+
+    @staticmethod
+    def single_client(adapter: MCPAdapter) -> Client[ClientTransport]:
+        # The adapter is constructed from one server config, never a ClientGroup.
+        return cast(Client[ClientTransport], adapter.client)
+
+    def connected_adapter(self) -> MCPAdapter:
+        adapter = self.adapter
+        if adapter is None:
+            raise ToolError("mcp_connection_closed", "MCP adapter has been closed")
+        return adapter
 
     async def request(self, method, arguments):
         await self.connect()
-        client = self.adapter.client
+        adapter = self.connected_adapter()
+        client = self.single_client(adapter)
         try:
-            async with self.adapter:
+            async with adapter:
                 async with asyncio.timeout(self.config.timeout):
                     if method == "list_tools":
                         tools = await client.list_tools(cache_mode="refresh")
@@ -127,7 +143,7 @@ class MCPAdapterConnection:
                         )
                         return result.model_dump(mode="json", by_alias=True, exclude_none=True)
         except (MCPError, OSError, TimeoutError) as error:
-            await self.adapter.client.close()
+            await self.single_client(adapter).close()
             raise ToolError("mcp_request_failed", "MCP adapter request failed") from error
         raise ToolError("invalid_mcp_method", "Unsupported MCP operation")
 
@@ -147,19 +163,20 @@ class MCPAdapterConnection:
     @asynccontextmanager
     async def tool_call(self):
         await self.connect()
+        adapter = self.connected_adapter()
         try:
-            async with self.adapter:
+            async with adapter:
                 async with asyncio.timeout(self.config.timeout):
                     yield
         except (MCPError, OSError, TimeoutError) as error:
-            await self.adapter.client.close()
+            await self.single_client(adapter).close()
             raise StorageError(
                 "mcp_effects_uncertain", "MCP call interrupted; effects may have occurred"
             ) from error
 
     async def refresh_tools(self):
         await self.connect()
-        declared = await self.adapter.list_tools(cache_mode="refresh")
+        declared = await self.connected_adapter().list_tools(cache_mode="refresh")
         self.tools = {tool.name: tool for tool in declared}
 
     async def aclose(self):

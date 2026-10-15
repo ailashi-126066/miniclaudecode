@@ -7,9 +7,9 @@ from dataclasses import asdict
 
 import pytest
 
-from pycode.app.composition import open_agent_session, open_session_view
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
@@ -39,8 +39,8 @@ async def test_dynamic_schema_and_python_execute_survive_approval_restart(
     ]
     with protocol_server(replies) as (url, requests):
         configured = provider(url)
-        session = await open_agent_session(
-            config, (configured,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             waiting = await session.run(Message("u1", "user", "use resource"))
@@ -72,7 +72,7 @@ async def test_dynamic_schema_and_python_execute_survive_approval_restart(
             assert report["source"] == "provider_usage" and report["tokens"] == 25
         finally:
             await session.aclose()
-        view = await open_session_view(config, "s1")
+        view = await compose_application(config).open_view("s1")
         try:
             assert (await view.inspect())["context_usage"] == report
         finally:
@@ -103,8 +103,8 @@ async def test_invalid_arguments_and_denial_never_import_resource(
         url,
         requests,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             done = await session.run(Message("u1", "user", "execute"))
@@ -136,8 +136,8 @@ async def test_pending_resume_rejects_changed_resource_and_can_resume_restored_e
         ]
     ) as (url, requests):
         configured = provider(url)
-        session = await open_agent_session(
-            config, (configured,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         waiting = await session.run(Message("u1", "user", "execute"))
         target = directory / ("tool.json" if change == "schema" else "references/resource_probe.py")
@@ -180,8 +180,8 @@ async def test_explicit_reload_updates_resource_implementation_without_changing_
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             assert (await session.load_skill("resource")).outcome == "completed"
@@ -263,7 +263,9 @@ async def test_real_process_exit_reuses_resource_result_without_repeating_effect
         )
         assert child.returncode == 79, child.stderr.decode(errors="replace")
         assert (tmp_path / "count.txt").read_text() == "1" and len(requests) == 2
-        session = await open_agent_session(config, (configured,), "s1", refresh_models=False)
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             done = await session.run(
                 Message("new-task", "user", "Continue without repeating the resource")
@@ -303,7 +305,9 @@ async def test_compaction_checkpoint_and_branch_restore_own_resource_tool_set(
         url,
         requests,
     ):
-        session = await open_agent_session(config, (provider(url),), "s1", refresh_models=False)
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             before = (await session.inspect())["snapshot"]["leaf_id"]
             assert (await session.load_skill("resource")).outcome == "completed"
@@ -333,7 +337,9 @@ async def test_compaction_checkpoint_and_branch_restore_own_resource_tool_set(
             assert checkpoint["skills"][0]["resource_tools"] == loaded["resource_tools"]
         finally:
             await session.aclose()
-        session = await open_agent_session(config, (provider(url),), "s1", refresh_models=False)
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (await session.run(Message("after", "user", "continue"))).outcome == "completed"
             assert any(

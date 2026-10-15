@@ -4,7 +4,7 @@ from dataclasses import asdict
 import pytest
 
 from pycode.app.config import load_providers
-from pycode.kernel.errors import DomainError
+from pycode.kernel.domain.errors import DomainError
 from tests.models.adapters.test_factory import configuration
 
 

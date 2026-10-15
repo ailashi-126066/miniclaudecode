@@ -20,7 +20,7 @@ class ProviderFailureClassifier:
     def classify(self, error: Exception) -> ModelFailure | None:
         if isinstance(error, openai.LengthFinishReasonError):
             completion = error.completion
-            metadata = {"provider_request_id": completion.id}
+            metadata: dict[str, Any] = {"provider_request_id": completion.id}
             if completion.usage is not None:
                 metadata["usage"] = completion.usage.model_dump(mode="json")
             return ModelFailure(
@@ -35,7 +35,8 @@ class ProviderFailureClassifier:
             status = error.status_code
             retryable = status == 429 or status in {500, 502, 503, 504, 529}
             body = error.body if isinstance(error.body, dict) else {}
-            native_error = body.get("error") if isinstance(body.get("error"), dict) else body
+            nested_error = body.get("error")
+            native_error = nested_error if isinstance(nested_error, dict) else body
             native_code = native_error.get("code") or native_error.get("type")
             native_message = native_error.get("message")
             too_long = (
@@ -96,7 +97,8 @@ class ProviderFailureClassifier:
             return ModelFailure("provider_connection", "Provider connection was interrupted", True)
         if isinstance(error, (openai.APIError, anthropic.APIError)):
             body = error.body if isinstance(error.body, dict) else {}
-            error_info = body.get("error") if isinstance(body.get("error"), dict) else body
+            nested_error = body.get("error")
+            error_info = nested_error if isinstance(nested_error, dict) else body
             error_type = error_info.get("type") or error_info.get("code")
             retryable = error_type in {"overloaded_error", "server_error", "network_error"}
             return ModelFailure("provider_stream_error", "Provider stream failed", retryable)

@@ -2,8 +2,8 @@
 
 import pytest
 
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
 from pycode.session.domain.session_names import session_title, validate_title
 from pycode.session.services.sessions import SessionService, assign_initial_title, name_session

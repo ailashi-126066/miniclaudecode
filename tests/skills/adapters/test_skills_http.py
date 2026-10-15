@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.skills.services.test_skills import write_skill
 from tests.support.execution import provider
@@ -35,8 +35,8 @@ async def test_model_loads_instructions_at_next_boundary_and_all_tools_keep_comm
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "Use example"))
@@ -84,7 +84,9 @@ async def test_actual_compaction_and_restart_keep_exact_skill_once(tmp_path, mon
         ]
     ) as (url, requests):
         selected = provider(url)
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             await session.load_skill("example", "exact")
             report = await session.compact()
@@ -97,7 +99,9 @@ async def test_actual_compaction_and_restart_keep_exact_skill_once(tmp_path, mon
             assert "Pinned Skill" not in compacted["data"]["checkpoint"]["system_prompt"]
         finally:
             await session.aclose()
-        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (await session.run(Message("new", "user", "continue"))).outcome == "completed"
             assert len(requests) == 4
@@ -127,8 +131,8 @@ async def test_root_branch_recreates_catalog_without_restoring_old_activation(
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             await session.load_skill("example", "old")
@@ -160,8 +164,8 @@ async def test_model_install_needs_persisted_approval_and_restart_settles_same_o
         chat_completion(),
     ]
     with protocol_server(replies) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             waiting = await session.run(Message("u1", "user", "install"))

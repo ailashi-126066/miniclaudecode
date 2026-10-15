@@ -7,7 +7,8 @@ import platform
 import sys
 from pathlib import Path
 
-from pycode.app.composition import build_sandbox
+from pycode.app.bootstrap import compose_application
+from pycode.app.config import AppConfig
 from pycode.sandbox.domain.sandbox import SandboxSettings
 
 
@@ -19,7 +20,7 @@ async def verify(args, root):
         args.cache,
         args.work,
         args.output.parent / "logs",
-        sandbox=build_sandbox(),
+        sandbox=compose_application(AppConfig(root, root / ".pycode")).sandbox_backend(),
         sandbox_settings=SandboxSettings("on" if sys.platform == "darwin" else "off"),
     )
     report = {

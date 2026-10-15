@@ -1,5 +1,5 @@
 {
-  "baseline": "stage-four implementation",
+  "baseline": "module assembly revision after d740c16",
   "ports": [
     {
       "port": "pycode.agent.ports.runtime.InputQueue",
@@ -48,7 +48,7 @@
     },
     {
       "port": "pycode.context.ports.summaries.SummaryGenerator",
-      "implementation": "pycode.app.composition.context.ConfiguredSummaryGenerator",
+      "implementation": "pycode.context.adapters.background.ConfiguredSummaryGenerator",
       "kind": "class"
     },
     {
@@ -87,22 +87,22 @@
       "kind": "factory"
     },
     {
-      "port": "pycode.kernel.contracts.history_ports.MessageJournal",
+      "port": "pycode.kernel.ports.history.MessageJournal",
       "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
       "kind": "class"
     },
     {
-      "port": "pycode.kernel.contracts.history_ports.HistoryReader",
+      "port": "pycode.kernel.ports.history.HistoryReader",
       "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
       "kind": "class"
     },
     {
-      "port": "pycode.kernel.contracts.history_ports.HistoryJournal",
+      "port": "pycode.kernel.ports.history.HistoryJournal",
       "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
       "kind": "class"
     },
     {
-      "port": "pycode.kernel.contracts.tools.ExecutableTool",
+      "port": "pycode.kernel.ports.tools.ExecutableTool",
       "implementation": "pycode.sandbox.adapters.tools.bash.Bash",
       "kind": "class"
     },
@@ -118,12 +118,12 @@
     },
     {
       "port": "pycode.kernel.ports.events.EventJournal",
-      "implementation": "pycode.kernel.services.event_journal.MemoryEventJournal",
+      "implementation": "pycode.kernel.adapters.event_journal.MemoryEventJournal",
       "kind": "class"
     },
     {
       "port": "pycode.kernel.ports.timing.Timing",
-      "implementation": "pycode.kernel.io.timing.SystemTiming",
+      "implementation": "pycode.kernel.adapters.timing.SystemTiming",
       "kind": "class"
     },
     {
@@ -138,7 +138,7 @@
     },
     {
       "port": "pycode.memory.ports.memory.MemoryUpdater",
-      "implementation": "pycode.app.composition.memory.ConfiguredMemoryUpdater",
+      "implementation": "pycode.memory.adapters.background.ConfiguredMemoryUpdater",
       "kind": "class"
     },
     {
@@ -154,11 +154,6 @@
     {
       "port": "pycode.models.ports.context.RegistryLookup",
       "implementation": "pycode.tools.services.tool_registry.ToolRegistry",
-      "kind": "class"
-    },
-    {
-      "port": "pycode.models.ports.context.ResourceLookup",
-      "implementation": "pycode.skills.services.skill_resources.SkillResources",
       "kind": "class"
     },
     {
@@ -268,7 +263,7 @@
     },
     {
       "port": "pycode.skills.ports.sandbox.SkillReadGrant",
-      "implementation": "pycode.app.composition.capabilities.skill_read_grant",
+      "implementation": "pycode.sandbox.module.skill_read_grant",
       "kind": "function"
     },
     {
@@ -379,6 +374,41 @@
     {
       "port": "pycode.ui.ports.ui.InteractiveSessions",
       "implementation": "pycode.app.composition.ui.ConfiguredInteractiveSessions",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.ui.ports.ui.ModelChoice",
+      "implementation": "pycode.models.domain.models.ModelDescriptor",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.ui.ports.ui.ModelChoices",
+      "implementation": "pycode.models.domain.models.CatalogSnapshot",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.ui.ports.ui.SandboxAvailability",
+      "implementation": "pycode.sandbox.domain.sandbox.SandboxStatus",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.context.ports.projection.ProjectionContributor",
+      "implementation": "pycode.context.services.prompt_projection.SystemPromptProjection",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.extensions.ToolExtension",
+      "implementation": "pycode.skills.adapters.extension.SkillsToolExtension",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.extensions.NativeToolBinding",
+      "implementation": "pycode.mcp.adapters.native.MCPNativeBinding",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.Runtime",
+      "implementation": "pycode.agent.adapters.agent.AgentRuntime",
       "kind": "class"
     }
   ]

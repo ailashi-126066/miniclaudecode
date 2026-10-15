@@ -1,6 +1,7 @@
 """Official LangMem tools use the existing domain tool and settlement boundaries."""
 
 from langmem import create_manage_memory_tool, create_search_memory_tool
+from pydantic import BaseModel
 
 from pycode.kernel import ToolError, ToolResult, ToolSpec, json_dumps, plain_data
 from pycode.memory.domain.memory import memory_record
@@ -44,10 +45,14 @@ class ScopedMemoryTool:
         self.scope = service.scopes[namespace]
         name = ("manage_" if manage else "search_") + self.scope + "_memory"
         native = official_memory_tool(namespace, service.store, manage=manage, name=name)
+        schema = native.get_input_schema()
+        schema_json = (
+            schema.model_json_schema() if issubclass(schema, BaseModel) else schema.schema()
+        )
         self.spec = ToolSpec(
             name,
             native.description,
-            native.args_schema.model_json_schema(),
+            schema_json,
             category="write" if manage else "read",
             execution_mode="sequential",
             source="memory",

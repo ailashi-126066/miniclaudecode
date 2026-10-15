@@ -7,11 +7,11 @@ from dataclasses import asdict, replace
 
 import pytest
 
-from pycode.app.composition import open_agent_session, open_session_view
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from pycode.hooks.domain.hooks import HOOK_EVENTS
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.session.adapters.test_revert_http import command_reply
 from tests.skills.adapters.test_skills_http import skill_reply
@@ -28,8 +28,8 @@ async def hook_file(config, hooks):
 
 
 async def open_session(config, url, *, create=False):
-    return await open_agent_session(
-        config, (provider(url),), "s1", create=create, refresh_models=False
+    return await compose_application(config, (provider(url),)).open_session(
+        "s1", create=create, refresh_models=False
     )
 
 
@@ -326,13 +326,9 @@ async def test_project_hooks_require_trust_and_same_id_overrides_in_config_order
     await asyncio.to_thread(project)
     with protocol_server([chat_completion(), chat_completion()]) as (url, requests):
         for index, trusted in enumerate((False, True)):
-            session = await open_agent_session(
-                replace(config, project_trusted=trusted),
-                (provider(url),),
-                f"s{index}",
-                create=True,
-                refresh_models=False,
-            )
+            session = await compose_application(
+                replace(config, project_trusted=trusted), (provider(url),)
+            ).open_session(f"s{index}", create=True, refresh_models=False)
             try:
                 await session.run(Message("user", "user", "task"))
             finally:
@@ -391,7 +387,7 @@ async def test_all_fifteen_events_fire_through_real_lifecycle_tools_error_and_co
             assert (await session.compact()).applied_job_id
         finally:
             await session.aclose()
-        view = await open_session_view(config, "s1")
+        view = await compose_application(config).open_view("s1")
         try:
             entries = (await view.inspect())["snapshot"]["entries"]
             observed = {

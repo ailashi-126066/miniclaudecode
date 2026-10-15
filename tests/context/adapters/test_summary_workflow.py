@@ -1,13 +1,14 @@
 import pytest
 from langchain_core.messages import AIMessage
 
-from pycode.app.composition import build_summary_workflow as SummaryWorkflow
 from pycode.context.adapters.summary import SUMMARY_SYSTEM, serialize_source
-from pycode.kernel.errors import ModelError
+from pycode.context.module import ContextModule
+from pycode.kernel.domain.errors import ModelError
 from pycode.kernel.services.events import EventStream
 from pycode.models.adapters.failures import ProviderFailureClassifier
 from pycode.models.adapters.model_requests import ModelRequestRunner
 from pycode.models.domain.requests import RetryPolicy
+from pycode.models.module import ModelsModule
 from tests.context.services.test_summary import Generator, setup
 from tests.support.model import ScriptedChatModel
 from tests.support.requests import MemoryRequestStore, TestTiming
@@ -76,6 +77,9 @@ async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool
                 tool_calls=[{"id": "c1", "name": "Bash", "args": {"command": "must-not-run"}}],
             )
         model = ScriptedChatModel(responses=[response])
+        context = ContextModule(
+            request_step=ModelsModule.model_request_step, stop_reason=ModelsModule.stop_reason
+        )
         records = MemoryRequestStore()
         timing = TestTiming()
         runner = ModelRequestRunner(
@@ -90,14 +94,14 @@ async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool
             purpose="summary",
         )
         if case in {"valid", "valid-tags", "content-blocks"}:
-            completion = await SummaryWorkflow(model).run(captured, runner)
+            completion = await context.workflow(model).run(captured, runner)
             assert completion.text == "Goal: continue the task"
             assert (
                 completion.usage[0].purpose == "summary" and completion.usage[0].total_tokens == 120
             )
         else:
             with pytest.raises(ModelError):
-                await SummaryWorkflow(model).run(captured, runner)
+                await context.workflow(model).run(captured, runner)
         assert len(model.requests) == 1
         assert model.requests[0][0].content == SUMMARY_SYSTEM
         assert model.requests[0][1].content == serialize_source(captured)

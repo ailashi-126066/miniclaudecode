@@ -4,10 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.skills.adapters.catalog import FileSkillCatalog
 from pycode.skills.adapters.parser import parse_skill
-from pycode.skills.domain.skills import substitute_arguments
 from pycode.tools.adapters.schema import JsonSchemaValidator
 
 VECTORS = json.loads(
@@ -15,14 +14,12 @@ VECTORS = json.loads(
 )
 
 
-def test_source_parser_and_substitution_vectors():
+def test_source_parser_vectors():
     skill = parse_skill(VECTORS["valid"], "/skills/test/SKILL.md", "user")
     assert skill.entry.name == "test-skill" and skill.entry.allowed_tools == ("Bash", "Read")
     for raw in VECTORS["invalid"]:
         with pytest.raises(ToolError):
             parse_skill(raw, "/skills/test/SKILL.md", "user")
-    for body, args, expected in VECTORS["substitutions"]:
-        assert substitute_arguments(body, args) == expected
 
 
 async def test_recursive_sources_override_in_fixed_order_without_importing_scripts(tmp_path):

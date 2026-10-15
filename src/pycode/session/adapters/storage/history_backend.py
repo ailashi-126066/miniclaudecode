@@ -88,7 +88,9 @@ class ConversationHistoryBackend(BackendProtocol):
         listing = await self.als(path or "/")
         if listing.error:
             return GlobResult(error=listing.error)
-        selected = [entry for entry in listing.entries if matches_filename(entry["path"], pattern)]
+        selected = [
+            entry for entry in listing.entries or () if matches_filename(entry["path"], pattern)
+        ]
         return GlobResult(matches=selected[:MAX_LINES], truncated=len(selected) > MAX_LINES)
 
     def grep(self, pattern, path=None, glob=None, *, max_count=None):

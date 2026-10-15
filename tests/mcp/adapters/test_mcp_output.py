@@ -1,6 +1,6 @@
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from tests.hooks.adapters.test_hooks import hook_file
 from tests.mcp.adapters.test_mcp import mcp_config
@@ -23,8 +23,8 @@ async def test_large_mcp_result_is_complete_on_disk_and_pageable_through_read_to
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             assert (await session.run(Message("u1", "user", "big"))).outcome == "completed"
@@ -36,12 +36,11 @@ async def test_large_mcp_result_is_complete_on_disk_and_pageable_through_read_to
             )
             assert "中文行2399" not in result["text"] and result["output_id"]
             # Complete data is retained as an ordinary output object; the branch owns its reference.
-            from pycode.app.composition import build_session_repository
             from pycode.session.adapters.storage.layout import StorageLayout
             from pycode.tools.adapters.output_store import FileToolOutputStore
 
             await session.aclose()
-            history = await build_session_repository(config).open("s1")
+            history = await compose_application(config).session_repository().open("s1")
             try:
                 outputs = FileToolOutputStore(
                     StorageLayout(config.workspace, config.user_data).sessions,
@@ -88,8 +87,8 @@ async def test_dispatch_uses_target_name_for_hook_rejection_and_never_calls_serv
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             assert (await session.run(Message("u1", "user", "change"))).outcome == "completed"

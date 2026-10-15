@@ -14,17 +14,17 @@ FEATURE_DEPENDENCIES = {
     "sandbox": {"kernel"},
     "snapshot": {"kernel"},
     "models": {"kernel"},
-    "mcp": {"kernel"},
-    "skills": {"kernel", "sandbox"},
-    "plans": {"kernel", "sandbox"},
+    "mcp": {"kernel", "context"},
+    "skills": {"kernel", "sandbox", "context"},
+    "plans": {"kernel", "sandbox", "context"},
     "hooks": {"kernel", "sandbox"},
-    "context": {"kernel", "models", "mcp", "skills"},
-    "memory": {"kernel", "context"},
-    "tools": {"kernel", "sandbox", "snapshot", "skills", "plans"},
-    "agent": {"kernel", "models", "context", "tools", "skills", "plans", "hooks", "mcp"},
+    "context": {"kernel", "models"},
+    "memory": {"kernel", "context", "models"},
+    "tools": {"kernel", "sandbox", "snapshot", "plans"},
+    "agent": {"kernel", "models", "context", "tools", "plans", "hooks"},
     "team": {"kernel", "snapshot", "tools", "plans"},
     "session": {"kernel", "context", "models", "skills", "snapshot", "tools", "memory", "team"},
-    "ui": {"kernel", "tools", "plans", "team"},
+    "ui": {"kernel", "tools", "plans", "team", "mcp"},
 }
 FEATURE_DEPENDENCIES["app"] = set(FEATURE_DEPENDENCIES)
 LEGACY = {"core", "ports", "services", "workflows", "adapters"}
@@ -61,7 +61,7 @@ FORBIDDEN_IMPORTS = {
 }
 EVAL_GENERATED = {"cache", "work", "results"}
 EVAL_ARCHIVED = {"memory_rules"}
-RANK = {"domain": 0, "ports": 1, "services": 2, "adapters": 3, "io": 3}
+RANK = {"domain": 0, "ports": 1, "services": 2, "adapters": 3, "io": 3, "module": 4}
 
 
 def module_name(relative: Path) -> tuple[str, bool]:
@@ -248,7 +248,12 @@ def dependency_errors(
     sources, packages = sources or {}, packages or set()
     top = module.split(".")[0]
     feature, layer = feature_of(module), layer_of(module)
-    composition = module == "pycode.app.composition" or module.startswith("pycode.app.composition.")
+    composition = (
+        module == "pycode.app.bootstrap"
+        or module == "pycode.app.composition"
+        or module.startswith("pycode.app.composition.")
+    )
+    assembly = module == f"pycode.{feature}.module"
     errors = []
     if feature in LEGACY:
         errors.append(f"{module}: legacy layer package must be removed")
@@ -259,12 +264,16 @@ def dependency_errors(
         aliases[binding] = target + ("." + symbol if symbol else "")
         if target.split(".")[0] in FORBIDDEN_IMPORTS.get(top, ()):
             errors.append(f"{module}:{node.lineno}: {top} cannot import {target}")
+        if top in {"evals", "scripts"} and target.startswith("pycode.app.composition"):
+            errors.append(f"{module}:{node.lineno}: application assembly requires app.bootstrap")
         if top != "pycode":
             continue
         other = feature_of(target)
         if other in LEGACY:
             errors.append(f"{module}:{node.lineno}: legacy import {target}")
-        if layer == "domain" and target.split(".")[0] in CORE_IO:
+        if (
+            layer == "domain" or feature == "kernel" and layer in {"ports", "services"}
+        ) and target.split(".")[0] in CORE_IO:
             errors.append(f"{module}:{node.lineno}: domain cannot import I/O module {target}")
         if layer in {"domain", "ports", "services"} and target.split(".")[0] in FRAMEWORKS:
             errors.append(f"{module}:{node.lineno}: framework dependency outside adapters")
@@ -280,20 +289,43 @@ def dependency_errors(
             errors.append(
                 f"{module}:{node.lineno}: {layer} cannot depend on {origin_layer} {origin}"
             )
+        target_assembly = other is not None and target == f"pycode.{other}.module"
+        origin_assembly = (
+            origin is not None and len(origin.split(".")) >= 3 and origin.split(".")[2] == "module"
+        )
+        if target_assembly or origin_assembly:
+            if not composition or not target_assembly or symbol is None:
+                errors.append(
+                    f"{module}:{node.lineno}: feature assembly requires an explicit module entry "
+                    "at the application composition root"
+                )
+            elif other in FEATURE_DEPENDENCIES.get(feature, set()):
+                entry_source = sources.get(target)
+                if entry_source is not None and not any(
+                    isinstance(definition, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                    and definition.name == symbol
+                    for definition in ast.parse(entry_source).body
+                ):
+                    errors.append(
+                        f"{module}:{node.lineno}: module entry cannot forward "
+                        f"imported implementations: {symbol}"
+                    )
+                continue
         if not other or other == feature:
             continue
         if other not in FEATURE_DEPENDENCIES.get(feature, set()):
             errors.append(f"{module}:{node.lineno}: disallowed feature edge {feature} -> {other}")
-        if composition and (
-            "adapters" in target.split(".")
-            or (origin is not None and "adapters" in origin.split("."))
-        ):
+        # Shared OS infrastructure is explicit and only usable from implementation
+        # or assembly boundaries; native contracts/services cannot acquire I/O.
+        kernel_infrastructure = other == "kernel" and target.startswith("pycode.kernel.adapters.")
+        if kernel_infrastructure and (layer == "adapters" or composition or assembly):
             continue
         if "adapters" in target.split(".") or (
             origin is not None and "adapters" in origin.split(".")
         ):
             errors.append(
-                f"{module}:{node.lineno}: cross-feature adapters require composition injection"
+                f"{module}:{node.lineno}: cross-feature adapters require composition "
+                "through the feature module entry"
             )
         if target != "pycode." + other or symbol is None:
             errors.append(
@@ -308,7 +340,7 @@ def dependency_errors(
             errors.append(
                 f"{module}:{node.lineno}: function-local import must move to module scope"
             )
-    if layer == "domain":
+    if layer == "domain" or feature == "kernel" and layer in {"ports", "services"}:
 
         def qualified(node):
             if isinstance(node, ast.Name):
@@ -433,10 +465,26 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
                 origin = symbol_origin(module, symbol, sources, packages)
                 if origin is None:
                     errors.append(f"{module}: public API exports undefined symbol {symbol}")
-                elif "adapters" in origin.split(".") or origin.split(".")[0] in FRAMEWORKS:
+                elif (
+                    "adapters" in origin.split(".")
+                    or "module" in origin.split(".")
+                    or origin.split(".")[0] in FRAMEWORKS
+                ):
                     errors.append(
                         f"{module}: public API cannot re-export adapter {symbol} from {origin}"
                     )
+    kernel_root = source_root / "pycode" / "kernel"
+    for path in kernel_root.rglob("*.py"):
+        relative = path.relative_to(kernel_root)
+        if relative.as_posix() == "__init__.py":
+            continue
+        if len(relative.parts) < 2 or relative.parts[0] not in {
+            "domain",
+            "ports",
+            "services",
+            "adapters",
+        }:
+            errors.append(f"kernel source must use domain/ports/services/adapters: {relative}")
     for label, graph in [("module", module_graph), ("feature", feature_graph)]:
         errors.extend(
             label + " dependency cycle: " + " -> ".join(cycle) for cycle in dependency_cycles(graph)
@@ -446,7 +494,7 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
         declared = json.loads(manifest.read_text())["allowed_dependencies"]
         if {k: set(v) for k, v in declared.items()} != FEATURE_DEPENDENCIES:
             errors.append("Feature dependency manifest differs from enforced architecture")
-    for path in sorted((root / "evals").rglob("*.py")):
+    for path in sorted([*(root / "evals").rglob("*.py"), *(root / "scripts").rglob("*.py")]):
         relative = path.relative_to(root)
         if any(
             part in EVAL_GENERATED | EVAL_ARCHIVED or part.startswith(".")

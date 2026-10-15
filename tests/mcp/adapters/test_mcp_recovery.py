@@ -7,10 +7,10 @@ from dataclasses import asdict
 
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.mcp.adapters.test_mcp import mcp_config
 from tests.skills.adapters.test_skills_http import skill_reply
@@ -35,14 +35,16 @@ async def test_changed_server_schema_is_recorded_but_pending_call_keeps_old_cont
         ]
     ) as (url, requests):
         configured = provider(url)
-        session = await open_agent_session(
-            config, (configured,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         waiting = await session.run(Message("u1", "user", "change"))
         assert waiting.outcome == "needs_input"
         await session.aclose()
         await asyncio.to_thread((tmp_path / "schema.variant").write_text, "new", encoding="utf-8")
-        session = await open_agent_session(config, (configured,), "s1", refresh_models=False)
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             with pytest.raises(StorageError) as error:
                 await session.resume(
@@ -80,7 +82,9 @@ async def test_compaction_and_restart_preserve_mcp_catalog_schema_and_loading_mo
     await seed(config)
     with protocol_server([chat_completion(), chat_completion()]) as (url, requests):
         configured = provider(url)
-        session = await open_agent_session(config, (configured,), "s1", refresh_models=False)
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (await session.compact()).applied_job_id
             state = await session.inspect()
@@ -95,7 +99,9 @@ async def test_compaction_and_restart_preserve_mcp_catalog_schema_and_loading_mo
             assert "MCP servers" not in checkpoint["system_prompt"]
         finally:
             await session.aclose()
-        session = await open_agent_session(config, (configured,), "s1", refresh_models=False)
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             assert (await session.run(Message("new", "user", "continue"))).outcome == "completed"
             assert any(
@@ -139,7 +145,9 @@ async def test_actual_parent_exit_reuses_confirmed_mcp_result_without_second_ser
         )
         assert child.returncode == 85, child.stderr.decode(errors="replace")
         assert (tmp_path / "effects.txt").read_text().splitlines() == ["once"]
-        session = await open_agent_session(config, (configured,), "s1", refresh_models=False)
+        session = await compose_application(config, (configured,)).open_session(
+            "s1", refresh_models=False
+        )
         try:
             with pytest.raises(StorageError):
                 await session.resume()

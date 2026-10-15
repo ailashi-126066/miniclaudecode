@@ -5,10 +5,10 @@ import sys
 
 import pytest
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider, session_at
 from tests.support.http_provider import chat_completion, protocol_server
 from tests.support.recovery_tools import WritingEcho
@@ -56,7 +56,7 @@ async def test_live_run_delivers_steering_after_batch_and_follow_up_only_when_ta
         assert (await restored.run(later)).outcome == "completed"
         assert len(requests) == 3
         await restored.aclose()
-        store = await build_session_repository(config).open("s1")
+        store = await compose_application(config).session_repository().open("s1")
         path = (await store.snapshot()).entries
         assert sum(entry.type == "input_queued" for entry in path) == 2
         assert (
@@ -85,8 +85,8 @@ async def test_input_accepted_at_graph_end_is_processed_before_application_settl
 
     consumer = LateInput()
     with protocol_server([chat_completion(), chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, consumers=(consumer,), refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, consumers=(consumer,), refresh_models=False
         )
         consumer.session = session
         result = await asyncio.wait_for(session.run(Message("u1", "user", "initial")), 10)
@@ -141,7 +141,7 @@ async def test_real_process_death_does_not_drop_or_redeliver_durable_inputs(
         messages = requests[-1]["body"]["messages"]
         text = "\n".join(str(message.get("content", "")) for message in messages)
         assert "durable steering" in text and "durable follow up" in text
-        reader = await build_session_repository(config).open("s1")
+        reader = await compose_application(config).session_repository().open("s1")
         try:
             snapshot = await reader.snapshot()
             queued = [entry for entry in snapshot.entries if entry.type == "input_queued"]

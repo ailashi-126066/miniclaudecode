@@ -4,11 +4,11 @@ from dataclasses import asdict
 
 import pytest
 
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli import main
-from pycode.app.composition import build_session_repository
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.history import EntryDraft
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.history import EntryDraft
+from pycode.kernel.domain.messages import Message
 from tests.models.adapters.test_factory import configuration
 
 
@@ -19,7 +19,7 @@ def test_model_command_lists_all_providers_and_selects_existing_session(tmp_path
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
 
     async def create():
-        store = await build_session_repository(config).open("s1", create=True)
+        store = await compose_application(config).session_repository().open("s1", create=True)
         await store.append_message(Message("u1", "user", "hello"))
         await store.aclose()
 
@@ -90,7 +90,7 @@ def test_cli_model_selection_cannot_bypass_pending_application_state(
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
 
     async def create():
-        store = await build_session_repository(config).open("s1", create=True)
+        store = await compose_application(config).session_repository().open("s1", create=True)
         try:
             await store.append_message(Message("u1", "user", "hello"))
             await store.append_entry(
@@ -136,7 +136,7 @@ def test_cli_model_selection_cannot_bypass_pending_application_state(
         assert json.loads(capsys.readouterr().out)["error"]["code"] == error_code
 
     async def read():
-        store = await build_session_repository(config).open("s1")
+        store = await compose_application(config).session_repository().open("s1")
         try:
             return await store.snapshot()
         finally:

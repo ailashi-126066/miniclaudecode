@@ -7,10 +7,10 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from pycode.agent import RunContext
-from pycode.app.composition import build_agent_runtime
+from pycode.app.composition.runtime import build_agent_runtime
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.contracts.tools import ToolSpec
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.tools import ToolSpec
 from pycode.kernel.services.events import EventStream
 from pycode.models.adapters.failures import ProviderFailureClassifier
 from pycode.models.adapters.model_requests import ModelRequestRunner

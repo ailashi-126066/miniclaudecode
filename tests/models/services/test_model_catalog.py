@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from pycode.kernel import ModelCapabilities
-from pycode.kernel.errors import ModelError
+from pycode.kernel.domain.errors import ModelError
 from pycode.models.adapters.storage.catalog import FileCatalogStore
 from pycode.models.domain.models import CapabilityOverride, DiscoveredModel
 from pycode.models.services.model_catalog import ModelCatalog

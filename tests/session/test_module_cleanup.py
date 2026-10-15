@@ -1,0 +1,166 @@
+"""All session resources settle before a close error or cancellation is propagated."""
+
+import asyncio
+
+import pytest
+
+from pycode.kernel import StorageError
+from pycode.session.services.agent_session import AgentSession
+from pycode.session.services.session_view import SessionView
+
+
+class Resource:
+    def __init__(self, name, calls, *, error=None):
+        self.name, self.calls, self.error = name, calls, error
+
+    async def aclose(self):
+        self.calls.append(self.name)
+        if self.error is not None:
+            raise self.error
+
+
+def make_view(calls, *, usage_error=None, event_error=None, owns_history=True):
+    return SessionView(
+        Resource("history", calls),
+        None,
+        Resource("usage", calls, error=usage_error),
+        Resource("events", calls, error=event_error),
+        owns_history=owns_history,
+    )
+
+
+async def test_view_closes_owned_history_after_both_earlier_closers_fail_once():
+    calls = []
+    first = OSError("usage failed")
+    view = make_view(calls, usage_error=first, event_error=RuntimeError("events failed"))
+    with pytest.raises(OSError) as caught:
+        await view.aclose()
+    assert caught.value is first
+    assert calls == ["usage", "events", "history"]
+    assert not view._owns_history
+    with pytest.raises(OSError):
+        await view.aclose()
+    assert calls == ["usage", "events", "history"]
+
+
+async def test_view_does_not_close_borrowed_history():
+    calls = []
+    view = make_view(calls, owns_history=False)
+    await view.aclose()
+    await view.aclose()
+    assert calls == ["usage", "events"]
+
+
+async def test_repeated_caller_cancellation_waits_for_owned_cleanup():
+    calls = []
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class BlockingUsage:
+        async def aclose(self):
+            started.set()
+            await release.wait()
+            calls.append("usage")
+
+    view = make_view(calls)
+    view._usage = BlockingUsage()
+    closing = asyncio.create_task(view.aclose())
+    await started.wait()
+    closing.cancel()
+    await asyncio.sleep(0)
+    closing.cancel()
+    await asyncio.sleep(0)
+    assert not closing.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    assert calls == ["usage", "events", "history"]
+
+
+async def test_first_resource_error_is_preserved_when_caller_then_cancels():
+    calls = []
+    waiting, release = asyncio.Event(), asyncio.Event()
+    first = OSError("usage failed first")
+
+    class BlockingEvents:
+        async def aclose(self):
+            waiting.set()
+            await release.wait()
+            calls.append("events")
+
+    view = make_view(calls, usage_error=first)
+    view._events = BlockingEvents()
+    closing = asyncio.create_task(view.aclose())
+    await waiting.wait()
+    closing.cancel()
+    await asyncio.sleep(0)
+    assert not closing.done()
+    release.set()
+    with pytest.raises(OSError) as caught:
+        await closing
+    assert caught.value is first
+    assert calls == ["usage", "events", "history"]
+
+
+@pytest.mark.parametrize("cancel_error", [RuntimeError("cancel failed"), asyncio.CancelledError()])
+async def test_team_cancel_failure_does_not_skip_launcher_team_view_or_history(cancel_error):
+    calls = []
+
+    class Team:
+        closing = False
+        stopping = True
+        _closing_delegate = False
+
+        async def cancel_all(self, reason):
+            assert reason == "close"
+            calls.append("cancel_team")
+            raise cancel_error
+
+        async def aclose(self):
+            calls.append("team")
+
+    team = Team()
+
+    class Launcher:
+        async def aclose(self):
+            assert team.closing and team._closing_delegate and not team.stopping
+            calls.append("launcher")
+            raise OSError("launcher failed later")
+
+    session = AgentSession(
+        Resource("history", calls),
+        None,
+        None,
+        Launcher(),
+        None,
+        view=Resource("view", calls),
+        memory=Resource("memory", calls),
+        team=team,
+    )
+    with pytest.raises(type(cancel_error)) as caught:
+        await session.aclose()
+    assert caught.value is cancel_error
+    assert calls == ["memory", "cancel_team", "launcher", "team", "view", "history"]
+    assert session._memory is None and session._team is None and session._view is None
+    with pytest.raises(type(cancel_error)):
+        await session.aclose()
+    assert len(calls) == 6
+    with pytest.raises(StorageError, match="closing or closed"):
+        async with session.execution():
+            pass
+
+
+async def test_active_session_close_keeps_resources_owned_until_run_is_collected():
+    calls = []
+    session = AgentSession(
+        Resource("history", calls), None, None, Resource("launcher", calls), None
+    )
+    await session._execution.acquire()
+    try:
+        with pytest.raises(StorageError) as caught:
+            await session.aclose()
+        assert caught.value.code == "session_busy"
+        assert calls == [] and not session._closing
+    finally:
+        session._execution.release()
+    await session.aclose()
+    assert calls == ["launcher", "history"]

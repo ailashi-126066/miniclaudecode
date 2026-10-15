@@ -1,13 +1,14 @@
 """Render native MCP questions and return explicit accept/decline/cancel answers."""
 
 import json
+from typing import Any
 
 from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Button, Static, TextArea
 
 from pycode.kernel import StorageError, json_dumps
-from pycode.tools import validate_operation_answer
+from pycode.mcp import validate_elicitation_answer
 
 
 class MCPElicitationPanel(Vertical):
@@ -57,12 +58,12 @@ class MCPElicitationPanel(Vertical):
                     raise ValueError("Answers must be keyed JSON objects")
             responses = {}
             for request in self.payload["requests"]:
-                response = {"action": action}
+                response: dict[str, Any] = {"action": action}
                 if action == "accept" and request["mode"] == "form":
                     response["content"] = content.get(request["key"])
                 responses[request["key"]] = response
             answer = {"responses": responses}
-            validate_operation_answer(self.payload, answer)
+            validate_elicitation_answer(self.payload, answer)
         except (ValueError, StorageError) as error:
             self.query_one("#mcp-form-error", Static).update(str(error))
             return

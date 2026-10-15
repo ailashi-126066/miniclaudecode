@@ -1,10 +1,10 @@
 import pytest
 from textual.widgets import Static
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.errors import StorageError
-from pycode.kernel.values import json_dumps
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.values import json_dumps
 from pycode.ui.adapters.chat_input import ChatInput
 from pycode.ui.adapters.commands import COMMANDS
 from pycode.ui.adapters.completion import CompletionPopup
@@ -22,7 +22,7 @@ async def test_registered_commands_and_live_skills_share_dispatch_and_completion
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     skill = await write_skill(config.user_data / "skills")
     with protocol_server([]) as (url, requests):
-        app = build_tui(config, (provider(url),))
+        app = compose_application(config, (provider(url),)).tui()
         async with app.run_test(size=(100, 40)) as pilot:
             await app.ready.wait()
             assert app.last_error is None

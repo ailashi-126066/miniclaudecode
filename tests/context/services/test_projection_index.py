@@ -3,9 +3,9 @@
 import pytest
 
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.history import EntryDraft, SessionEntry, SessionHeader
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.history import EntryDraft, SessionEntry, SessionHeader
+from pycode.kernel.domain.messages import Message
+from pycode.kernel.domain.values import plain_data
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.support.requests import TestTiming
 

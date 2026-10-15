@@ -8,7 +8,7 @@ from tests.support.execution import provider
 from tests.support.http_provider import protocol_server
 from tests.tools.adapters.test_questions import question_response
 
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 
 
@@ -36,7 +36,7 @@ async def main(project):
         ]
     }
     with protocol_server([question_response(questions)]) as (url, _):
-        app = build_tui(AppConfig(workspace, workspace / "data"), (provider(url),))
+        app = compose_application(AppConfig(workspace, workspace / "data"), (provider(url),)).tui()
         async with app.run_test(size=(120, 45)) as pilot:
             await app.ready.wait()
             await app.send_text("Inspect the project, then ask about implementation preferences.")

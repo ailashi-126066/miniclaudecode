@@ -4,10 +4,10 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import build_runtime
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ModelReference
 from pycode.models.domain.requests import RetryPolicy
 from tests.agent.adapters.test_agent import Journal
@@ -29,8 +29,9 @@ async def open_runtime(tmp_path, url, roster, consumer=()):
         assert config.model_id == model
         return config
 
-    return build_runtime(
-        AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
+    return await compose_application(
+        AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    ).runtime(
         roster[0],
         session_id="s",
         run_id="r",

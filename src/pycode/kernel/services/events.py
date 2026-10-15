@@ -4,10 +4,10 @@ import asyncio
 import logging
 from typing import Any
 
-from pycode.kernel.errors import OutputClosed
-from pycode.kernel.events import Event, EventKind
+from pycode.kernel.domain.errors import OutputClosed
+from pycode.kernel.domain.events import Event, EventKind
+from pycode.kernel.domain.values import clone_value
 from pycode.kernel.ports.events import EventConsumer, EventJournal
-from pycode.kernel.values import clone_value
 
 
 class EventStream:

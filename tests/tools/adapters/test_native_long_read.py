@@ -4,8 +4,8 @@ from deepagents.backends import CompositeBackend, StateBackend
 from langchain_core.messages import AIMessage
 
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.messages import Message
+from pycode.kernel.domain.values import plain_data
 from pycode.tools.adapters.artifacts_backend import ToolArtifactsBackend
 from pycode.tools.adapters.backend import PycodeBackend
 from tests.agent.adapters.test_agent import assemble

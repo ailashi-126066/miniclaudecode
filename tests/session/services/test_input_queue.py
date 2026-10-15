@@ -1,6 +1,6 @@
 import pytest
 
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.session.services.input_queue import PendingInputs
 
 

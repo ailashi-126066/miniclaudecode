@@ -17,7 +17,8 @@ from pycode.models import (
     ToolSelectorSettings,
     is_loopback_host,
 )
-from pycode.sandbox import SandboxSettings
+from pycode.sandbox import SandboxSettings, validate_passthrough
+from pycode.tools import ToolGate
 
 
 @dataclass(frozen=True)
@@ -37,9 +38,10 @@ class AppConfig:
     isolated_worker: bool = False
     # Embedding hooks: a gate replacing the default tool authorization chain and
     # directories prepended to the Bash tool's PATH.
-    tool_gate: object | None = None
+    tool_gate: ToolGate | None = None
     bash_path_prefix: tuple[str, ...] = ()
     credential_workspace: Path | None = None
+    subprocess_passthrough: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -48,6 +50,7 @@ class AppConfig:
             or not 1 <= self.team_max_agents <= 4
         ):
             raise ValueError("Team concurrency must be 1–4")
+        validate_passthrough(self.subprocess_passthrough)
         if self.memory_mode not in {None, "auto", "off"}:
             raise ValueError("Memory mode must be auto or off")
         if (
@@ -79,35 +82,7 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
     try:
         raw = path.read_bytes()
         objects = json.loads(raw)
-        allowed_fields = {field.name for field in fields(ProviderConfig)}
-        if not isinstance(objects, list):
-            raise ValueError("Providers must be a list")
-        for item in objects:
-            if not isinstance(item, dict) or not set(item) <= allowed_fields:
-                raise ValueError("Unexpected Provider field")
-            selector = item.get("tool_selector", {})
-            selector_fields = {field.name for field in fields(ToolSelectorSettings)}
-            if not isinstance(selector, dict) or not set(selector) <= selector_fields:
-                raise ValueError("Unexpected tool selector field")
-            fallbacks = item.get("fallback_models", [])
-            if not isinstance(fallbacks, list) or len(fallbacks) > 4:
-                raise ValueError("Use at most four fallback model references")
-            for fallback in fallbacks:
-                if not isinstance(fallback, dict) or set(fallback) != {"provider", "model_id"}:
-                    raise ValueError("Invalid fallback model reference")
-            reference = selector.get("model")
-            reference_fields = {field.name for field in fields(ModelReference)}
-            if reference is not None and (
-                not isinstance(reference, dict) or set(reference) != reference_fields
-            ):
-                raise ValueError("Invalid tool selector model reference")
-            overrides = item.get("model_overrides", {})
-            override_fields = {field.name for field in fields(CapabilityOverride)}
-            if not isinstance(overrides, dict):
-                raise ValueError("Model overrides must be an object")
-            for override in overrides.values():
-                if not isinstance(override, dict) or not set(override) <= override_fields:
-                    raise ValueError("Unexpected capability override field")
+        validate_provider_fields(objects)
         providers = TypeAdapter(list[ProviderConfig]).validate_json(raw, strict=True)
     except (OSError, ValidationError, ValueError) as error:
         raise DomainError(
@@ -118,89 +93,130 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", config.name) or config.name in names:
             raise DomainError("invalid_provider_config", "Provider names must be stable and unique")
         names.add(config.name)
-        try:
-            url = urlsplit(config.base_url)
-            valid_port = url.port is None or 0 < url.port <= 65535
-        except ValueError as error:
-            raise DomainError("invalid_provider_config", "Provider URL is malformed") from error
-        if (
-            not valid_port
-            or url.scheme not in {"http", "https"}
-            or not url.hostname
-            or url.username
-            or url.password
+        validate_provider(config)
+    validate_provider_references(providers, names)
+    return tuple(providers)
+
+
+def validate_provider_fields(objects):
+    allowed_fields = {field.name for field in fields(ProviderConfig)}
+    if not isinstance(objects, list):
+        raise ValueError("Providers must be a list")
+    for item in objects:
+        if not isinstance(item, dict) or not set(item) <= allowed_fields:
+            raise ValueError("Unexpected Provider field")
+        selector = item.get("tool_selector", {})
+        selector_fields = {field.name for field in fields(ToolSelectorSettings)}
+        if not isinstance(selector, dict) or not set(selector) <= selector_fields:
+            raise ValueError("Unexpected tool selector field")
+        fallbacks = item.get("fallback_models", [])
+        if not isinstance(fallbacks, list) or len(fallbacks) > 4:
+            raise ValueError("Use at most four fallback model references")
+        for fallback in fallbacks:
+            if not isinstance(fallback, dict) or set(fallback) != {"provider", "model_id"}:
+                raise ValueError("Invalid fallback model reference")
+        reference = selector.get("model")
+        reference_fields = {field.name for field in fields(ModelReference)}
+        if reference is not None and (
+            not isinstance(reference, dict) or set(reference) != reference_fields
         ):
+            raise ValueError("Invalid tool selector model reference")
+        overrides = item.get("model_overrides", {})
+        override_fields = {field.name for field in fields(CapabilityOverride)}
+        if not isinstance(overrides, dict):
+            raise ValueError("Model overrides must be an object")
+        for override in overrides.values():
+            if not isinstance(override, dict) or not set(override) <= override_fields:
+                raise ValueError("Unexpected capability override field")
+
+
+def validate_provider_url(base_url: str):
+    try:
+        url = urlsplit(base_url)
+        valid_port = url.port is None or 0 < url.port <= 65535
+    except ValueError as error:
+        raise DomainError("invalid_provider_config", "Provider URL is malformed") from error
+    if (
+        not valid_port
+        or url.scheme not in {"http", "https"}
+        or not url.hostname
+        or url.username
+        or url.password
+    ):
+        raise DomainError(
+            "invalid_provider_config", "Provider base URL must be HTTP(S) without credentials"
+        )
+    if url.scheme != "https" and not is_loopback_host(url.hostname):
+        # API keys travel in request headers; plain HTTP is only acceptable on this machine.
+        raise DomainError(
+            "invalid_provider_config", "Provider base URL must use HTTPS unless loopback"
+        )
+    if url.query or url.fragment:
+        raise DomainError(
+            "invalid_provider_config", "Provider base URL cannot contain query or fragment"
+        )
+
+
+def validate_provider(config: ProviderConfig):
+    validate_provider_url(config.base_url)
+    if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", config.api_key_env):
+        raise DomainError(
+            "invalid_provider_config", "API keys must be environment variable references"
+        )
+    if (
+        not config.model_id
+        or config.context_window <= config.max_output_tokens
+        or config.max_output_tokens <= 0
+    ):
+        raise DomainError(
+            "invalid_provider_config", "Model ID and input/output capacities must be valid"
+        )
+    if config.timeout_seconds <= 0:
+        raise DomainError("invalid_provider_config", "Provider timeout must be positive")
+    if config.implementation == "openai" and config.openai_api is None:
+        raise DomainError("invalid_provider_config", "OpenAI API mode must be selected explicitly")
+    if config.implementation != "openai" and config.openai_api is not None:
+        raise DomainError(
+            "invalid_provider_config", "OpenAI API mode does not apply to this Provider"
+        )
+    validate_thinking(config)
+    if config.reasoning_effort is not None:
+        if not config.supports_thinking or config.reasoning_effort not in {
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        }:
             raise DomainError(
-                "invalid_provider_config", "Provider base URL must be HTTP(S) without credentials"
+                "invalid_provider_config",
+                "Reasoning effort requires declared thinking capability",
             )
-        if url.scheme != "https" and not is_loopback_host(url.hostname):
-            # API keys travel in request headers; plain HTTP is only acceptable on this machine.
+        if config.thinking.get("type") == "disabled":
             raise DomainError(
-                "invalid_provider_config", "Provider base URL must use HTTPS unless loopback"
+                "invalid_provider_config", "Reasoning effort conflicts with disabled thinking"
             )
-        if url.query or url.fragment:
-            raise DomainError(
-                "invalid_provider_config", "Provider base URL cannot contain query or fragment"
-            )
-        if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", config.api_key_env):
-            raise DomainError(
-                "invalid_provider_config", "API keys must be environment variable references"
-            )
+    validate_provider_overrides(config)
+
+
+def validate_provider_overrides(config: ProviderConfig):
+    for model_id, capabilities in config.model_overrides.items():
+        if not model_id:
+            raise DomainError("invalid_provider_config", "Model override ID must not be empty")
+        if capabilities.context_window is not None and capabilities.context_window <= 0:
+            raise DomainError("invalid_provider_config", "Model context override must be positive")
+        if capabilities.max_output_tokens is not None and capabilities.max_output_tokens <= 0:
+            raise DomainError("invalid_provider_config", "Model output override must be positive")
         if (
-            not config.model_id
-            or config.context_window <= config.max_output_tokens
-            or config.max_output_tokens <= 0
+            capabilities.context_window is not None
+            and capabilities.max_output_tokens is not None
+            and capabilities.context_window <= capabilities.max_output_tokens
         ):
-            raise DomainError(
-                "invalid_provider_config", "Model ID and input/output capacities must be valid"
-            )
-        if config.timeout_seconds <= 0:
-            raise DomainError("invalid_provider_config", "Provider timeout must be positive")
-        if config.implementation == "openai" and config.openai_api is None:
-            raise DomainError(
-                "invalid_provider_config", "OpenAI API mode must be selected explicitly"
-            )
-        if config.implementation != "openai" and config.openai_api is not None:
-            raise DomainError(
-                "invalid_provider_config", "OpenAI API mode does not apply to this Provider"
-            )
-        validate_thinking(config)
-        if config.reasoning_effort is not None:
-            if not config.supports_thinking or config.reasoning_effort not in {
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-            }:
-                raise DomainError(
-                    "invalid_provider_config",
-                    "Reasoning effort requires declared thinking capability",
-                )
-            if config.thinking.get("type") == "disabled":
-                raise DomainError(
-                    "invalid_provider_config", "Reasoning effort conflicts with disabled thinking"
-                )
-        for model_id, capabilities in config.model_overrides.items():
-            if not model_id:
-                raise DomainError("invalid_provider_config", "Model override ID must not be empty")
-            if capabilities.context_window is not None and capabilities.context_window <= 0:
-                raise DomainError(
-                    "invalid_provider_config", "Model context override must be positive"
-                )
-            if capabilities.max_output_tokens is not None and capabilities.max_output_tokens <= 0:
-                raise DomainError(
-                    "invalid_provider_config", "Model output override must be positive"
-                )
-            if (
-                capabilities.context_window is not None
-                and capabilities.max_output_tokens is not None
-                and capabilities.context_window <= capabilities.max_output_tokens
-            ):
-                raise DomainError(
-                    "invalid_provider_config", "Model override leaves no input capacity"
-                )
+            raise DomainError("invalid_provider_config", "Model override leaves no input capacity")
+
+
+def validate_provider_references(providers, names):
     for provider in providers:
         references = [
             (reference.provider, reference.model_id) for reference in provider.fallback_models
@@ -218,7 +234,6 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
         reference = provider.tool_selector.model
         if reference is not None and reference.provider not in names:
             raise DomainError("invalid_provider_config", "Tool selector Provider is not configured")
-    return tuple(providers)
 
 
 def credential_environment(

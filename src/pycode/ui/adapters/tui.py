@@ -9,6 +9,7 @@
 import asyncio
 import logging
 import shlex
+from typing import Any
 from uuid import uuid4
 
 from textual.app import App, ComposeResult
@@ -118,7 +119,7 @@ class PyApp(App):
         self._tree_nodes = {}
         self._tree_session = None
         self.session_id = None
-        self.state = None
+        self.state: dict[str, Any] | None = None
         self.ready = asyncio.Event()
         self.last_error = None
         self._memory_report = None
@@ -137,6 +138,20 @@ class PyApp(App):
         for theme in themes():
             self.register_theme(theme)
         self.theme = "pycode-dark"
+
+    @property
+    def active_session(self) -> InteractiveSession:
+        session = self.session
+        if session is None:
+            raise StorageError("session_unavailable", "Open a session before this operation")
+        return session
+
+    @property
+    def view_state(self) -> dict[str, Any]:
+        state = self.state
+        if state is None:
+            raise StorageError("session_unavailable", "Session state is not ready")
+        return state
 
     @property
     def busy(self):
@@ -296,7 +311,7 @@ class PyApp(App):
         opened = await self._sessions.open(target, create=session_id is None, consumer=self)
         try:
             if self.session is not None:
-                await self.session.aclose()
+                await self.active_session.aclose()
         except BaseException:
             await opened.aclose()
             raise
@@ -309,7 +324,7 @@ class PyApp(App):
         self._live_text = self._live_thinking = ""
         self.query_one("#live-text", Static).update("")
         self.query_one("#live-thinking", Static).update("")
-        catalog = await self.session.model_list()
+        catalog = await self.active_session.model_list()
         self._model_choices = {
             str(index): (model.provider, model.model_id)
             for index, model in enumerate(catalog.models)
@@ -326,7 +341,7 @@ class PyApp(App):
     async def render_history(self):
         if self.session is None or self._closed:
             return
-        state = await self.session.inspect(presentation=True)
+        state = await self.active_session.inspect(presentation=True)
         area = self.query_one("#conversation", VerticalScroll)
         history = state["history"]
         identifiers = [item["entry_id"] for item in history]
@@ -347,7 +362,9 @@ class PyApp(App):
             await area.mount(Static(message["role"], classes="message-heading", markup=False))
             if message["tool_result"] is not None:
                 await area.mount(
-                    ToolOutputCard(entry_id, message["tool_result"], self.session.read_tool_result)
+                    ToolOutputCard(
+                        entry_id, message["tool_result"], self.active_session.read_tool_result
+                    )
                 )
             elif message["role"] == "assistant":
                 await area.mount(Markdown(message["text"], id="message-" + entry_id))
@@ -374,7 +391,7 @@ class PyApp(App):
     async def refresh_state(self):
         if self.session is None or self._closed:
             return
-        self.state = await self.session.inspect(presentation=True)
+        self.state = await self.active_session.inspect(presentation=True)
         if self._render_failed:
             return
         try:
@@ -391,7 +408,7 @@ class PyApp(App):
             self._tree_nodes = {}
             self._tree_session = self.session_id
         nodes = self._tree_nodes
-        for entry in self.state["snapshot"]["entries"]:
+        for entry in self.view_state["snapshot"]["entries"]:
             if entry["id"] in nodes:
                 continue
             parent = nodes.get(entry["parent_id"], tree.root)
@@ -402,9 +419,9 @@ class PyApp(App):
             )
             nodes[entry["id"]] = parent.add(label, data=entry["id"], expand=True)
         await self.query_one("#pending", Vertical).remove_children()
-        pending = self.state["pending"]
+        pending = self.view_state["pending"]
         child_source = None
-        team = self.state.get("team") or {}
+        team = self.view_state.get("team") or {}
         if team.get("degraded"):
             self.notice("Team persistence failed; reopen the session to recover", "error")
         if not pending and team.get("approvals"):
@@ -442,22 +459,26 @@ class PyApp(App):
                 self.notice(
                     "Pending operation review; use /resume or explicit reconciliation", "warning"
                 )
-        if self.state["pending_revert_id"]:
-            self.notice("Revert recovery required: " + self.state["pending_revert_id"], "warning")
+        if self.view_state["pending_revert_id"]:
+            self.notice(
+                "Revert recovery required: " + self.view_state["pending_revert_id"], "warning"
+            )
             await self.query_one("#pending", Vertical).mount(
-                RevertPanel(transaction_id=self.state["pending_revert_id"])
+                RevertPanel(transaction_id=self.view_state["pending_revert_id"])
             )
         elif self._pending_plan is not None:
             await self.query_one("#pending", Vertical).mount(RevertPanel(self._pending_plan))
         elif not pending and self._show_agents:
-            await self.query_one("#pending", Vertical).mount(AgentsPanel(self.state.get("team")))
+            await self.query_one("#pending", Vertical).mount(
+                AgentsPanel(self.view_state.get("team"))
+            )
         elif not pending and self._memory_report is not None:
             await self.query_one("#pending", Vertical).mount(MemoryPanel(self._memory_report))
         self.query_one("#chat-input", ChatInput).disabled = bool(
-            self.state["pending_run_id"] or self.state["pending_revert_id"]
+            self.view_state["pending_run_id"] or self.view_state["pending_revert_id"]
         )
         self.query_one("#chat-input", ChatInput).update_completion()
-        self.query_one("#resume", Button).disabled = not bool(self.state["pending_run_id"])
+        self.query_one("#resume", Button).disabled = not bool(self.view_state["pending_run_id"])
         sessions = await self._sessions.list_sessions()
         self.query_one("#saved-sessions", Select).set_options(
             [
@@ -468,14 +489,18 @@ class PyApp(App):
                 for item in sessions
             ]
         )
-        selected = self.state["context"]["selection"]
+        selected = self.view_state["context"]["selection"]
         label = (
             selected["provider"] + "/" + selected["model_id"]
             if selected
             else "Choose a model or start a task"
         )
         self.query_one("#status", Static).update(
-            label + " · " + context_text(self.state["context_usage"]) + " · " + self._sandbox_status
+            label
+            + " · "
+            + context_text(self.view_state["context_usage"])
+            + " · "
+            + self._sandbox_status
         )
         if not pending and not self.query_one("#chat-input", ChatInput).disabled:
             self.query_one("#chat-input", ChatInput).focus()
@@ -493,7 +518,7 @@ class PyApp(App):
         try:
             value = await function(*args)
             if isinstance(value, RunResult):
-                await self.session.publish_result(value)
+                await self.active_session.publish_result(value)
         except asyncio.CancelledError:
             if not self._closed:
                 self.notice("Stopped; execution remains recoverable", "warning")
@@ -513,7 +538,7 @@ class PyApp(App):
             and not (self.state or {}).get("pending_run_id")
             and getattr(self.session, "team_wake_pending", lambda: False)()
         ):
-            self.start_operation(self.session.wake_team)
+            self.start_operation(self.active_session.wake_team)
 
     async def wait_idle(self):
         if self._operation is not None:
@@ -526,10 +551,13 @@ class PyApp(App):
             await self.command(text)
         elif self.busy:
             kind = self.query_one("#queue-mode", Select).value
-            await self.session.submit_input(Message(uuid4().hex, "user", text), kind)
+            if kind not in {"steer", "follow_up"} or not isinstance(kind, str):
+                self.notice("Choose steer or follow_up for the queued message", "warning")
+                return
+            await self.active_session.submit_input(Message(uuid4().hex, "user", text), kind)
             self.notice("Queued " + kind)
         else:
-            self.start_operation(self.session.run, Message(uuid4().hex, "user", text))
+            self.start_operation(self.active_session.run, Message(uuid4().hex, "user", text))
 
     async def on_chat_input_submitted(self, event):
         try:
@@ -538,7 +566,7 @@ class PyApp(App):
             self.notice(str(error), "error")
 
     def refresh_commands(self):
-        snapshot = self.state["snapshot"]
+        snapshot = self.view_state["snapshot"]
         entries = {entry["id"]: entry for entry in snapshot["entries"]}
         current = snapshot["leaf_id"]
         catalog = ()
@@ -572,7 +600,7 @@ class PyApp(App):
 
     async def answer_child(self, agent_id, answer):
         try:
-            await self.session.answer_agent(agent_id, answer)
+            await self.active_session.answer_agent(agent_id, answer)
         except DomainError as error:
             self.notice(str(error), "error")
         finally:
@@ -580,7 +608,7 @@ class PyApp(App):
                 await self.refresh_state()
 
     def respond(self, answer):
-        self.start_operation(self.session.resume, answer)
+        self.start_operation(self.active_session.resume, answer)
 
     def on_plan_panel_responded(self, event):
         self.respond(event.answer)
@@ -606,24 +634,27 @@ class PyApp(App):
             self.start_operation(self.recover_revert, event.action == "restore-compensate")
 
     async def preview_revert(self, target, mode):
-        self._pending_plan = await self.session.preview_revert(target, mode)
+        self._pending_plan = await self.active_session.preview_revert(target, mode)
 
     async def apply_revert(self):
-        await self.session.revert(self._pending_plan)
+        await self.active_session.revert(self._pending_plan)
         self._pending_plan = None
 
     async def recover_revert(self, compensate):
-        await self.session.recover_revert(self.state["pending_revert_id"], compensate=compensate)
+        await self.active_session.recover_revert(
+            self.view_state["pending_revert_id"], compensate=compensate
+        )
         self._pending_plan = None
 
     async def stop_active(self):
         if self.busy:
-            await self.session.cancel()
+            await self.active_session.cancel()
             if self.busy:
+                assert self._operation is not None
                 self._operation.cancel()
             await self.wait_idle()
         elif self.session is not None:
-            await self.session.cancel()
+            await self.active_session.cancel()
 
     async def action_stop(self):
         await self.stop_active()
@@ -644,7 +675,7 @@ class PyApp(App):
             task.cancel()
         await asyncio.gather(*self._team_tasks, return_exceptions=True)
         if self.session is not None:
-            await self.session.aclose()
+            await self.active_session.aclose()
 
     async def on_unmount(self):
         await self.shutdown()
@@ -668,15 +699,16 @@ class PyApp(App):
                 if isinstance(value, str):
                     await self.switch_session(value)
             elif name == "choose-model":
-                choice = self._model_choices.get(self.query_one("#model-select", Select).value)
+                selected = self.query_one("#model-select", Select).value
+                choice = self._model_choices.get(selected) if isinstance(selected, str) else None
                 if choice:
-                    self.start_operation(self.session.select_model, *choice)
+                    self.start_operation(self.active_session.select_model, *choice)
             elif name == "branch-selection":
                 node = self.query_one("#session-tree", Tree).cursor_node
                 if node is not None:
-                    self.start_operation(self.session.branch, node.data)
+                    self.start_operation(self.active_session.branch, node.data)
             elif name == "resume":
-                self.start_operation(self.session.resume)
+                self.start_operation(self.active_session.resume)
             elif name == "preview-revert":
                 node = self.query_one("#session-tree", Tree).cursor_node
                 if node is not None:
@@ -686,9 +718,9 @@ class PyApp(App):
             elif name == "stop":
                 await self.stop_active()
             elif name == "compact":
-                self.start_operation(self.session.compact)
+                self.start_operation(self.active_session.compact)
             elif name == "usage":
-                self.push_screen(UsageScreen(await self.session.usage()))
+                self.push_screen(UsageScreen(await self.active_session.usage()))
         except DomainError as error:
             self.notice(str(error), "error")
 
@@ -721,9 +753,11 @@ class PyApp(App):
         elif args == ["list"]:
             self.notice(json_dumps(await self._sessions.list_sessions(), ensure_ascii=False))
         elif len(args) >= 2 and args[0] == "name":
-            self.start_operation(self.session.name, " ".join(args[1:]))
+            self.start_operation(self.active_session.name, " ".join(args[1:]))
         elif len(args) == 2 and args[0] == "fork":
-            await self._sessions.fork(self.session_id, self.state["snapshot"]["leaf_id"], args[1])
+            await self._sessions.fork(
+                self.session_id, self.view_state["snapshot"]["leaf_id"], args[1]
+            )
             await self.switch_session(args[1])
         else:
             return False
@@ -731,12 +765,12 @@ class PyApp(App):
     async def command_resume(self, args):
         if args:
             return False
-        self.start_operation(self.session.resume)
+        self.start_operation(self.active_session.resume)
 
     async def command_model(self, args):
         if len(args) != 2:
             return False
-        self.start_operation(self.session.select_model, *args)
+        self.start_operation(self.active_session.select_model, *args)
 
     async def command_memory(self, args):
         scope = None
@@ -747,7 +781,7 @@ class PyApp(App):
         if not args:
             self.start_operation(self.show_memory)
         elif len(args) == 2 and args[0] == "mode":
-            self.start_operation(self.session.memory_mode, args[1])
+            self.start_operation(self.active_session.memory_mode, args[1])
         elif len(args) >= 3 and args[0] == "edit":
             self.start_operation(self.edit_memory, args[1], " ".join(args[2:]), scope)
         elif len(args) == 2 and args[0] in {"remove", "delete"}:
@@ -755,9 +789,9 @@ class PyApp(App):
         elif args == ["undo"]:
             self.start_operation(self.undo_memory)
         elif args == ["clear"]:
-            self.start_operation(self.session.memory_clear)
+            self.start_operation(self.active_session.memory_clear)
         elif args == ["extract"]:
-            self.start_operation(self.session.memory_extract)
+            self.start_operation(self.active_session.memory_extract)
         else:
             return False
 
@@ -778,18 +812,18 @@ class PyApp(App):
             await self.refresh_state()
             return True
         if len(args) == 2 and args[0] == "cancel":
-            await self.session.cancel_agent(args[1])
+            await self.active_session.cancel_agent(args[1])
             await self.refresh_state()
             return True
         return False
 
     async def command_usage(self, args):
-        self.push_screen(UsageScreen(await self.session.usage()))
+        self.push_screen(UsageScreen(await self.active_session.usage()))
 
     async def command_compact(self, args):
         if args:
             return False
-        self.start_operation(self.session.compact)
+        self.start_operation(self.active_session.compact)
 
     async def command_reload(self, args):
         if args:
@@ -802,7 +836,9 @@ class PyApp(App):
     async def command_hooks(self, args):
         if len(args) < 2 or args[1] not in {"result", "retry", "abandon"}:
             return False
-        self.start_operation(self.session.reconcile_hook, args[0], args[1], " ".join(args[2:]))
+        self.start_operation(
+            self.active_session.reconcile_hook, args[0], args[1], " ".join(args[2:])
+        )
 
     async def command_skill(self, args):
         if len(args) != 2 or args[0] != "install":
@@ -815,7 +851,7 @@ class PyApp(App):
     async def command_branch(self, args):
         if len(args) != 1:
             return False
-        self.start_operation(self.session.branch, None if args[0] == "root" else args[0])
+        self.start_operation(self.active_session.branch, None if args[0] == "root" else args[0])
 
     async def command_theme(self, args):
         self.action_toggle_theme()
@@ -833,49 +869,49 @@ class PyApp(App):
         await self.action_close()
 
     async def show_memory(self):
-        self._memory_report = await self.session.memory_list()
+        self._memory_report = await self.active_session.memory_list()
 
     async def edit_memory(self, memory_id, content, scope=None):
-        await self.session.memory_edit(memory_id, content, scope=scope)
+        await self.active_session.memory_edit(memory_id, content, scope=scope)
         self.notice("Memory updated: " + memory_id)
         await self.show_memory()
 
     async def remove_memory(self, memory_id, scope=None):
-        await self.session.memory_remove(memory_id, scope=scope)
+        await self.active_session.memory_remove(memory_id, scope=scope)
         self.notice("Memory deleted: " + memory_id)
         await self.show_memory()
 
     async def undo_memory(self):
-        result = await self.session.memory_undo()
+        result = await self.active_session.memory_undo()
         self.notice("Undid automatic memory update: " + ", ".join(result["memory_ids"]))
         await self.show_memory()
 
     async def show_storage(self):
-        report = await self.session.storage_status()
+        report = await self.active_session.storage_status()
         self.notice(json_dumps(report, ensure_ascii=False))
 
     async def collect_storage(self, dry_run):
-        report = await self.session.storage_gc(dry_run=dry_run)
+        report = await self.active_session.storage_gc(dry_run=dry_run)
         self.notice(json_dumps(report, ensure_ascii=False))
 
     async def enter_plan(self, task):
-        result = await self.session.enter_plan(task)
+        result = await self.active_session.enter_plan(task)
         self.notice("Plan mode entered")
         return result
 
     async def load_skill(self, name, arguments):
-        result = await self.session.load_skill(name, arguments)
+        result = await self.active_session.load_skill(name, arguments)
         self.notice("Skill task: " + name)
         return result
 
     async def reload_skills(self):
-        catalog = await self.session.reload_skills()
+        catalog = await self.active_session.reload_skills()
         self.notice(f"Skill catalog refreshed: {len(catalog['entries'])} entries")
 
     async def search_skills(self, query):
-        found = await self.session.skill_search(query)
+        found = await self.active_session.skill_search(query)
         self.notice("\n".join(item["name"] + ": " + item["description"] for item in found))
 
     async def install_skill(self, url):
-        report = await self.session.install_skill(url)
+        report = await self.active_session.install_skill(url)
         self.notice("Installed Skill " + report["skill_name"] + " at " + report["target_dir"])

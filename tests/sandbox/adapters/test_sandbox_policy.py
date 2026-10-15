@@ -1,10 +1,10 @@
 import pytest
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message, ToolCall
-from pycode.kernel.contracts.tools import ToolContext
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import Message, ToolCall
+from pycode.kernel.domain.tools import ToolContext
 from pycode.sandbox.adapters.tools.bash import Bash
 from pycode.sandbox.domain.sandbox import SandboxSettings, SandboxStatus
 from pycode.tools.adapters.permissions import InterruptToolGate
@@ -79,8 +79,8 @@ async def test_current_unsupported_host_still_requires_explicit_approval_even_wh
         url,
         requests,
     ):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             pending = await session.run(Message("u1", "user", "write"))

@@ -1,91 +1,43 @@
-"""Composition of session capabilities; concrete adapters stay at this boundary."""
+"""Session scope connects feature products and transfers their owned lifetimes."""
 
-import asyncio
-from dataclasses import dataclass
-from pathlib import Path
+from functools import partial
 
-from pycode import __version__
-from pycode.app.composition.capabilities import (
-    build_output_store,
-    build_skills,
-    default_tools,
-    skill_tools,
-)
 from pycode.app.composition.memory import build_memory_service
-from pycode.app.composition.models import build_model_catalog, build_model_control
-from pycode.app.composition.runtime import build_configured_run, build_lifecycle_hook_engine
+from pycode.app.composition.modules import default_modules
+from pycode.app.composition.runtime import (
+    _outputs,
+    _skill_settings,
+    build_configured_run,
+    build_lifecycle_hook_engine,
+)
 from pycode.app.composition.team import build_team, build_worktree_manager
-from pycode.app.config import AppConfig, credential_environment
+from pycode.app.config import credential_environment
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
-from pycode.context import ContextProjector, InputBudget, PromptService, SummarySettings
-from pycode.context.adapters.storage.prompts import (
-    ProjectPromptSource,
-)
+from pycode.context import InputBudget, SummarySettings
 from pycode.hooks import validate_hooks_recovery
-from pycode.hooks.adapters.config import load_hooks
-from pycode.kernel import MemoryEventJournal, SystemTiming, ToolSpec, data_hash, plain_data
-from pycode.mcp import choose_tools, validate_mcp_recovery
-from pycode.mcp.adapters.config import load_servers
-from pycode.mcp.adapters.manager import MCPAdapterConnections
-from pycode.mcp.adapters.tools import (
-    MCPCall,
-    MCPGetPrompt,
-    MCPPrompts,
-    MCPReadResource,
-    MCPResources,
-    ToolSearch,
-)
-from pycode.models import ProviderConfig, UsageService
-from pycode.models.adapters.storage.requests import SQLiteRequestStore
-from pycode.plans import PlanService
-from pycode.plans.adapters.plans import InterruptPlanPrompt
-from pycode.plans.adapters.storage.plans import FilePlanStore
-from pycode.plans.adapters.tools.plans import ExitPlanMode
+from pycode.kernel import ToolSpec, plain_data
+from pycode.kernel.adapters.event_journal import MemoryEventJournal
+from pycode.mcp import validate_mcp_recovery
+from pycode.mcp.module import MCPModule, MCPSettings
+from pycode.models import UsageService
 from pycode.session import (
     AgentSession,
-    ApplicationService,
     DurableInputs,
     RevertService,
+    SessionCatalogWriteGuard,
     SessionRunOwnership,
-    SessionService,
     SessionView,
-    StorageGC,
     pending_revert,
     pending_run_entry,
     recover_conversation,
 )
-from pycode.session.adapters.storage.layout import StorageLayout
-from pycode.session.adapters.storage.objects import FileStorageObjects
-from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
-from pycode.session.adapters.storage.workspace import FileWorkspaceInspector
-from pycode.skills import skill_tool_specs
-from pycode.snapshot.adapters.git_tree import GitSnapshotStore
-from pycode.tools import ToolRegistry
-from pycode.tools.adapters.backend import PycodeBackend
-from pycode.tools.adapters.questions import InterruptQuestionPrompt
-from pycode.tools.adapters.schema import JsonSchemaValidator
-
-
-@dataclass
-class Container:
-    application: ApplicationService
-
-
-def build_container(config: AppConfig) -> Container:
-    workspace = FileWorkspaceInspector(config.workspace)
-    application = ApplicationService(workspace=workspace, version=__version__)
-    return Container(application=application)
-
-
-def build_session_repository(config: AppConfig) -> JsonlSessionRepository:
-    layout = StorageLayout(config.workspace, config.user_data)
-    return JsonlSessionRepository(layout.sessions, str(config.workspace), SystemTiming())
+from pycode.skills.module import SkillsModule
 
 
 async def open_agent_session(
-    config: AppConfig,
-    providers: tuple[ProviderConfig, ...],
-    session_id: str,
+    config,
+    providers,
+    session_id,
     *,
     create=False,
     tools=(),
@@ -95,170 +47,129 @@ async def open_agent_session(
     connect_mcp=True,
     team_member=None,
     prompt_suffix="",
+    modules=None,
 ) -> AgentSession:
     if not providers:
         raise ValueError("At least one configured provider is required")
+    modules = default_modules(config) if modules is None else modules
     if not create:
-        session_id = await build_session_service(config).resolve(session_id)
-    catalog = build_model_catalog(config, providers)
+        session_id = await modules.sessions.service().resolve(session_id)
+    catalog = modules.models.catalog(providers)
     await catalog.initialize()
     if refresh_models:
         await catalog.refresh()
-    store = await build_session_repository(config).open(session_id, create=create)
+    store = await modules.sessions.repository().open(session_id, create=create)
+    event_journal = None
+    mcp_session = None
+    view = None
+    memory = None
+    launcher = None
     try:
         await store.claim_writer()
-        layout = StorageLayout(config.workspace, config.user_data)
-        await recover_conversation(store, build_output_store(layout.sessions, session_id, store))
-        if config.agent_id == "lead" and (layout.project / "worktrees").exists():
-            await build_worktree_manager(config).scan()
-    except BaseException:
-        await store.aclose()
-        raise
-    plan_files = FilePlanStore(
-        config.workspace / ".pycode" / "plans" / session_id, backend_factory=PycodeBackend
-    )
-    plans = PlanService(store, plan_files, InterruptPlanPrompt())
-    try:
+        outputs = _outputs(modules, session_id, store)
+        await recover_conversation(store, outputs)
+        if config.agent_id == "lead" and (modules.sessions.layout.project / "worktrees").exists():
+            await build_worktree_manager(config, modules=modules).scan()
+        plan_session = modules.plans.session(session_id, store)
+        plans = plan_session.service
         await plans.initialize()
-    except BaseException:
-        await store.aclose()
-        raise
-    skills = build_skills(config, store)
-    try:
-        snapshot = await store.snapshot()
-        if pending_run_entry(snapshot) is None and pending_revert(snapshot) is None:
-            await skills.index()
-    except BaseException:
-        await store.aclose()
-        raise
-    models = build_model_control(catalog, store)
-    event_journal = MemoryEventJournal()
-    hook_roots = [("user", config.user_data / "hooks.json")]
-    if config.project_trusted:
-        hook_roots.append(("project", config.workspace / ".pycode" / "hooks.json"))
-    try:
-        owned_hooks = asyncio.create_task(asyncio.to_thread(load_hooks, tuple(hook_roots)))
-        try:
-            configured_hooks = await asyncio.shield(owned_hooks)
-            if config.agent_id != "lead":
-                configured_hooks = tuple(
-                    hook for hook in configured_hooks if hook.action.type == "prompt"
-                )
-            elif not config.allow_delegation:
-                configured_hooks = tuple(
-                    hook for hook in configured_hooks if hook.action.type != "agent"
-                )
-        except asyncio.CancelledError:
-            await owned_hooks
-            raise
-    except BaseException:
-        await event_journal.aclose()
-        await store.aclose()
-        raise
-    mcp_roots = [config.user_data / "mcp.json"]
-    if config.project_trusted:
-        mcp_roots.append(config.workspace / ".pycode" / "mcp.json")
-    try:
-        owned_servers = asyncio.create_task(
-            asyncio.to_thread(load_servers, tuple(mcp_roots), config.workspace)
-        )
-        try:
-            servers = await asyncio.shield(owned_servers)
-        except asyncio.CancelledError:
-            await owned_servers
-            raise
-    except BaseException:
-        await event_journal.aclose()
-        await store.aclose()
-        raise
-    if config.agent_id != "lead":
-        servers = ()
-    mcp_hash = data_hash([plain_data(server) for server in servers]) if servers else ""
-    hook_hash = (
-        data_hash([plain_data(hook) for hook in configured_hooks]) if configured_hooks else ""
-    )
-    current = await store.snapshot()
-    pending = pending_run_entry(current)
-    try:
-        validate_hooks_recovery(pending, hook_hash)
-        validate_mcp_recovery(pending, mcp_hash)
-    except BaseException:
-        await event_journal.aclose()
-        await store.aclose()
-        raise
-    connections = None
-    try:
-        connections = (
-            MCPAdapterConnections(
-                servers, credential_environment(config, providers), validator=JsonSchemaValidator()
+        skills_session = None
+        current = await store.snapshot()
+        if modules.skills is not None:
+            skills_session = modules.skills.open_session(
+                _skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
             )
-            if connect_mcp and any(server.enabled for server in servers)
-            else None
-        )
-        if connections is not None:
-            connections.start()
+            if pending_run_entry(current) is None and pending_revert(current) is None:
+                await skills_session.initialize()
+        event_journal = MemoryEventJournal()
+        configured_hooks = await modules.hooks.configuration()
+        hook_hash = modules.hooks.config_hash(configured_hooks)
+        pending = pending_run_entry(await store.snapshot())
+        validate_hooks_recovery(pending, hook_hash)
+        if modules.mcp is not None and config.agent_id == "lead":
+            mcp_session = await modules.mcp.open_session(
+                MCPSettings(config.workspace, config.user_data, config.project_trusted),
+                credential_environment(config, providers),
+                pending=pending,
+                connect=connect_mcp,
+            )
+            mcp_hash = mcp_session.config_hash
+        else:
+            mcp_hash = ""
+            validate_mcp_recovery(pending, mcp_hash)
+        models = modules.models.control(catalog, modules.projector(), store)
         durable_inputs = DurableInputs(store)
-        memory = build_memory_service(config, store, providers[0], consumers)
+        memory = build_memory_service(config, store, providers[0], consumers, modules=modules)
         launcher = ConfiguredRuntimeLauncher(
             config,
             tools,
             consumers,
             event_journal,
             configured_hooks,
-            mcp_connections=connections,
+            resource_owners=(mcp_session,) if mcp_session else (),
+            projector_factory=modules.projector,
             mcp_config_hash=mcp_hash,
             plans=plans,
-            plan_backend=plan_files.backend,
+            plan_backend=plan_session.files.backend,
             durable_inputs=durable_inputs,
-            runtime_factory=build_configured_run,
+            runtime_factory=partial(
+                build_configured_run,
+                modules=modules,
+                skills_session=skills_session,
+                mcp_session=mcp_session,
+            ),
             model_resolver=catalog.resolve,
-            hook_factory=build_lifecycle_hook_engine,
+            hook_factory=partial(build_lifecycle_hook_engine, modules=modules),
             lifecycle_provider=providers[0],
             memory=memory,
             team_member=team_member,
-            prompt_factory=lambda history: PromptService(
-                history,
-                ProjectPromptSource(
-                    config.workspace,
-                    Path(__file__).parents[2] / "resources" / "system-prompt.txt",
-                    suffix=prompt_suffix,
-                ),
+            prompt_factory=lambda history: modules.context.prompt(
+                history, config.workspace, suffix=prompt_suffix
             ),
         )
-        snapshots = GitSnapshotStore(
-            config.workspace,
-            StorageLayout(config.workspace, config.user_data).project / "snapshots",
-            excluded_roots=(config.user_data,),
+        view = await build_session_view(
+            config,
+            store,
+            session_id=session_id,
+            consumers=consumers,
+            event_journal=event_journal,
+            tools=tools,
+            modules=modules,
+            skills_session=skills_session,
         )
         session = AgentSession(
             store,
-            ContextProjector(),
+            modules.projector(),
             models,
             launcher,
             providers[0],
             durable_inputs,
-            RevertService(store, snapshots),
-            build_session_view(
-                config,
-                store,
-                session_id=session_id,
-                consumers=consumers,
-                event_journal=event_journal,
-                tools=tools,
-            ),
-            skills=skills,
+            RevertService(store, modules.snapshots.store()),
+            view,
+            skills=skills_session.service if skills_session else None,
             hook_config_hash=hook_hash,
             mcp_config_hash=mcp_hash,
             plans=plans,
-            storage=build_storage_gc(config, owned_session_id=session_id),
+            storage=modules.sessions.storage(owned_session_id=session_id),
             memory=memory,
-            recovery_outputs=build_output_store(layout.sessions, session_id, store),
+            recovery_outputs=outputs,
         )
-    except BaseException:
-        if connections is not None:
-            await connections.aclose()
-        await event_journal.aclose()
-        await store.aclose()
+    except BaseException as error:
+        closers = []
+        if memory is not None:
+            closers.append(memory.aclose)
+        if launcher is not None:
+            closers.append(launcher.aclose)
+        elif mcp_session is not None:
+            closers.append(mcp_session.aclose)
+        if view is not None:
+            closers.append(view.aclose)
+        elif event_journal is not None:
+            closers.append(event_journal.aclose)
+        closers.append(store.aclose)
+        rollback = modules.sessions.cleanup()
+        rollback.record(error)
+        await rollback.close(tuple(closers))
         raise
     try:
         if config.allow_delegation and config.agent_id == "lead" and team_member is None:
@@ -271,7 +182,8 @@ async def open_agent_session(
                 event_journal,
                 plans,
                 session_opener=open_agent_session,
-                repository_factory=build_session_repository,
+                repository_factory=lambda selected: modules.scoped(selected).sessions.repository(),
+                modules=modules,
             )
             session._team = team
             launcher.team_member = team.member("lead")
@@ -286,26 +198,39 @@ async def open_agent_session(
     return session
 
 
-def build_session_view(
-    config, store, *, session_id, consumers=(), owns_history=False, event_journal=None, tools=()
+async def build_session_view(
+    config,
+    store,
+    *,
+    session_id,
+    consumers=(),
+    owns_history=False,
+    event_journal=None,
+    tools=(),
+    modules=None,
+    skills_session=None,
 ):
-    database = (
-        config.request_database
-        or StorageLayout(config.workspace, config.user_data).runtime_database
-    )
-    snapshot_tools = (
+    modules = default_modules(config) if modules is None else modules
+    if skills_session is None and modules.skills is not None:
+        skills_session = modules.skills.open_session(
+            _skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
+        )
+    skill_tools = ()
+    if skills_session is not None and modules.skills is not None:
+        # Services expose immutable declarations through their module, without loading bodies.
+        skill_tools = modules.skills.session_tools(skills_session, read_only=config.read_only)
+    snapshots = (
         *tools,
-        *skill_tools(config, store),
-        *default_tools(
-            config,
-            build_output_store(
-                StorageLayout(config.workspace, config.user_data).sessions, "view", store
-            ),
-            "",
-            InterruptQuestionPrompt(),
+        *skill_tools,
+        *modules.tools.default_tools(
+            _outputs(modules, "view", store), modules.tools.question_prompt()
         ),
     )
-    specs = (*ToolRegistry(JsonSchemaValidator(), snapshot_tools).list_specs(), ExitPlanMode.spec)
+    specs = (
+        *modules.tools.registry(snapshots).list_specs(),
+        modules.sandbox.bash_spec(),
+        modules.plans.exit_spec(),
+    )
 
     def settings(projection):
         selection = projection.selection
@@ -315,13 +240,22 @@ def build_session_view(
             or selection.capabilities.max_output_tokens is None
         ):
             return None
-        effective = []
-        for spec in projection.checkpoint.get("model_tools", ()):
-            effective.append(ToolSpec(**plain_data(spec)))
+        effective = [
+            ToolSpec(**plain_data(item)) for item in projection.checkpoint.get("model_tools", ())
+        ]
         if not effective:
             effective.extend(specs)
-            effective.extend(skill_tool_specs(projection.checkpoint.get("skills", ())))
-            effective.extend(mcp_view_specs(projection, selection))
+            effective.extend(SkillsModule.historical_specs(projection))
+            effective.extend(
+                MCPModule.view_specs(
+                    projection,
+                    selection,
+                    input_limit=InputBudget.create(
+                        selection.capabilities.context_window,
+                        selection.capabilities.max_output_tokens,
+                    ).input_limit,
+                )
+            )
         effective.sort(key=lambda spec: spec.name)
         return SummarySettings(
             selection,
@@ -332,47 +266,38 @@ def build_session_view(
             config.summary_keep_recent_tokens,
         )
 
-    return SessionView(
-        store,
-        ContextProjector(),
-        UsageService(store, SQLiteRequestStore(database), ownership=SessionRunOwnership()),
-        event_journal or MemoryEventJournal(),
-        consumers,
-        owns_history=owns_history,
-        context_settings=settings,
-        outputs=build_output_store(
-            StorageLayout(config.workspace, config.user_data).sessions, session_id, store
-        ),
-    )
+    # Resolve factories that may fail before opening the request database.
+    projector = modules.projector()
+    outputs = _outputs(modules, session_id, store)
+    events = event_journal or MemoryEventJournal()
+    records = modules.models.records()
+    try:
+        return SessionView(
+            store,
+            projector,
+            UsageService(store, records, ownership=SessionRunOwnership()),
+            events,
+            consumers,
+            owns_history=owns_history,
+            context_settings=settings,
+            outputs=outputs,
+        )
+    except BaseException:
+        try:
+            await records.aclose()
+        finally:
+            if event_journal is None:
+                await events.aclose()
+        raise
 
 
-def mcp_view_specs(projection, selection):
-    catalog = projection.checkpoint.get("mcp")
-    if catalog is None:
-        return ()
-    controls = tuple(
-        tool.spec
-        for tool in (ToolSearch, MCPCall, MCPResources, MCPReadResource, MCPPrompts, MCPGetPrompt)
-    )
-    budget = InputBudget.create(
-        selection.capabilities.context_window, selection.capabilities.max_output_tokens
-    )
-    declared = choose_tools(catalog, budget.input_limit)
-    return (*controls, *(spec for spec in declared if spec.model_visible))
-
-
-async def open_session_view(config, session_id):
-    store = await build_session_repository(config).open(session_id)
-    return build_session_view(config, store, session_id=session_id, owns_history=True)
-
-
-def build_session_service(config):
-    return SessionService(build_session_repository(config))
-
-
-def build_storage_gc(config, *, owned_session_id=None):
-    return StorageGC(
-        FileStorageObjects(config.user_data, config.workspace, owned_session_id=owned_session_id),
-        build_session_repository(config),
-        SystemTiming(),
-    )
+async def open_session_view(config, session_id, *, modules=None):
+    modules = default_modules(config) if modules is None else modules
+    store = await modules.sessions.repository().open(session_id)
+    try:
+        return await build_session_view(
+            config, store, session_id=session_id, owns_history=True, modules=modules
+        )
+    except BaseException:
+        await store.aclose()
+        raise

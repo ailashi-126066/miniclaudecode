@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.sandbox.adapters.seatbelt import SeatbeltSandbox, UnavailableSandbox, build_profile
 from pycode.sandbox.adapters.tools.bash import Bash
 from pycode.sandbox.domain.sandbox import SandboxSettings
@@ -24,6 +25,20 @@ def test_profile_preserves_source_read_network_and_quoted_path_rules(tmp_path):
     assert "(deny file-write-unlink" in profile
     assert "(allow network*)" in build_profile(root, True)
     assert '(allow file-write-data (literal "/dev/null"))' in profile
+
+
+def test_dotenv_example_exception_escapes_workspace_regex_metacharacters(tmp_path):
+    workspace = tmp_path / "project.[1](x)+$^"
+    profile = build_profile(workspace, False)
+    rule = next(
+        line for line in profile.splitlines() if line.startswith("(allow file-read-data (regex")
+    )
+    pattern = re.search(r'\(regex #"(.*)"\)', rule).group(1)
+    assert re.fullmatch(pattern, str(workspace.resolve() / ".env.example"))
+    assert re.fullmatch(pattern, str(workspace.resolve() / "nested/.env.example"))
+    assert not re.fullmatch(pattern, str(workspace.resolve() / ".env.production"))
+    assert not re.fullmatch(pattern, str(tmp_path / "projectX1x" / ".env.example"))
+    assert not re.fullmatch(pattern, str(tmp_path / ".env.example"))
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Physical Seatbelt requires macOS")
@@ -76,7 +91,11 @@ def test_sandbox_configuration_is_part_of_operation_identity():
     plain = Bash("bash", None)
     enclosed = Bash("bash", None, settings=SandboxSettings("on"))
     automatic = Bash("bash", None, settings=SandboxSettings("on-auto"))
-    assert len({operation_spec_hash(tool.spec) for tool in (plain, enclosed, automatic)}) == 3
+    forwarded = Bash("bash", None, passthrough=("SSH_AUTH_SOCK",))
+    assert (
+        len({operation_spec_hash(tool.spec) for tool in (plain, enclosed, automatic, forwarded)})
+        == 4
+    )
 
 
 def test_profile_denies_private_home_state_after_workspace_and_temp_allows(tmp_path):

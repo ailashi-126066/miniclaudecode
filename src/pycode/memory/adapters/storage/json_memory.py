@@ -8,6 +8,7 @@ import time
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 from langgraph.store.base import (
@@ -20,7 +21,9 @@ from langgraph.store.base import (
     SearchOp,
 )
 
-from pycode.kernel import FileLease, StorageError, ToolError, atomic_write, owned_io
+from pycode.kernel import StorageError, ToolError
+from pycode.kernel.adapters.file_lease import FileLease
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 from pycode.memory.domain.memory import (
     MemorySnapshot,
     check_memory_write,
@@ -280,7 +283,12 @@ class JsonMemoryStore(BaseStore):
             "created_at": record["created_at"],
             "updated_at": record["updated_at"],
         }
-        return Item(**options) if score is MISSING else SearchItem(**options, score=score)
+        # Only search supplies this optional score; the sentinel selects a plain Item.
+        return (
+            Item(**options)
+            if score is MISSING
+            else SearchItem(**options, score=cast(float | None, score))
+        )
 
     def search(self, op):
         if not isinstance(op.namespace_prefix, tuple):

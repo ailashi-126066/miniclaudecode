@@ -1,8 +1,8 @@
 import json
 
-from pycode.app.composition import build_session_repository, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.snapshot.adapters.test_git_tree import git, repository
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -45,8 +45,8 @@ async def test_read_receipt_survives_approval_restart_and_exact_edit_gets_snapsh
     ]
     with protocol_server(responses) as (url, requests):
         selected = provider(url)
-        session = await open_agent_session(
-            config, (selected,), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (selected,)).open_session(
+            "s1", create=True, refresh_models=False
         )
         pending = await session.run(Message("u1", "user", "edit the file"))
         assert (
@@ -60,7 +60,7 @@ async def test_read_receipt_survives_approval_restart_and_exact_edit_gets_snapsh
         ).outcome == "completed"
         assert len(requests) == 3 and (root / "file.txt").read_text() == "before changed after"
         await restored.aclose()
-        store = await build_session_repository(config).open("s1")
+        store = await compose_application(config).session_repository().open("s1")
         snapshot = await store.snapshot()
         boundaries = [
             entry for entry in snapshot.entries if entry.data.get("kind") == "file_snapshot"

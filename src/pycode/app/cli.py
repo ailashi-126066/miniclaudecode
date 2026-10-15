@@ -7,17 +7,9 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli_commands import command
 from pycode.app.cli_parser import build_parser
-from pycode.app.composition import (
-    build_container,
-    build_model_catalog,
-    build_model_control,
-    build_session_repository,
-    build_tui,
-    open_agent_session,
-    sandbox_status,
-)
 from pycode.app.config import load_config, load_providers
 from pycode.kernel import DomainError, OutputClosed, json_dumps, plain_data
 from pycode.sandbox import SandboxSettings
@@ -37,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         project_trusted=args.trust_project,
         memory_mode=args.memory_mode,
         team_max_agents=args.max_agents,
+        subprocess_passthrough=tuple(args.pass_env),
     )
     if args.p is not None:
         if args.command is not None:
@@ -48,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "tui":
         try:
             providers = load_providers(Path(args.providers).expanduser().resolve())
-            build_tui(config, providers, session_id=args.session).run()
+            compose_application(config, providers).tui(session_id=args.session).run()
             return 0
         except DomainError as error:
             print(
@@ -60,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"model", "/model"}:
         try:
             providers = load_providers(Path(args.providers).expanduser().resolve())
-            catalog = build_model_catalog(config, providers)
+            catalog = compose_application(config, providers).model_catalog()
             return asyncio.run(model_command(args, config, catalog, providers))
         except DomainError as error:
             print(
@@ -92,9 +85,9 @@ def main(argv: list[str] | None = None) -> int:
             return 141
         except BrokenPipeError:
             return 141
-    container = build_container(config)
-    status = container.application.status()
-    isolation = asyncio.run(sandbox_status(config))
+    application = compose_application(config)
+    status = application.status()
+    isolation = asyncio.run(compose_application(config).sandbox_status())
     tools = external_tools()
     if args.json:
         print(
@@ -149,8 +142,8 @@ async def model_command(args, config, catalog, providers) -> int:
     if args.model_command == "select":
         if not args.session:
             raise DomainError("session_required", "Selecting a model requires an active session")
-        session = await open_agent_session(
-            config, providers, args.session, refresh_models=not args.cached
+        session = await compose_application(config, providers).open_session(
+            args.session, refresh_models=not args.cached
         )
         try:
             selected = await session.select_model(args.provider, args.model_id)
@@ -165,8 +158,8 @@ async def model_command(args, config, catalog, providers) -> int:
             await session.aclose()
     store = None
     if args.session:
-        store = await build_session_repository(config).open(args.session)
-    control = build_model_control(catalog, store)
+        store = await compose_application(config).session_repository().open(args.session)
+    control = compose_application(config, providers).model_control(store, catalog=catalog)
     try:
         snapshot = await control.list_models(refresh=not args.cached)
         current = await control.current()

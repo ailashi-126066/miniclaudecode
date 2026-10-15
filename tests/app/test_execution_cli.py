@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from pycode.app.bootstrap import compose_application
 from pycode.app.cli import main
-from pycode.app.composition import build_session_repository, open_agent_session
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.session.adapters.test_revert_http import command_reply
 from tests.snapshot.adapters.test_git_tree import git, repository
@@ -32,9 +32,13 @@ def setup_cli(tmp_path, configured, workspace=None):
 
 
 async def read_session(tmp_path, session_id="s1", workspace=None):
-    store = await build_session_repository(
-        AppConfig(workspace or tmp_path, tmp_path / "data", memory_mode="off")
-    ).open(session_id)
+    store = (
+        await compose_application(
+            AppConfig(workspace or tmp_path, tmp_path / "data", memory_mode="off")
+        )
+        .session_repository()
+        .open(session_id)
+    )
     try:
         return await store.snapshot()
     finally:
@@ -283,13 +287,9 @@ def test_revert_cli_exports_review_plan_applies_explicit_mode_then_continues(
         common, execution = setup_cli(tmp_path, provider(url), root)
 
         async def create_effect():
-            session = await open_agent_session(
-                AppConfig(root, tmp_path / "data", memory_mode="off"),
-                (provider(url),),
-                "s1",
-                create=True,
-                refresh_models=False,
-            )
+            session = await compose_application(
+                AppConfig(root, tmp_path / "data", memory_mode="off"), (provider(url),)
+            ).open_session("s1", create=True, refresh_models=False)
             try:
                 waiting = await session.run(Message("first", "user", "change"))
                 result = await session.resume(

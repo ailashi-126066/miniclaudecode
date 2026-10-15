@@ -2,7 +2,7 @@
 
 import pytest
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.team.domain.team import (
     child_prompt,
     claim_error,

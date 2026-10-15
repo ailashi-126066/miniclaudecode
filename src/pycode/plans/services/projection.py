@@ -1,0 +1,46 @@
+"""Reconstruct this feature's historical model context without opening resources."""
+
+from pycode.context import ProjectionContribution
+from pycode.kernel import Message, ProjectedEntry, clone_value
+
+
+class PlanProjection:
+    name = "plans"
+    checkpoint_keys = frozenset({"plan"})
+
+    def contribute(self, snapshot, path, entries, checkpoint):
+        pinned = []
+        updates = {}
+        plan_state = None
+        plan_entry = None
+        for entry in path:
+            if (
+                entry.type == "plan_state"
+                and entry.data["session_id"] == snapshot.header.session_id
+            ):
+                plan_state = entry.data
+                plan_entry = entry
+        if plan_state is not None and plan_state["mode"] != "completed":
+            assert plan_entry is not None
+            updates["plan"] = clone_value(plan_state)
+            reminder = (
+                f"Plan mode={plan_state['mode']}; active Markdown={plan_state['virtual_path']}. "
+                f"File exists={plan_state['document_exists']}. "
+            )
+            if plan_state["mode"] == "planning":
+                reminder += (
+                    "The project is read only. Only write the exact active Plan Markdown. "
+                    "Call ExitPlanMode after writing it to request approval."
+                )
+            else:
+                reminder += (
+                    "Execute only the approved Plan snapshot within this run. "
+                    "External changes require fresh approval."
+                )
+            pinned.append(
+                ProjectedEntry(
+                    plan_entry.id, (Message("plan:" + plan_state["plan_id"], "system", reminder),)
+                )
+            )
+
+        return ProjectionContribution(tuple(pinned), updates, self.checkpoint_keys)

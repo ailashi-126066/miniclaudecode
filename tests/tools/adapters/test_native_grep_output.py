@@ -1,8 +1,8 @@
 """Large rg output is preserved before native FilesystemMiddleware truncates it."""
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
@@ -27,8 +27,8 @@ async def run_large_grep(tmp_path):
             chat_completion(),
         ]
     ) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             done = await session.run(Message("u1", "user", "search large lines"))

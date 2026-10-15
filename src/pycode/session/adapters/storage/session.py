@@ -11,9 +11,9 @@ from pathlib import Path
 from types import MappingProxyType
 from uuid import uuid4
 
+from pycode.context import valid_kept_boundary
 from pycode.kernel import (
     EntryDraft,
-    FileLease,
     Message,
     SessionEntry,
     SessionHeader,
@@ -21,11 +21,11 @@ from pycode.kernel import (
     SessionTree,
     StorageError,
     Timing,
-    atomic_write,
     clone_value,
     freeze_value,
-    valid_kept_boundary,
 )
+from pycode.kernel.adapters.file_lease import FileLease
+from pycode.kernel.adapters.path_io import atomic_write
 from pycode.session.adapters.storage.session_codec import (
     decode_entry,
     decode_header,
@@ -224,10 +224,13 @@ class JsonlSessionStore:
             self.load()
             self.acquire_writer()
             if draft.type == "input_queued":
+                queued_message = draft.message
+                if queued_message is None:
+                    raise StorageError("invalid_session_entry", "Queued input requires its message")
                 for previous in self._entries_by_id.values():
                     if previous.type not in {"input_queued", "message"}:
                         continue
-                    if previous.message.id != draft.message.id:
+                    if previous.require_message().id != queued_message.id:
                         continue
                     if previous.message != draft.message or (
                         previous.type == "input_queued"
@@ -246,7 +249,10 @@ class JsonlSessionStore:
                         "invalid_session_entry", "Message entry requires its completed message"
                     )
                 for previous in self._entries_by_id.values():
-                    if previous.type != "message" or previous.message.id != draft.message.id:
+                    if (
+                        previous.type != "message"
+                        or previous.require_message().id != draft.message.id
+                    ):
                         continue
                     if previous.message != draft.message:
                         raise StorageError(
@@ -282,7 +288,7 @@ class JsonlSessionStore:
             will_persist = (
                 self._persisted
                 or entry.type == "hook_call"
-                or (entry.type == "message" and entry.message.role == "user")
+                or (entry.type == "message" and entry.require_message().role == "user")
             )
             if will_persist:
                 self.repair_log()
@@ -321,7 +327,7 @@ class JsonlSessionStore:
             target = active.get(entry.data["target_id"])
             if target is None or (
                 target.type != "custom_message"
-                and not (target.type == "message" and target.message.role != "system")
+                and not (target.type == "message" and target.require_message().role != "system")
             ):
                 raise StorageError(
                     "invalid_context_target", "Context target is not editable on the active branch"

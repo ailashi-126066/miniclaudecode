@@ -1,0 +1,2113 @@
+{
+  "stage": "module assembly revision",
+  "module_count": 352,
+  "module_cycles": [],
+  "feature_cycles": [],
+  "module_edges": {
+    "pycode": [],
+    "pycode.__main__": [
+      "pycode.app.cli",
+      "pycode.kernel.adapters.timing"
+    ],
+    "pycode.agent": [
+      "pycode.agent.domain.turn_policy",
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context"
+    ],
+    "pycode.agent.adapters": [],
+    "pycode.agent.adapters.agent": [
+      "pycode.agent.adapters.bindings",
+      "pycode.agent.adapters.boundaries",
+      "pycode.agent.adapters.history",
+      "pycode.agent.adapters.state",
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context",
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.errors",
+      "pycode.tools",
+      "pycode.tools.domain.approvals"
+    ],
+    "pycode.agent.adapters.bindings": [
+      "pycode.agent.services.context",
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.ports.history",
+      "pycode.tools",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.agent.adapters.boundaries": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.agent.adapters.history": [
+      "pycode.agent.adapters.boundaries",
+      "pycode.agent.adapters.state",
+      "pycode.agent.domain.turn_policy",
+      "pycode.agent.services.context",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.agent.adapters.state": [],
+    "pycode.agent.domain": [],
+    "pycode.agent.domain.turn_policy": [],
+    "pycode.agent.module": [
+      "pycode.agent.adapters.agent",
+      "pycode.agent.adapters.bindings",
+      "pycode.agent.adapters.boundaries"
+    ],
+    "pycode.agent.ports": [
+      "pycode.agent.ports.runtime"
+    ],
+    "pycode.agent.ports.runtime": [
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.models",
+      "pycode.models.domain.models"
+    ],
+    "pycode.agent.services": [],
+    "pycode.agent.services.context": [
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.context",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction",
+      "pycode.hooks",
+      "pycode.hooks.services.hooks",
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.plans",
+      "pycode.plans.services.plans",
+      "pycode.tools",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.app": [],
+    "pycode.app.bootstrap": [
+      "pycode",
+      "pycode.app.composition.memory",
+      "pycode.app.composition.models",
+      "pycode.app.composition.modules",
+      "pycode.app.composition.runtime",
+      "pycode.app.composition.session",
+      "pycode.app.composition.team",
+      "pycode.app.composition.ui",
+      "pycode.app.config",
+      "pycode.kernel.adapters.timing",
+      "pycode.models",
+      "pycode.models.domain.models"
+    ],
+    "pycode.app.cli": [
+      "pycode.app.bootstrap",
+      "pycode.app.cli_commands",
+      "pycode.app.cli_parser",
+      "pycode.app.config",
+      "pycode.kernel",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.app.cli_commands": [
+      "pycode.app.bootstrap",
+      "pycode.app.config",
+      "pycode.kernel",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.session",
+      "pycode.session.domain.revert"
+    ],
+    "pycode.app.cli_parser": [
+      "pycode",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.subprocess_env"
+    ],
+    "pycode.app.composition": [],
+    "pycode.app.composition.context": [
+      "pycode.app.composition.modules",
+      "pycode.kernel.adapters.timing"
+    ],
+    "pycode.app.composition.memory": [
+      "pycode.app.composition.modules",
+      "pycode.kernel.adapters.timing"
+    ],
+    "pycode.app.composition.models": [
+      "pycode.app.composition.modules",
+      "pycode.kernel.adapters.timing"
+    ],
+    "pycode.app.composition.modules": [
+      "pycode.agent.module",
+      "pycode.app.config",
+      "pycode.context",
+      "pycode.context.module",
+      "pycode.context.ports.projection",
+      "pycode.hooks.module",
+      "pycode.kernel.adapters.timing",
+      "pycode.mcp",
+      "pycode.mcp.module",
+      "pycode.mcp.services.projection",
+      "pycode.memory.module",
+      "pycode.models.module",
+      "pycode.plans.module",
+      "pycode.sandbox.module",
+      "pycode.session.module",
+      "pycode.skills",
+      "pycode.skills.module",
+      "pycode.skills.services.projection",
+      "pycode.snapshot.module",
+      "pycode.team.module",
+      "pycode.tools.module",
+      "pycode.ui.module"
+    ],
+    "pycode.app.composition.runtime": [
+      "pycode.agent",
+      "pycode.agent.module",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context",
+      "pycode.app.composition.context",
+      "pycode.app.composition.modules",
+      "pycode.app.config",
+      "pycode.app.team_runtime",
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.tool_eviction",
+      "pycode.hooks",
+      "pycode.hooks.services.lifecycle",
+      "pycode.hooks.services.tool_bridge",
+      "pycode.kernel",
+      "pycode.kernel.adapters.event_journal",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.services.events",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.models.domain.selection",
+      "pycode.models.module",
+      "pycode.models.ports.models",
+      "pycode.session",
+      "pycode.session.domain.guards",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.input_queue",
+      "pycode.session.services.sessions",
+      "pycode.skills.module",
+      "pycode.tools.module"
+    ],
+    "pycode.app.composition.session": [
+      "pycode.app.composition.memory",
+      "pycode.app.composition.modules",
+      "pycode.app.composition.runtime",
+      "pycode.app.composition.team",
+      "pycode.app.config",
+      "pycode.app.runtime_launcher",
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.summaries",
+      "pycode.hooks",
+      "pycode.hooks.services.configuration",
+      "pycode.kernel",
+      "pycode.kernel.adapters.event_journal",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.mcp",
+      "pycode.mcp.module",
+      "pycode.mcp.services.configuration",
+      "pycode.models",
+      "pycode.models.services.usage",
+      "pycode.session",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.guards",
+      "pycode.session.domain.revert_state",
+      "pycode.session.services.agent_session",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.skills.module"
+    ],
+    "pycode.app.composition.team": [
+      "pycode.app.composition.modules",
+      "pycode.app.team_runtime",
+      "pycode.kernel",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.services.events",
+      "pycode.team",
+      "pycode.team.domain.team"
+    ],
+    "pycode.app.composition.ui": [
+      "pycode.app.composition.modules",
+      "pycode.app.composition.session",
+      "pycode.kernel.adapters.timing"
+    ],
+    "pycode.app.config": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.models.domain.network",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.tools",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.app.runtime_launcher": [
+      "pycode.app.config",
+      "pycode.context",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.summary",
+      "pycode.hooks",
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.tools",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.session",
+      "pycode.session.ports.history"
+    ],
+    "pycode.app.team_runtime": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.context": [
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.context_meter",
+      "pycode.context.domain.history_boundaries",
+      "pycode.context.domain.projection",
+      "pycode.context.domain.retention",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.token_estimate",
+      "pycode.context.domain.tool_eviction",
+      "pycode.context.ports.projection",
+      "pycode.context.ports.summaries",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.prompts",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction"
+    ],
+    "pycode.context.adapters": [],
+    "pycode.context.adapters.background": [],
+    "pycode.context.adapters.storage": [],
+    "pycode.context.adapters.storage.prompts": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.context.adapters.storage.summaries": [
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.adapters.summary": [
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.models",
+      "pycode.models.domain.requests",
+      "pycode.models.domain.tool_text"
+    ],
+    "pycode.context.domain": [],
+    "pycode.context.domain.compaction": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.models",
+      "pycode.models.domain.tool_text"
+    ],
+    "pycode.context.domain.context_budget": [],
+    "pycode.context.domain.context_meter": [
+      "pycode.context.domain.token_estimate",
+      "pycode.kernel",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.domain.history_boundaries": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.context.domain.projection": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.domain.retention": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.context.domain.summaries": [
+      "pycode.context.domain.context_budget",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.context.domain.summary_source": [
+      "pycode.context.domain.compaction",
+      "pycode.context.domain.history_boundaries",
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.domain.token_estimate": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.values",
+      "pycode.models",
+      "pycode.models.domain.tool_text"
+    ],
+    "pycode.context.domain.tool_eviction": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.models",
+      "pycode.models.domain.tool_text"
+    ],
+    "pycode.context.domain.tool_pairing": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.module": [
+      "pycode.context.adapters.background",
+      "pycode.context.adapters.storage.prompts",
+      "pycode.context.adapters.storage.summaries",
+      "pycode.context.adapters.summary",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.prompt_projection",
+      "pycode.context.services.prompts",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.context.ports": [],
+    "pycode.context.ports.projection": [
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.context.ports.summaries": [
+      "pycode.context.domain.summaries"
+    ],
+    "pycode.context.services": [],
+    "pycode.context.services.context_projector": [
+      "pycode.context.domain.retention",
+      "pycode.context.domain.tool_pairing",
+      "pycode.context.ports.projection",
+      "pycode.context.services.prompt_projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.services.prompt_projection": [
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.context.services.prompts": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree"
+    ],
+    "pycode.context.services.summary": [
+      "pycode.context.domain.context_meter",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.summary_source",
+      "pycode.context.ports.summaries",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history"
+    ],
+    "pycode.context.services.tool_eviction": [
+      "pycode.context.domain.token_estimate",
+      "pycode.context.domain.tool_eviction",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history"
+    ],
+    "pycode.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.hooks",
+      "pycode.hooks.ports.lifecycle",
+      "pycode.hooks.ports.runtime",
+      "pycode.hooks.services.configuration",
+      "pycode.hooks.services.hooks",
+      "pycode.hooks.services.lifecycle",
+      "pycode.hooks.services.tool_bridge"
+    ],
+    "pycode.hooks.adapters": [],
+    "pycode.hooks.adapters.actions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.process"
+    ],
+    "pycode.hooks.adapters.condition_worker": [],
+    "pycode.hooks.adapters.config": [
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.hooks.domain": [],
+    "pycode.hooks.domain.hooks": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.hooks.module": [
+      "pycode.hooks.adapters.actions",
+      "pycode.hooks.adapters.config",
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.hooks",
+      "pycode.hooks.ports.runtime",
+      "pycode.hooks.services.hooks",
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.process",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.hooks.ports": [],
+    "pycode.hooks.ports.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.hooks.ports.lifecycle": [
+      "pycode.hooks.domain.hooks"
+    ],
+    "pycode.hooks.ports.runtime": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.tools"
+    ],
+    "pycode.hooks.services": [],
+    "pycode.hooks.services.configuration": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.hooks.services.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.hooks",
+      "pycode.hooks.ports.runtime",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.hooks.services.lifecycle": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.lifecycle"
+    ],
+    "pycode.hooks.services.tool_bridge": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.services.hooks",
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.kernel": [
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.path_policy",
+      "pycode.kernel.domain.redaction",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.truncation",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.ports.tools",
+      "pycode.kernel.services.events"
+    ],
+    "pycode.kernel.adapters": [],
+    "pycode.kernel.adapters.event_journal": [
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.events",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.kernel.adapters.file_lease": [
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.kernel.adapters.path_io": [],
+    "pycode.kernel.adapters.timing": [],
+    "pycode.kernel.domain": [],
+    "pycode.kernel.domain.completion": [
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.kernel.domain.errors": [],
+    "pycode.kernel.domain.events": [],
+    "pycode.kernel.domain.hashing": [
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.kernel.domain.history": [
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity"
+    ],
+    "pycode.kernel.domain.history_tree": [
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.kernel.domain.messages": [
+      "pycode.kernel.domain.model_identity"
+    ],
+    "pycode.kernel.domain.model_identity": [],
+    "pycode.kernel.domain.path_policy": [],
+    "pycode.kernel.domain.redaction": [],
+    "pycode.kernel.domain.token_estimate": [],
+    "pycode.kernel.domain.tools": [],
+    "pycode.kernel.domain.truncation": [],
+    "pycode.kernel.domain.values": [],
+    "pycode.kernel.ports": [],
+    "pycode.kernel.ports.events": [
+      "pycode.kernel.domain.events"
+    ],
+    "pycode.kernel.ports.history": [
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.kernel.ports.timing": [],
+    "pycode.kernel.ports.tools": [
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.kernel.services": [],
+    "pycode.kernel.services.events": [
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.events",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events"
+    ],
+    "pycode.mcp": [
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.mcp",
+      "pycode.mcp.ports.schema",
+      "pycode.mcp.services.answers",
+      "pycode.mcp.services.configuration",
+      "pycode.mcp.services.mcp",
+      "pycode.mcp.services.mcp_bindings",
+      "pycode.mcp.services.projection"
+    ],
+    "pycode.mcp.adapters": [],
+    "pycode.mcp.adapters.config": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.mcp.adapters.connection": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.mcp.adapters.manager": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values",
+      "pycode.mcp.adapters.connection",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.schema"
+    ],
+    "pycode.mcp.adapters.native": [
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.mcp.adapters.tools": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.mcp.domain": [],
+    "pycode.mcp.domain.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.mcp.module": [
+      "pycode.kernel",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.mcp.adapters.config",
+      "pycode.mcp.adapters.manager",
+      "pycode.mcp.adapters.native",
+      "pycode.mcp.adapters.tools",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.services.answers",
+      "pycode.mcp.services.configuration",
+      "pycode.mcp.services.mcp",
+      "pycode.mcp.services.mcp_bindings",
+      "pycode.mcp.services.projection"
+    ],
+    "pycode.mcp.ports": [],
+    "pycode.mcp.ports.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.mcp.ports.schema": [],
+    "pycode.mcp.services": [],
+    "pycode.mcp.services.answers": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.ports.history",
+      "pycode.mcp.ports.schema"
+    ],
+    "pycode.mcp.services.configuration": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.mcp.services.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.mcp"
+    ],
+    "pycode.mcp.services.mcp_bindings": [],
+    "pycode.mcp.services.projection": [
+      "pycode.context",
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.memory": [
+      "pycode.memory.domain.namespaces",
+      "pycode.memory.ports.memory",
+      "pycode.memory.services.memory"
+    ],
+    "pycode.memory.adapters": [],
+    "pycode.memory.adapters.background": [
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.memory.adapters.memory_query",
+      "pycode.memory.adapters.memory_update"
+    ],
+    "pycode.memory.adapters.memory_query": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.memory.adapters.memory_tools": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.adapters.memory_update": [],
+    "pycode.memory.adapters.storage": [],
+    "pycode.memory.adapters.storage.json_memory": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.domain": [],
+    "pycode.memory.domain.memory": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.redaction",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.memory.domain.namespaces": [
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.module": [
+      "pycode.kernel",
+      "pycode.kernel.ports.timing",
+      "pycode.memory.adapters.background",
+      "pycode.memory.adapters.memory_tools",
+      "pycode.memory.adapters.storage.json_memory",
+      "pycode.memory.domain.namespaces",
+      "pycode.memory.services.memory",
+      "pycode.memory.services.projection",
+      "pycode.models",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.memory.ports": [],
+    "pycode.memory.ports.memory": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.services": [],
+    "pycode.memory.services.memory": [
+      "pycode.context",
+      "pycode.context.domain.retention",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.memory.domain.memory",
+      "pycode.memory.ports.memory"
+    ],
+    "pycode.memory.services.projection": [
+      "pycode.context",
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.models": [
+      "pycode.models.domain.models",
+      "pycode.models.domain.network",
+      "pycode.models.domain.requests",
+      "pycode.models.domain.selection",
+      "pycode.models.domain.tool_text",
+      "pycode.models.ports.context",
+      "pycode.models.ports.models",
+      "pycode.models.services.model_catalog",
+      "pycode.models.services.model_control",
+      "pycode.models.services.usage"
+    ],
+    "pycode.models.adapters": [],
+    "pycode.models.adapters.anthropic": [],
+    "pycode.models.adapters.calibration": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.tools",
+      "pycode.models.ports.context"
+    ],
+    "pycode.models.adapters.directory": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.model_identity",
+      "pycode.models.domain.models",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.adapters.factory": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.model_identity",
+      "pycode.models.adapters.anthropic",
+      "pycode.models.adapters.observation",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.failures": [
+      "pycode.kernel",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.timing",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.adapters.messages": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values",
+      "pycode.models.domain.tool_text"
+    ],
+    "pycode.models.adapters.metered_model": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.values",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.model_requests"
+    ],
+    "pycode.models.adapters.model_fallback": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.model_requests": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.timing",
+      "pycode.models.adapters.messages",
+      "pycode.models.domain.requests",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.adapters.observation": [
+      "pycode.kernel",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.models.adapters.storage": [],
+    "pycode.models.adapters.storage.catalog": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.storage.requests": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.adapters.tool_selection": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.models.domain": [],
+    "pycode.models.domain.models": [
+      "pycode.kernel",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.models.domain.network": [],
+    "pycode.models.domain.requests": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.models.domain.selection": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.domain.tool_text": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.truncation"
+    ],
+    "pycode.models.domain.usage": [
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.module": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.event_journal",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.services.events",
+      "pycode.models.adapters.calibration",
+      "pycode.models.adapters.directory",
+      "pycode.models.adapters.factory",
+      "pycode.models.adapters.failures",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.metered_model",
+      "pycode.models.adapters.model_fallback",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.adapters.observation",
+      "pycode.models.adapters.storage.catalog",
+      "pycode.models.adapters.storage.requests",
+      "pycode.models.adapters.tool_selection",
+      "pycode.models.domain.models",
+      "pycode.models.domain.requests",
+      "pycode.models.ports.context",
+      "pycode.models.services.model_catalog",
+      "pycode.models.services.model_control"
+    ],
+    "pycode.models.ports": [],
+    "pycode.models.ports.context": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.history"
+    ],
+    "pycode.models.ports.models": [
+      "pycode.models.domain.models",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.services": [],
+    "pycode.models.services.model_catalog": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.timing",
+      "pycode.models.domain.models",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.services.model_control": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.models.domain.models",
+      "pycode.models.ports.context",
+      "pycode.models.services.model_catalog"
+    ],
+    "pycode.models.services.usage": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.history",
+      "pycode.models.domain.usage",
+      "pycode.models.ports.context",
+      "pycode.models.ports.models"
+    ],
+    "pycode.plans": [
+      "pycode.plans.ports.plans",
+      "pycode.plans.services.plans"
+    ],
+    "pycode.plans.adapters": [],
+    "pycode.plans.adapters.plans": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.plans.adapters.storage": [],
+    "pycode.plans.adapters.storage.plans": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.plans.domain.plans"
+    ],
+    "pycode.plans.adapters.tools": [],
+    "pycode.plans.adapters.tools.plans": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.plans.domain": [],
+    "pycode.plans.domain.plans": [],
+    "pycode.plans.module": [
+      "pycode.kernel",
+      "pycode.kernel.ports.history",
+      "pycode.kernel.ports.tools",
+      "pycode.plans.adapters.plans",
+      "pycode.plans.adapters.storage.plans",
+      "pycode.plans.adapters.tools.plans",
+      "pycode.plans.ports.plans",
+      "pycode.plans.services.plans",
+      "pycode.plans.services.projection"
+    ],
+    "pycode.plans.ports": [],
+    "pycode.plans.ports.plans": [
+      "pycode.plans.domain.plans"
+    ],
+    "pycode.plans.services": [],
+    "pycode.plans.services.plans": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.plans.domain.plans",
+      "pycode.plans.ports.plans"
+    ],
+    "pycode.plans.services.projection": [
+      "pycode.context",
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.sandbox": [
+      "pycode.sandbox.domain.command_policy",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.process",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.sandbox.adapters": [],
+    "pycode.sandbox.adapters.seatbelt": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.sandbox.adapters.tools": [],
+    "pycode.sandbox.adapters.tools.bash": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.sandbox.adapters.tools.process_runner": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.sandbox.adapters.tools.windows_job"
+    ],
+    "pycode.sandbox.adapters.tools.windows_job": [],
+    "pycode.sandbox.domain": [],
+    "pycode.sandbox.domain.command_policy": [],
+    "pycode.sandbox.domain.sandbox": [],
+    "pycode.sandbox.domain.subprocess_env": [
+      "pycode.kernel",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.sandbox.module": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.tools",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.sandbox.adapters.tools.bash",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.sandbox.ports": [],
+    "pycode.sandbox.ports.output": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.truncation"
+    ],
+    "pycode.sandbox.ports.process": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.sandbox.ports.output"
+    ],
+    "pycode.sandbox.ports.sandbox": [
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.session": [
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.guards",
+      "pycode.session.domain.revert",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.session.ports.runtime",
+      "pycode.session.ports.sessions",
+      "pycode.session.ports.storage",
+      "pycode.session.ports.workspace",
+      "pycode.session.services.agent_session",
+      "pycode.session.services.application",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.input_queue",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.session.services.sessions",
+      "pycode.session.services.storage_gc"
+    ],
+    "pycode.session.adapters": [],
+    "pycode.session.adapters.storage": [],
+    "pycode.session.adapters.storage.header_reader": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.session.adapters.storage.session_codec"
+    ],
+    "pycode.session.adapters.storage.history_backend": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.truncation",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.session.adapters.storage.layout": [],
+    "pycode.session.adapters.storage.objects": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.session_codec",
+      "pycode.session.domain.storage"
+    ],
+    "pycode.session.adapters.storage.session": [
+      "pycode.context",
+      "pycode.context.domain.history_boundaries",
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.timing",
+      "pycode.session.adapters.storage.session_codec",
+      "pycode.session.domain.execution_recovery"
+    ],
+    "pycode.session.adapters.storage.session_codec": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.session.adapters.storage.session_repository": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.ports.timing",
+      "pycode.session.adapters.storage.session",
+      "pycode.session.adapters.storage.session_codec"
+    ],
+    "pycode.session.adapters.storage.workspace": [
+      "pycode.session.domain.workspace"
+    ],
+    "pycode.session.domain": [],
+    "pycode.session.domain.execution_recovery": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history_tree"
+    ],
+    "pycode.session.domain.guards": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.revert_state"
+    ],
+    "pycode.session.domain.inputs": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree"
+    ],
+    "pycode.session.domain.revert": [
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.session.domain.revert_state": [
+      "pycode.session.domain.revert",
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.session.domain.session_names": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.session.domain.storage": [],
+    "pycode.session.domain.workspace": [],
+    "pycode.session.module": [
+      "pycode.kernel",
+      "pycode.kernel.ports.timing",
+      "pycode.session.adapters.storage.header_reader",
+      "pycode.session.adapters.storage.history_backend",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.objects",
+      "pycode.session.adapters.storage.session_repository",
+      "pycode.session.adapters.storage.workspace",
+      "pycode.session.services.application",
+      "pycode.session.services.ownership",
+      "pycode.session.services.sessions",
+      "pycode.session.services.storage_gc"
+    ],
+    "pycode.session.ports": [],
+    "pycode.session.ports.history": [
+      "pycode.kernel",
+      "pycode.kernel.ports.history"
+    ],
+    "pycode.session.ports.runtime": [
+      "pycode.context",
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.messages",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.session.ports.history",
+      "pycode.tools",
+      "pycode.tools.ports.outputs"
+    ],
+    "pycode.session.ports.sessions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.session.ports.history"
+    ],
+    "pycode.session.ports.storage": [
+      "pycode.session.domain.storage"
+    ],
+    "pycode.session.ports.workspace": [
+      "pycode.session.domain.workspace"
+    ],
+    "pycode.session.services": [],
+    "pycode.session.services.agent_session": [
+      "pycode.context",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.models.services.model_control",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.inputs",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.session.ports.runtime",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.ownership",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.session.services.sessions",
+      "pycode.skills",
+      "pycode.skills.services.skills",
+      "pycode.team",
+      "pycode.team.domain.team"
+    ],
+    "pycode.session.services.application": [
+      "pycode.session.domain.workspace",
+      "pycode.session.ports.workspace"
+    ],
+    "pycode.session.services.durable_inputs": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.session.domain.inputs",
+      "pycode.session.ports.history",
+      "pycode.session.services.input_queue"
+    ],
+    "pycode.session.services.input_queue": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.session.domain.inputs"
+    ],
+    "pycode.session.services.ownership": [],
+    "pycode.session.services.restart": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.session.domain.inputs"
+    ],
+    "pycode.session.services.revert": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.session.domain.revert",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.snapshot",
+      "pycode.snapshot.ports.snapshots"
+    ],
+    "pycode.session.services.session_view": [
+      "pycode.context",
+      "pycode.context.domain.context_meter",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.services.events",
+      "pycode.models",
+      "pycode.models.services.usage",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.revert_state",
+      "pycode.session.domain.session_names",
+      "pycode.session.ports.history",
+      "pycode.session.services.ownership"
+    ],
+    "pycode.session.services.sessions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.values",
+      "pycode.session.domain.session_names",
+      "pycode.session.ports.sessions"
+    ],
+    "pycode.session.services.storage_gc": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.session.domain.storage",
+      "pycode.session.ports.storage"
+    ],
+    "pycode.skills": [
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard",
+      "pycode.skills.ports.sandbox",
+      "pycode.skills.ports.skills",
+      "pycode.skills.services.projection",
+      "pycode.skills.services.scope",
+      "pycode.skills.services.skill_resources",
+      "pycode.skills.services.skills"
+    ],
+    "pycode.skills.adapters": [],
+    "pycode.skills.adapters.backend": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.skills.adapters.catalog": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.skills.adapters.parser",
+      "pycode.skills.adapters.resources",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard"
+    ],
+    "pycode.skills.adapters.extension": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.skills.adapters.skills"
+    ],
+    "pycode.skills.adapters.fork": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree"
+    ],
+    "pycode.skills.adapters.github_source": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.skills.adapters.install": [
+      "pycode",
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.github_source",
+      "pycode.skills.adapters.parser"
+    ],
+    "pycode.skills.adapters.parser": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.adapters.python_tool": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.process",
+      "pycode.skills.adapters.workspace_path",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.sandbox"
+    ],
+    "pycode.skills.adapters.python_worker": [
+      "pycode.kernel",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.skills.adapters.resources": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.skills.ports.guard"
+    ],
+    "pycode.skills.adapters.skills": [],
+    "pycode.skills.adapters.tools": [],
+    "pycode.skills.adapters.tools.skills": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.skills.adapters.workspace_path": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.path_policy"
+    ],
+    "pycode.skills.domain": [],
+    "pycode.skills.domain.skill_selection": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.skills.domain.skills": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.skills.module": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.skills.adapters.backend",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.extension",
+      "pycode.skills.adapters.fork",
+      "pycode.skills.adapters.install",
+      "pycode.skills.adapters.python_tool",
+      "pycode.skills.adapters.tools.skills",
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.domain.skills",
+      "pycode.skills.services.projection",
+      "pycode.skills.services.scope",
+      "pycode.skills.services.skill_resources",
+      "pycode.skills.services.skills"
+    ],
+    "pycode.skills.ports": [],
+    "pycode.skills.ports.guard": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history"
+    ],
+    "pycode.skills.ports.sandbox": [
+      "pycode.sandbox",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.skills.ports.skills": [
+      "pycode.kernel",
+      "pycode.kernel.ports.tools",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.services": [],
+    "pycode.skills.services.projection": [
+      "pycode.context",
+      "pycode.context.domain.projection",
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.services.scope": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.services.skill_resources": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.values",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.skills.services.skills": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.token_estimate",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.history",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.snapshot": [
+      "pycode.snapshot.domain.snapshots",
+      "pycode.snapshot.ports.snapshots"
+    ],
+    "pycode.snapshot.adapters": [],
+    "pycode.snapshot.adapters.git_tree": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.snapshot.domain": [],
+    "pycode.snapshot.domain.snapshots": [],
+    "pycode.snapshot.module": [
+      "pycode.snapshot.adapters.git_tree"
+    ],
+    "pycode.snapshot.ports": [],
+    "pycode.snapshot.ports.snapshots": [
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.team": [
+      "pycode.team.domain.team",
+      "pycode.team.ports.team",
+      "pycode.team.services.team",
+      "pycode.team.services.team_tasks"
+    ],
+    "pycode.team.adapters": [],
+    "pycode.team.adapters.team_tools": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.team.adapters.worktrees": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.file_lease",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.team.domain": [],
+    "pycode.team.domain.team": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.team.module": [
+      "pycode.team.adapters.team_tools",
+      "pycode.team.adapters.worktrees",
+      "pycode.team.services.team"
+    ],
+    "pycode.team.ports": [],
+    "pycode.team.ports.team": [
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.messages",
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.team.services": [],
+    "pycode.team.services.team": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.team.domain.team",
+      "pycode.team.services.team_inbox",
+      "pycode.team.services.team_tasks",
+      "pycode.tools",
+      "pycode.tools.domain.approvals"
+    ],
+    "pycode.team.services.team_inbox": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.team.domain.team"
+    ],
+    "pycode.team.services.team_tasks": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.team.domain.team"
+    ],
+    "pycode.tools": [
+      "pycode.tools.domain.approvals",
+      "pycode.tools.domain.questions",
+      "pycode.tools.domain.tool_failures",
+      "pycode.tools.ports.dispatch",
+      "pycode.tools.ports.extensions",
+      "pycode.tools.ports.hooks",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.ports.publication",
+      "pycode.tools.ports.questions",
+      "pycode.tools.ports.tools",
+      "pycode.tools.services.hook_gate",
+      "pycode.tools.services.permissions",
+      "pycode.tools.services.plan_gate",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.tools.adapters": [],
+    "pycode.tools.adapters.artifacts_backend": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.truncation",
+      "pycode.tools.adapters.output_store"
+    ],
+    "pycode.tools.adapters.ask_user": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.tools.domain.questions",
+      "pycode.tools.ports.questions"
+    ],
+    "pycode.tools.adapters.backend": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.path_policy",
+      "pycode.kernel.domain.truncation",
+      "pycode.tools.adapters.read_range",
+      "pycode.tools.adapters.rg_stream"
+    ],
+    "pycode.tools.adapters.framework_tool": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.tools.adapters.output_store": [
+      "pycode.kernel",
+      "pycode.kernel.adapters.path_io",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.history_tree",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.truncation",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.history",
+      "pycode.tools.adapters.read_range",
+      "pycode.tools.domain.outputs",
+      "pycode.tools.ports.outputs"
+    ],
+    "pycode.tools.adapters.permissions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.command_policy",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.ports.sandbox",
+      "pycode.tools.domain.operations"
+    ],
+    "pycode.tools.adapters.questions": [],
+    "pycode.tools.adapters.read_range": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.tools.domain.outputs"
+    ],
+    "pycode.tools.adapters.read_tool_result": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.truncation",
+      "pycode.kernel.domain.values",
+      "pycode.tools.ports.outputs"
+    ],
+    "pycode.tools.adapters.rg_stream": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.truncation"
+    ],
+    "pycode.tools.adapters.schema": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.tools.adapters.settlement": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.hashing",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.events",
+      "pycode.plans",
+      "pycode.plans.services.plans",
+      "pycode.tools",
+      "pycode.tools.adapters.framework_tool",
+      "pycode.tools.adapters.state",
+      "pycode.tools.domain.execution",
+      "pycode.tools.domain.tool_failures",
+      "pycode.tools.ports.extensions",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.ports.publication",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.tools.adapters.state": [],
+    "pycode.tools.adapters.tool_errors": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.tools.domain.tool_failures"
+    ],
+    "pycode.tools.domain": [],
+    "pycode.tools.domain.approvals": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.tools.domain.questions"
+    ],
+    "pycode.tools.domain.execution": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.tools.domain.operations": [
+      "pycode.kernel",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.tools.domain.outputs": [
+      "pycode.kernel",
+      "pycode.kernel.domain.truncation"
+    ],
+    "pycode.tools.domain.questions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.tools.domain.tool_failures": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.redaction"
+    ],
+    "pycode.tools.domain.turn_guard": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.tools.module": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.model_identity",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.history",
+      "pycode.kernel.ports.tools",
+      "pycode.plans",
+      "pycode.plans.services.plans",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.ports.sandbox",
+      "pycode.snapshot",
+      "pycode.snapshot.ports.snapshots",
+      "pycode.tools.adapters.artifacts_backend",
+      "pycode.tools.adapters.ask_user",
+      "pycode.tools.adapters.backend",
+      "pycode.tools.adapters.framework_tool",
+      "pycode.tools.adapters.output_store",
+      "pycode.tools.adapters.permissions",
+      "pycode.tools.adapters.questions",
+      "pycode.tools.adapters.read_tool_result",
+      "pycode.tools.adapters.schema",
+      "pycode.tools.adapters.settlement",
+      "pycode.tools.adapters.tool_errors",
+      "pycode.tools.ports.extensions",
+      "pycode.tools.ports.hooks",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.ports.publication",
+      "pycode.tools.ports.questions",
+      "pycode.tools.ports.tools",
+      "pycode.tools.services.hook_gate",
+      "pycode.tools.services.permissions",
+      "pycode.tools.services.plan_gate",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.tools.ports": [],
+    "pycode.tools.ports.dispatch": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.tools.ports.extensions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.ports.tools"
+    ],
+    "pycode.tools.ports.hooks": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.tools.ports.outputs": [
+      "pycode.kernel",
+      "pycode.kernel.domain.history",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.truncation",
+      "pycode.tools.domain.outputs"
+    ],
+    "pycode.tools.ports.publication": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages"
+    ],
+    "pycode.tools.ports.questions": [],
+    "pycode.tools.ports.tools": [
+      "pycode.kernel",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.tools.services": [],
+    "pycode.tools.services.hook_gate": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.tools.services.permissions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.tools"
+    ],
+    "pycode.tools.services.plan_gate": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.command_policy"
+    ],
+    "pycode.tools.services.tool_executor": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.tools.domain.tool_failures",
+      "pycode.tools.domain.turn_guard",
+      "pycode.tools.ports.hooks",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.tools.services.tool_registry": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values",
+      "pycode.kernel.ports.tools",
+      "pycode.tools.ports.dispatch",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.ui": [
+      "pycode.ui.ports.ui"
+    ],
+    "pycode.ui.adapters": [],
+    "pycode.ui.adapters.agents": [],
+    "pycode.ui.adapters.approval": [],
+    "pycode.ui.adapters.chat_input": [
+      "pycode.ui.adapters.commands",
+      "pycode.ui.adapters.completion"
+    ],
+    "pycode.ui.adapters.commands": [],
+    "pycode.ui.adapters.completion": [],
+    "pycode.ui.adapters.console": [
+      "pycode.kernel",
+      "pycode.kernel.domain.values"
+    ],
+    "pycode.ui.adapters.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.mcp",
+      "pycode.mcp.services.answers"
+    ],
+    "pycode.ui.adapters.memory": [],
+    "pycode.ui.adapters.plans": [],
+    "pycode.ui.adapters.questions": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.tools",
+      "pycode.tools.domain.questions"
+    ],
+    "pycode.ui.adapters.recovery": [],
+    "pycode.ui.adapters.theme": [],
+    "pycode.ui.adapters.tool_output": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
+    "pycode.ui.adapters.tui": [
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.messages",
+      "pycode.kernel.domain.values",
+      "pycode.ui.adapters.agents",
+      "pycode.ui.adapters.approval",
+      "pycode.ui.adapters.chat_input",
+      "pycode.ui.adapters.commands",
+      "pycode.ui.adapters.completion",
+      "pycode.ui.adapters.mcp",
+      "pycode.ui.adapters.memory",
+      "pycode.ui.adapters.plans",
+      "pycode.ui.adapters.questions",
+      "pycode.ui.adapters.recovery",
+      "pycode.ui.adapters.theme",
+      "pycode.ui.adapters.tool_output",
+      "pycode.ui.adapters.usage",
+      "pycode.ui.ports.ui"
+    ],
+    "pycode.ui.adapters.usage": [],
+    "pycode.ui.module": [
+      "pycode.ui.adapters.console",
+      "pycode.ui.adapters.tui",
+      "pycode.ui.ports.ui"
+    ],
+    "pycode.ui.ports": [],
+    "pycode.ui.ports.ui": [
+      "pycode.kernel",
+      "pycode.kernel.domain.completion",
+      "pycode.kernel.domain.messages"
+    ]
+  },
+  "feature_edges": {
+    "app": [
+      "agent",
+      "context",
+      "hooks",
+      "kernel",
+      "mcp",
+      "memory",
+      "models",
+      "plans",
+      "sandbox",
+      "session",
+      "skills",
+      "snapshot",
+      "team",
+      "tools",
+      "ui"
+    ],
+    "agent": [
+      "context",
+      "hooks",
+      "kernel",
+      "models",
+      "plans",
+      "tools"
+    ],
+    "context": [
+      "kernel",
+      "models"
+    ],
+    "hooks": [
+      "kernel",
+      "sandbox"
+    ],
+    "mcp": [
+      "context",
+      "kernel"
+    ],
+    "memory": [
+      "context",
+      "kernel",
+      "models"
+    ],
+    "models": [
+      "kernel"
+    ],
+    "plans": [
+      "context",
+      "kernel"
+    ],
+    "sandbox": [
+      "kernel"
+    ],
+    "session": [
+      "context",
+      "kernel",
+      "models",
+      "skills",
+      "snapshot",
+      "team",
+      "tools"
+    ],
+    "skills": [
+      "context",
+      "kernel",
+      "sandbox"
+    ],
+    "snapshot": [
+      "kernel"
+    ],
+    "team": [
+      "kernel",
+      "snapshot",
+      "tools"
+    ],
+    "tools": [
+      "kernel",
+      "plans",
+      "sandbox",
+      "snapshot"
+    ],
+    "ui": [
+      "kernel",
+      "mcp",
+      "tools"
+    ]
+  },
+  "source_sha256": "d653c33aaa1c4381f168028ec5feea2cb88584be75799f74794746b428929124"
+}

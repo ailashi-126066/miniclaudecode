@@ -1,6 +1,7 @@
 # 阶段四设计：按功能组织源码
 
-状态：已按独立审查通过的设计完成实施，等待最终静态证据与代码终审。基线为阶段三后的 `main@ac40d4f`（阶段三源码 `f21db32`），原 195 个源码模块；最终模块清单与 C01–C18 对照见 `implementation-audit.md`。
+状态：首轮目录迁移设计，已在 `d740c16` 实施；用户指出装配与模块解耦不足后，
+由 [模块装配修订](module-assembly.md) 补充并覆盖最终装配边界。以下保留首轮迁移依据。基线为阶段三后的 `main@ac40d4f`（阶段三源码 `f21db32`），原 195 个源码模块；最终模块清单与 C01–C18 对照见 `implementation-audit.md`。
 实施规范为仓库根目录《五阶段改造计划.md》。本设计不改变任何用户行为。
 
 ## 目标与迁移边界
@@ -10,7 +11,7 @@
 `ui` 和 `app`。删除旧的 `core`、`ports`、`services`、`workflows`、
 `adapters` 顶层包；不保留旧导入路径的兼容外壳。
 
-`resources` 仍是发行资源，不作为代码层。`evals`、`scripts`、`archive` 仍在产品包外。
+发行资源随所属功能分布于 `skills/resources`、`context/resources`，不作为代码层。`evals`、`scripts`、`archive` 仍在产品包外。
 生产、测试、评测和开发脚本的导入及字符串模块名一并迁移；历史 archive 不改。
 `__main__`、console script、Python Skill worker 的模块启动路径同时核对。
 

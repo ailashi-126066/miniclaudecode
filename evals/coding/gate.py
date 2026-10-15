@@ -2,7 +2,7 @@
 
 import shlex
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 
 
 class EvaluationToolGate:

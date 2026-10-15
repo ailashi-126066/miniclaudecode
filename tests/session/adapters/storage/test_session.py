@@ -5,9 +5,9 @@ import pytest
 
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel import ModelSelection
-from pycode.kernel.contracts.history import EntryDraft, SessionHeader
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import StorageError
+from pycode.kernel.domain.errors import StorageError
+from pycode.kernel.domain.history import EntryDraft, SessionHeader
+from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from tests.support.requests import TestTiming
 
@@ -221,7 +221,7 @@ async def test_identical_duplicate_is_read_once_but_conflict_is_rejected(tmp_pat
 
 
 async def test_compaction_cannot_split_tool_call_and_result(tmp_path):
-    from pycode.kernel.contracts.messages import ToolCall, ToolResult
+    from pycode.kernel.domain.messages import ToolCall, ToolResult
 
     store = open_store(tmp_path)
     await store.append_message(Message("u1", "user", "task"))

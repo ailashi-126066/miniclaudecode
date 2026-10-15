@@ -3,22 +3,24 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.composition import build_skills
 from pycode.app.config import AppConfig
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.history import EntryDraft
-from pycode.kernel.contracts.messages import Message, ToolCall
-from pycode.kernel.contracts.tools import ToolSpec
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.history import EntryDraft
+from pycode.kernel.domain.messages import Message, ToolCall
+from pycode.kernel.domain.tools import ToolSpec
+from pycode.sandbox.module import SandboxModule
 from pycode.session import SessionCatalogWriteGuard
+from pycode.skills import SkillsProjection, SkillsScopeConstraint
 from pycode.skills.adapters.backend import SkillBackend
 from pycode.skills.adapters.catalog import FileSkillCatalog
 from pycode.skills.adapters.install import GitHubSkillInstaller
 from pycode.skills.domain.skills import active_skills
+from pycode.skills.module import SkillsModule, SkillsSettings
 from pycode.skills.services.skills import SkillService
 from pycode.tools.adapters.backend import PycodeBackend
 from pycode.tools.adapters.schema import JsonSchemaValidator
-from pycode.tools.services.skill_gate import SkillToolGate
+from pycode.tools.module import ToolsModule
 from tests.models.services.test_model_control import store_for
 from tests.skills.adapters.test_install import URL, download_transport
 from tests.support.skill_loading import read_skill
@@ -110,7 +112,7 @@ async def test_install_refreshes_catalog_but_never_activates_downloaded_skill(tm
         report = await service.install(URL)
         assert report["skill_name"] == "vendor-sample"
         assert (await service.search("sample"))[0]["name"] == "vendor-sample"
-        projection = ContextProjector().project(await store.snapshot())
+        projection = ContextProjector((SkillsProjection(),)).project(await store.snapshot())
         assert not any(message.text == "Sample SOP" for message in projection.messages)
         assert not active_skills((await store.snapshot()).entries)
         loaded = await read_skill(
@@ -145,7 +147,7 @@ async def test_exact_snapshot_survives_disk_change_restart_and_explicit_reload(t
     )
     try:
         assert (await service.index())["entries"][0]["content_hash"] == original["content_hash"]
-        projected = ContextProjector().project(await restored.snapshot())
+        projected = ContextProjector((SkillsProjection(),)).project(await restored.snapshot())
         assert any(content(message) == original["text"] for message in projected.messages)
         assert not any(
             message.text.startswith("New instructions") for message in projected.messages
@@ -154,7 +156,7 @@ async def test_exact_snapshot_survives_disk_change_restart_and_explicit_reload(t
         updated = await read_skill(restored, catalog, "example")
         assert "New instructions $ARGUMENTS" in updated["text"]
         assert updated["content_hash"] != original["content_hash"]
-        projected = ContextProjector().project(await restored.snapshot())
+        projected = ContextProjector((SkillsProjection(),)).project(await restored.snapshot())
         assert sum(content(message) == updated["text"] for message in projected.messages) == 1
         assert any(content(message) == original["text"] for message in projected.messages)
         assert (
@@ -176,7 +178,7 @@ async def test_branch_and_compaction_preserve_only_current_activations(tmp_path)
         )
         await store.append_message(Message("u2", "user", "Keep this"))
         kept = (await store.snapshot()).leaf_id
-        projected = ContextProjector().project(await store.snapshot())
+        projected = ContextProjector((SkillsProjection(),)).project(await store.snapshot())
         await store.append_entry(
             EntryDraft(
                 "compaction",
@@ -195,10 +197,10 @@ async def test_branch_and_compaction_preserve_only_current_activations(tmp_path)
         )
         # Keep the full tree for parent integrity; projection excludes the old entry itself.
         assert active_skills(reduced.entries)[0]["content_hash"] == loaded["content_hash"]
-        projection = ContextProjector().project(snapshot)
+        projection = ContextProjector((SkillsProjection(),)).project(snapshot)
         assert sum(content(message) == loaded["text"] for message in projection.messages) == 1
         await store.branch(before)
-        projection = ContextProjector().project(await store.snapshot())
+        projection = ContextProjector((SkillsProjection(),)).project(await store.snapshot())
         assert "skills" not in projection.checkpoint
         assert not any(message.text == loaded["text"] for message in projection.messages)
     finally:
@@ -222,7 +224,7 @@ async def test_resources_are_on_demand_and_scope_rejects_escape(tmp_path):
             FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator()),
             "example",
         )
-        projection = ContextProjector().project(await store.snapshot())
+        projection = ContextProjector((SkillsProjection(),)).project(await store.snapshot())
         assert not any("Resource only" in message.text for message in projection.messages)
         result = await backend.aread("/example/references/note.txt")
         assert result.error is None and "Resource only" in result.file_data["content"]
@@ -248,7 +250,7 @@ async def test_allowed_tools_intersect_and_cannot_bypass_parent_gate(tmp_path):
     await write_skill(path.parent.parent, "second", allowed="Read, Bash")
     await service.refresh()
     parent = ParentGate()
-    gate = SkillToolGate(store, parent)
+    gate = ToolsModule.gate(None, None, custom=parent, scope=SkillsScopeConstraint(store))
     try:
         catalog = FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator())
         await read_skill(store, catalog, "second")
@@ -269,15 +271,30 @@ async def test_allowed_tools_intersect_and_cannot_bypass_parent_gate(tmp_path):
         await store.aclose()
 
 
+def configured_skill_service(config, store):
+    module = SkillsModule(
+        schema=JsonSchemaValidator(),
+        process_runner=SandboxModule.process_runner,
+        backend_factory=ToolsModule.backend,
+        skill_read_grant=SandboxModule.skill_read_grant,
+    )
+    settings = SkillsSettings(
+        config.workspace, config.user_data, config.project_trusted, config.skill_index_budget
+    )
+    return module.open_session(
+        settings, store, catalog_write_guard=SessionCatalogWriteGuard()
+    ).service
+
+
 async def test_project_sources_require_explicit_trust_and_fork_does_not_activate(tmp_path):
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     await write_skill(config.workspace / ".agents/skills", "private")
     store = store_for(tmp_path)
     await store.append_message(Message("u1", "user", "task"))
     try:
-        service = build_skills(config, store)
+        service = configured_skill_service(config, store)
         assert not any(item["name"] == "private" for item in (await service.index())["entries"])
-        trusted = build_skills(replace(config, project_trusted=True), store)
+        trusted = configured_skill_service(replace(config, project_trusted=True), store)
         await trusted.refresh()
         requested = await trusted.request("private")
         assert requested["path"].startswith("/skills/project-agents/")

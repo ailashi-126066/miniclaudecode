@@ -2,6 +2,7 @@
 
 import ctypes
 from ctypes import wintypes
+from typing import Protocol, cast
 
 
 class BasicLimits(ctypes.Structure):
@@ -52,9 +53,39 @@ class ThreadEntry(ctypes.Structure):
     ]
 
 
+class WindowsFunction(Protocol):
+    argtypes: list[object]
+    restype: object
+
+    def __call__(self, *arguments: object) -> int | None: ...
+
+
+class Kernel32(Protocol):
+    CreateJobObjectW: WindowsFunction
+    SetInformationJobObject: WindowsFunction
+    OpenProcess: WindowsFunction
+    AssignProcessToJobObject: WindowsFunction
+    CloseHandle: WindowsFunction
+    CreateToolhelp32Snapshot: WindowsFunction
+    Thread32First: WindowsFunction
+    Thread32Next: WindowsFunction
+    OpenThread: WindowsFunction
+    ResumeThread: WindowsFunction
+
+
+class WindowsCtypes(Protocol):
+    # ctypes exposes these functions only on Windows; this module also imports on POSIX.
+    def WinDLL(self, name: str, *, use_last_error: bool) -> Kernel32: ...
+    def WinError(self, code: int) -> OSError: ...
+    def get_last_error(self) -> int: ...
+
+
+WINDOWS_CTYPES = cast(WindowsCtypes, ctypes)
+
+
 class WindowsJob:
     def __init__(self) -> None:
-        self._kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._kernel = WINDOWS_CTYPES.WinDLL("kernel32", use_last_error=True)
         self._kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         self._kernel.CreateJobObjectW.restype = wintypes.HANDLE
         self._kernel.SetInformationJobObject.argtypes = [
@@ -82,27 +113,27 @@ class WindowsJob:
         self._kernel.ResumeThread.restype = wintypes.DWORD
         self._handle = self._kernel.CreateJobObjectW(None, None)
         if not self._handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
         limits = ExtendedLimits()
         limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not self._kernel.SetInformationJobObject(
             self._handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)
         ):
             self.close()
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
 
     def attach_and_resume(self, pid: int) -> None:
         process = self._kernel.OpenProcess(0x0100 | 0x0001, False, pid)
         if not process:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
         try:
             if not self._kernel.AssignProcessToJobObject(self._handle, process):
-                raise ctypes.WinError(ctypes.get_last_error())
+                raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
         finally:
             self._kernel.CloseHandle(process)
         snapshot = self._kernel.CreateToolhelp32Snapshot(0x00000004, 0)
         if snapshot == ctypes.c_void_p(-1).value:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
         resumed = False
         try:
             entry = ThreadEntry()
@@ -112,10 +143,10 @@ class WindowsJob:
                 if entry.owner_pid == pid:
                     thread = self._kernel.OpenThread(0x0002, False, entry.thread_id)
                     if not thread:
-                        raise ctypes.WinError(ctypes.get_last_error())
+                        raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
                     try:
                         if self._kernel.ResumeThread(thread) == 0xFFFFFFFF:
-                            raise ctypes.WinError(ctypes.get_last_error())
+                            raise WINDOWS_CTYPES.WinError(WINDOWS_CTYPES.get_last_error())
                         resumed = True
                     finally:
                         self._kernel.CloseHandle(thread)

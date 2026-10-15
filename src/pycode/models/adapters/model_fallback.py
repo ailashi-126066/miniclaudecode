@@ -89,7 +89,7 @@ class ModelFallback:
                     continue
                 owner = self.owners.get(index)
                 if owner is None:
-                    owner = self.owner_factory(provider, context, index)
+                    owner = await self.owner_factory(provider, context, index)
                     self.owners[index] = owner
                 candidates.append(ModelCandidate(owner.model, provider, owner.requests, index))
             except ModelError as error:
@@ -116,8 +116,7 @@ class ModelFallback:
                             for message in projection.messages
                         ]
                     )
-                if not context.skill_boundary:
-                    current = await self.calibrator(current)
+                current = await self.calibrator(current)
                 response = await candidate.requests.invoke(current, handler, logical_id=logical_id)
                 await self.record(
                     context, logical_id, candidate.index, candidate.provider, "completed", None

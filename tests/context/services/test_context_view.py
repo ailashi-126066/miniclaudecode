@@ -1,6 +1,6 @@
-from pycode.app.composition import open_agent_session, open_session_view
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -11,8 +11,8 @@ async def test_context_view_matches_runtime_anchor_and_remains_available_without
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([chat_completion()]) as (url, requests):
-        session = await open_agent_session(
-            config, (provider(url),), "s1", create=True, refresh_models=False
+        session = await compose_application(config, (provider(url),)).open_session(
+            "s1", create=True, refresh_models=False
         )
         try:
             await session.run(Message("u1", "user", "hello"))
@@ -22,7 +22,7 @@ async def test_context_view_matches_runtime_anchor_and_remains_available_without
         finally:
             await session.aclose()
     monkeypatch.delenv("PYCODE_RECOVERY_TEST_KEY")
-    view = await open_session_view(config, "s1")
+    view = await compose_application(config).open_view("s1")
     try:
         assert (await view.inspect())["context_usage"] == report
         assert (await view.usage())["context"] == report

@@ -185,6 +185,7 @@ class SummaryService:
             self._source = self._result = self._task = None
         await self.restore(snapshot, projection, fingerprint)
         if manual and self._result is not None and self._result.status == "failed":
+            assert self._source is not None
             await self._objects.invalidate(self._source.job_id, "manual_retry")
             self._source = self._result = self._task = None
         trigger = manual or force or tokens >= self._settings.budget.cache_trigger
@@ -275,6 +276,8 @@ class SummaryService:
         snapshot = await self._history.snapshot()
         projection = self._projector.project(snapshot)
         source, result = self._source, self._result
+        if source is None or result is None:
+            raise ModelError("summary_not_ready", "No completed summary is available to adopt")
         if not valid_source(source, snapshot, projection, self.config_hash(projection)):
             raise ModelError("summary_source_changed", "Summary source changed; history preserved")
         identifier = "compaction_" + source.job_id

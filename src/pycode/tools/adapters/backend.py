@@ -13,6 +13,7 @@ import threading
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal, overload
 
 from deepagents.backends.protocol import (
     BackendProtocol,
@@ -27,16 +28,8 @@ from deepagents.backends.protocol import (
 )
 from deepagents.backends.utils import InvalidGlobPatternError, compile_grep_include_glob
 
-from pycode.kernel import (
-    MAX_BYTES,
-    MAX_LINES,
-    ToolError,
-    ToolResult,
-    atomic_write,
-    file_sha256,
-    is_internal_component,
-    owned_io,
-)
+from pycode.kernel import MAX_BYTES, MAX_LINES, ToolError, ToolResult, is_internal_component
+from pycode.kernel.adapters.path_io import atomic_write, file_sha256, owned_io
 from pycode.tools.adapters.read_range import read_range
 from pycode.tools.adapters.rg_stream import RipgrepMatches, SearchOutput
 
@@ -77,7 +70,9 @@ class PycodeBackend(BackendProtocol):
         self.locks: dict[str, threading.RLock] = {}
         self.lock_guard = threading.Lock()
         self.search_timeout = search_timeout
-        self.invocation = ContextVar("pycode_backend_invocation", default=None)
+        self.invocation: ContextVar[BackendInvocation | None] = ContextVar(
+            "pycode_backend_invocation", default=None
+        )
 
     def begin_invocation(self, context, outputs):
         invocation = BackendInvocation(context, outputs)
@@ -346,7 +341,19 @@ class PycodeBackend(BackendProtocol):
             )
         return command, base
 
-    def search(self, pattern, path, include, *, files=False, max_count=None):
+    @overload
+    def search(
+        self, pattern, path, include, *, files: Literal[False] = False, max_count=None
+    ) -> GrepResult: ...
+
+    @overload
+    def search(
+        self, pattern, path, include, *, files: Literal[True], max_count=None
+    ) -> GlobResult: ...
+
+    def search(
+        self, pattern, path, include, *, files: bool = False, max_count=None
+    ) -> GrepResult | GlobResult:
         result_type = GlobResult if files else GrepResult
         try:
             command, base = self.search_command(pattern, path, include, files=files)
@@ -366,12 +373,14 @@ class PycodeBackend(BackendProtocol):
             )
         except (OSError, ToolError, UnicodeError) as error:
             return result_type(error=self.error(error), truncated=True)
+        stdout, stderr = process.stdout, process.stderr
+        assert stdout is not None and stderr is not None  # Both were explicitly requested as PIPE.
         diagnostics = bytearray()
         timed_out = threading.Event()
 
         def errors():
             while True:
-                chunk = process.stderr.read(8192)
+                chunk = stderr.read(8192)
                 if not chunk:
                     return
                 diagnostics.extend(chunk[: max(0, MAX_BYTES - len(diagnostics))])
@@ -391,7 +400,7 @@ class PycodeBackend(BackendProtocol):
         failure = None
         try:
             while True:
-                data = process.stdout.read(8192)
+                data = stdout.read(8192)
                 if not data:
                     break
                 for _ in parser.feed(data):
@@ -406,15 +415,27 @@ class PycodeBackend(BackendProtocol):
             reader.join()
             timer.cancel()
             timer.join()
-            process.stdout.close()
-            process.stderr.close()
+            stdout.close()
+            stderr.close()
         if timed_out.is_set():
             failure = "search_incomplete: rg timed out"
         elif process.returncode not in {0, 1}:
             failure = "search_incomplete: " + diagnostics.decode("utf-8", "replace").strip()
         return parser.result(failure)
 
-    async def asearch(self, pattern, path, include, *, files=False, max_count=None):
+    @overload
+    async def asearch(
+        self, pattern, path, include, *, files: Literal[False] = False, max_count=None
+    ) -> GrepResult: ...
+
+    @overload
+    async def asearch(
+        self, pattern, path, include, *, files: Literal[True], max_count=None
+    ) -> GlobResult: ...
+
+    async def asearch(
+        self, pattern, path, include, *, files: bool = False, max_count=None
+    ) -> GrepResult | GlobResult:
         result_type = GlobResult if files else GrepResult
         try:
             command, base = self.search_command(pattern, path, include, files=files)
@@ -431,11 +452,13 @@ class PycodeBackend(BackendProtocol):
             base, self.workspace, self.resolve, files=files, max_count=max_count
         )
         capture = SearchOutput(self.invocation.get())
+        stdout, stderr = process.stdout, process.stderr
+        assert stdout is not None and stderr is not None  # Both were explicitly requested as PIPE.
         diagnostics = bytearray()
 
         async def errors():
             while True:
-                chunk = await process.stderr.read(8192)
+                chunk = await stderr.read(8192)
                 if not chunk:
                     return
                 diagnostics.extend(chunk[: max(0, MAX_BYTES - len(diagnostics))])
@@ -445,7 +468,7 @@ class PycodeBackend(BackendProtocol):
         try:
             async with asyncio.timeout(self.search_timeout):
                 while True:
-                    data = await process.stdout.read(8192)
+                    data = await stdout.read(8192)
                     if not data:
                         break
                     for piece in parser.feed(data):
@@ -465,7 +488,7 @@ class PycodeBackend(BackendProtocol):
         finally:
             if process.returncode is None:
                 process.kill()
-            while await process.stdout.read(8192):
+            while await stdout.read(8192):
                 pass
             await process.wait()
             await reader

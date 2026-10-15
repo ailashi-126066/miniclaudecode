@@ -76,7 +76,7 @@ class ModelRequestRunner:
         self._session_id = session_id
         self._run_id = run_id
         self._agent_id = agent_id
-        self._purpose = purpose
+        self._purpose: Purpose = purpose
         self._observation = observation
         self.candidate_index = candidate_index
         self.active_request_id: str | None = None

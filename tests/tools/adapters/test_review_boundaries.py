@@ -5,10 +5,10 @@ from dataclasses import replace
 
 from langchain_core.messages import AIMessage
 
-from pycode.app.composition import build_tui, open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import Message
 from pycode.tools.adapters.backend import PycodeBackend
 from tests.agent.adapters.test_agent import Recorder, assemble
 from tests.skills.adapters.test_skills_http import skill_reply
@@ -47,13 +47,9 @@ async def test_first_parallel_failure_batch_must_block_fourth_execution():
 async def test_dialogue_revert_must_restore_plan_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     with protocol_server([chat_completion()]) as (url, _):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (provider(url),),
-            "s",
-            create=True,
-            refresh_models=False,
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).open_session("s", create=True, refresh_models=False)
         try:
             await session.run(Message("u", "user", "base"))
             before = (await session.inspect())["snapshot"]["leaf_id"]
@@ -97,14 +93,9 @@ async def test_bash_must_emit_output_progress_before_completion(tmp_path, monkey
     with protocol_server(
         [skill_reply("Bash", {"command": command}, "bash"), chat_completion()]
     ) as (url, _):
-        session = await open_agent_session(
-            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"),
-            (provider(url),),
-            "s",
-            create=True,
-            refresh_models=False,
-            consumers=(events,),
-        )
+        session = await compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).open_session("s", create=True, refresh_models=False, consumers=(events,))
         try:
             waiting = await session.run(Message("u", "user", "run command"))
             question = waiting.pending[0]
@@ -125,7 +116,9 @@ async def test_actual_tui_renderer_failure_must_not_close_app(tmp_path, monkeypa
     with protocol_server(
         [skill_reply("read_file", {"file_path": "/workspace/code.txt"}, "read"), chat_completion()]
     ) as (url, _):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         original = type(app).render_history
 
         async def faulted_render(current):

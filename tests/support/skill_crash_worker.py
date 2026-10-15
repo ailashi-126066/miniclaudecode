@@ -8,9 +8,9 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from pycode.app.composition import open_agent_session
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
-from pycode.kernel.contracts.messages import Message
+from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 
 
@@ -30,13 +30,8 @@ async def main():
     configured = TypeAdapter(ProviderConfig).validate_json(
         json.dumps(request["provider"]), strict=True
     )
-    session = await open_agent_session(
-        config,
-        (configured,),
-        "s1",
-        create=True,
-        refresh_models=False,
-        consumers=(CrashConsumer(request["phase"]),),
+    session = await compose_application(config, (configured,)).open_session(
+        "s1", create=True, refresh_models=False, consumers=(CrashConsumer(request["phase"]),)
     )
     try:
         await session.run(Message("u1", "user", "Read and execute resource once"))

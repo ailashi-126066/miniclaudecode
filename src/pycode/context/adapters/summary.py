@@ -14,8 +14,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableBranch, RunnableLambda, RunnablePassthrough
 
 from pycode.context.domain.summaries import SummaryCompletion, SummarySource
-from pycode.kernel import ModelError, json_dumps, model_tool_text
-from pycode.models import RequestRecord
+from pycode.kernel import ModelError, json_dumps
+from pycode.models import RequestRecord, model_tool_text
 
 
 class SummaryRequestRecords(Protocol):

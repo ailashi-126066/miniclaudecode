@@ -10,6 +10,7 @@ import os
 import re
 from dataclasses import replace
 from pathlib import Path
+from typing import BinaryIO, Literal
 
 from pydantic import TypeAdapter
 
@@ -21,14 +22,13 @@ from pycode.kernel import (
     ToolContext,
     ToolError,
     ToolResult,
-    atomic_write,
-    io_path,
     json_dumps,
     line_count,
     plain_data,
     truncate,
 )
 from pycode.kernel import HistoryJournal as SessionStore
+from pycode.kernel.adapters.path_io import atomic_write, io_path
 from pycode.tools.adapters.read_range import read_range
 from pycode.tools.domain.outputs import OutputMetadata
 from pycode.tools.ports.outputs import SessionHeaderReader
@@ -344,7 +344,7 @@ class FileToolOutputStore:
                     entry = candidate
                     original_result = original
                     break
-            if entry is None:
+            if entry is None or original_result is None:
                 raise ToolError("output_not_accessible", "Output is not referenced by this branch")
             owner = original_result.session_id or self._session_id
 
@@ -367,18 +367,22 @@ class FileToolOutputStore:
                         "output_not_accessible", "Output owner is outside fork ancestry"
                     )
             metadata = self.metadata(output_id, owner)
-            if entry is not None and (
-                metadata.source_entry_id not in {None, entry.id}
-                or metadata.call_id != original_result.call_id
-                or (
-                    original_result.operation_id is not None
-                    and metadata.operation_id != original_result.operation_id
-                )
-                or (
-                    not original_result.details.get("output_recovered")
-                    and (
-                        metadata.is_error != original_result.is_error
-                        or metadata.exit_code != original_result.exit_code
+            if (
+                entry is not None
+                and original_result is not None
+                and (
+                    metadata.source_entry_id not in {None, entry.id}
+                    or metadata.call_id != original_result.call_id
+                    or (
+                        original_result.operation_id is not None
+                        and metadata.operation_id != original_result.operation_id
+                    )
+                    or (
+                        not original_result.details.get("output_recovered")
+                        and (
+                            metadata.is_error != original_result.is_error
+                            or metadata.exit_code != original_result.exit_code
+                        )
                     )
                 )
             ):
@@ -392,7 +396,7 @@ class FileToolOutputStore:
                 if digest != metadata.artifact_sha256:
                     raise ToolError("output_corrupt", "Output artifact checksum failed")
             if metadata.storage == "inline":
-                if entry is None:
+                if entry is None or original_result is None:
                     raise ToolError(
                         "output_unbound", "Inline output requires its original history entry"
                     )
@@ -428,14 +432,14 @@ class StreamingOutputWriter:
     def __init__(self, store: FileToolOutputStore, context: ToolContext, mode: PreviewMode) -> None:
         self._store = store
         self._context = context
-        self._mode = mode
+        self._mode: PreviewMode = mode
         self._id = output_identifier(context)
-        self._stream = None
-        self._temporary = None
+        self._stream: BinaryIO | None = None
+        self._temporary: Path | None = None
         self._digest = hashlib.sha256()
         self._size = 0
         self._newlines = 0
-        self._last_byte = None
+        self._last_byte: int | None = None
         self._head = bytearray()
         self._tail = b""
         self._finished = False
@@ -453,9 +457,10 @@ class StreamingOutputWriter:
 
     async def append(self, data: bytes) -> None:
         def write():
-            if self._finished:
+            stream = self._stream
+            if self._finished or stream is None:
                 raise ToolError("output_closed", "Cannot append to settled output")
-            self._stream.write(data)
+            stream.write(data)
             self._digest.update(data)
             self._size += len(data)
             self._newlines += data.count(b"\n")
@@ -484,12 +489,15 @@ class StreamingOutputWriter:
             )
         )
 
-    def publish(self, result: ToolResult, status: str) -> ToolResult:
-        if self._finished:
+    def publish(
+        self, result: ToolResult, status: Literal["completed", "interrupted"]
+    ) -> ToolResult:
+        stream, temporary = self._stream, self._temporary
+        if self._finished or stream is None or temporary is None:
             raise ToolError("output_closed", "Output is already settled")
-        self._stream.flush()
-        os.fsync(self._stream.fileno())
-        self._stream.close()
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
         total_lines = self._newlines + (1 if self._size and self._last_byte != 10 else 0)
         small = self._size <= MAX_BYTES and total_lines <= MAX_LINES
         raw = (
@@ -517,7 +525,7 @@ class StreamingOutputWriter:
             )
         directory = self._store.directory(self._context.session_id)
         # Streaming bytes remain on disk until their JSONL result is bound.
-        storage = "file"
+        storage: Literal["file", "inline"] = "file"
         artifact = not small and (result.structured_content is not None or bool(result.details))
         artifact_digest = None
         if artifact:
@@ -535,9 +543,9 @@ class StreamingOutputWriter:
             with target.open("rb") as source:
                 artifact_digest = hashlib.file_digest(source, "sha256").hexdigest()
         if storage == "file":
-            os.replace(self._temporary, directory / f"{self._id}.txt")
+            os.replace(temporary, directory / f"{self._id}.txt")
         else:
-            self._temporary.unlink()
+            temporary.unlink()
         details = (
             result.details
             if small

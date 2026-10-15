@@ -6,12 +6,12 @@ from dataclasses import replace
 import pytest
 from langchain_core.messages import AIMessage
 
-from pycode.app.composition import build_agent_runtime
+from pycode.app.composition.runtime import build_agent_runtime
 from pycode.context.services.context_projector import ContextProjector
-from pycode.kernel.contracts.history import SessionHeader
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.contracts.tools import ToolSpec
-from pycode.kernel.errors import StorageError, ToolError
+from pycode.kernel.domain.errors import StorageError, ToolError
+from pycode.kernel.domain.history import SessionHeader
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.tools import ToolSpec
 from pycode.session.adapters.storage.session import JsonlSessionStore
 from pycode.tools.adapters.permissions import InterruptToolGate
 from pycode.tools.adapters.schema import JsonSchemaValidator

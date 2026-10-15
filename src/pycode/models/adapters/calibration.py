@@ -1,9 +1,11 @@
 """Record the effective model footprint before each request or fallback candidate."""
 
+from collections.abc import Callable
 from typing import cast
 
 from pycode.kernel import (
     EntryDraft,
+    ExecutableTool,
     SessionTree,
     StorageError,
     ToolError,
@@ -14,7 +16,12 @@ from pycode.kernel import (
 from pycode.models.ports.context import CalibrationContext
 
 
-def model_tool_specs(tools, context: CalibrationContext) -> tuple[ToolSpec, ...]:
+def model_tool_specs(
+    tools,
+    context: CalibrationContext,
+    *,
+    resource_lookup: Callable[[str], ExecutableTool | None] | None = None,
+) -> tuple[ToolSpec, ...]:
     specs = []
     for tool in tools:
         if isinstance(tool, dict):
@@ -31,9 +38,7 @@ def model_tool_specs(tools, context: CalibrationContext) -> tuple[ToolSpec, ...]
         try:
             spec = context.registry.get_spec(tool.name)
         except ToolError:
-            resource = (
-                context.skill_resources.get_tool(tool.name) if context.skill_resources else None
-            )
+            resource = resource_lookup(tool.name) if resource_lookup is not None else None
             if resource is not None:
                 spec = resource.spec
             else:
@@ -46,9 +51,18 @@ def model_tool_specs(tools, context: CalibrationContext) -> tuple[ToolSpec, ...]
     return tuple(specs)
 
 
-async def calibrate_model_request(request, *, converter, estimate_text):
+async def calibrate_model_request(
+    request,
+    *,
+    converter,
+    estimate_text,
+    resource_lookup: Callable[[str], ExecutableTool | None] | None = None,
+):
     context = cast(CalibrationContext, request.runtime.context)
-    actual_tools = model_tool_specs(request.tools, context)
+    actual_tools = model_tool_specs(request.tools, context, resource_lookup=resource_lookup)
+    # Execution authorization uses the final SDK-disclosed request, even when
+    # the optional selector is disabled. Catalog candidates never count.
+    context.selected_tool_names = tuple(spec.name for spec in actual_tools)
     system = request.system_message.content if request.system_message is not None else ""
     system_hash = data_hash(system)
     if actual_tools != context.model_tools or system_hash != context.system_hash:

@@ -5,6 +5,7 @@
 """Capture and validate a fixed summary prefix independently of appended tail messages."""
 
 from pycode.context.domain.compaction import find_cut_point
+from pycode.context.domain.history_boundaries import valid_kept_boundary
 from pycode.context.domain.summaries import SummarySource
 from pycode.kernel import (
     ModelSelection,
@@ -14,7 +15,6 @@ from pycode.kernel import (
     clone_value,
     data_hash,
     plain_data,
-    valid_kept_boundary,
 )
 
 
@@ -60,6 +60,7 @@ def capture_source(
         )
         if prefix_id not in {item.entry_id for item in visible}:
             turn_prefix_start = None
+    assert snapshot.leaf_id is not None
     return SummarySource(
         job_id,
         snapshot.header.session_id,

@@ -61,7 +61,11 @@ class ModelControl:
         path = SessionTree(snapshot.index).path(snapshot.leaf_id)
         recorded_hash = None
         for previous in reversed(path):
-            if previous.type == "model_change" and previous.selection.provider == provider:
+            if (
+                previous.type == "model_change"
+                and previous.selection is not None
+                and previous.selection.provider == provider
+            ):
                 recorded_hash = previous.data.get("provider_hash")
                 break
         if await self.current() != selected or recorded_hash != self._catalog.provider_hash(
@@ -95,10 +99,17 @@ class ModelControl:
                 raise ModelError("model_not_selected", "Choose a provider and model before running")
             return self._catalog.resolve(default.name, default.model_id)
         configured = self._catalog.resolve(selected.provider, selected.model_id)
-        snapshot = await self._store.snapshot()
+        store = self._store
+        if store is None:
+            raise ModelError("session_required", "Restoring a selected model requires its session")
+        snapshot = await store.snapshot()
         path = SessionTree(snapshot.index).path(snapshot.leaf_id)
         for entry in reversed(path):
-            if entry.type == "model_change" and entry.selection.provider == selected.provider:
+            if (
+                entry.type == "model_change"
+                and entry.selection is not None
+                and entry.selection.provider == selected.provider
+            ):
                 fingerprint = entry.data.get("provider_hash")
                 if fingerprint is not None and fingerprint != self._catalog.provider_hash(
                     selected.provider

@@ -28,7 +28,10 @@ class DurableInputs:
         snapshot = await self._store.snapshot()
         active = {entry.id for entry in SessionTree(snapshot.index).path(snapshot.leaf_id)}
         for entry in snapshot.entries:
-            if entry.type not in {"message", "input_queued"} or entry.message.id != message.id:
+            if (
+                entry.type not in {"message", "input_queued"}
+                or entry.require_message().id != message.id
+            ):
                 continue
             if entry.message != message or (
                 entry.type == "input_queued"
@@ -53,7 +56,7 @@ class DurableInputs:
     async def pending(self, run_id: str) -> PendingInputs:
         queue = PendingInputs()
         for entry in pending_input_entries(await self._store.snapshot(), run_id):
-            queue.submit(entry.message, entry.data["queue_kind"])
+            queue.submit(entry.require_message(), entry.data["queue_kind"])
         return queue
 
     async def finish_boundary(self, run_id):

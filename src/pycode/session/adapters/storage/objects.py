@@ -6,18 +6,12 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from pycode.kernel import (
-    FileLease,
-    StorageError,
-    atomic_write,
-    file_sha256,
-    json_dumps,
-    owned_io,
-    plain_data,
-)
+from pycode.kernel import StorageError, json_dumps, plain_data
+from pycode.kernel.adapters.file_lease import FileLease
+from pycode.kernel.adapters.path_io import atomic_write, file_sha256, owned_io
 from pycode.session.adapters.storage.layout import StorageLayout
 from pycode.session.adapters.storage.session_codec import decode_entry, decode_header
 from pycode.session.domain.storage import StorageInventory, StoredObject, mark_objects
@@ -35,6 +29,20 @@ def string_values(value):
         elif isinstance(item, list):
             pending.extend(item)
     return values
+
+
+@dataclass
+class _InventoryScan:
+    """References collected during one inventory; no state survives the scan."""
+
+    objects: dict[str, StoredObject] = field(default_factory=dict)
+    tokens_by_object: dict[str, list[str]] = field(default_factory=dict)
+    root_tokens: list[str] = field(default_factory=list)
+    reference_details: dict[str, dict[str, str]] = field(default_factory=dict)
+    aliases: dict[str, list[str]] = field(default_factory=dict)
+    uncertain_projects: set[str] = field(default_factory=set)
+    active_projects: set[str] = field(default_factory=set)
+    known_workspaces: set[str] = field(default_factory=set)
 
 
 class FileStorageObjects:
@@ -89,14 +97,7 @@ class FileStorageObjects:
         )
 
     def inventory_sync(self):
-        objects = {}
-        tokens_by_object = {}
-        root_tokens = []
-        reference_details = {}
-        aliases = {}
-        uncertain_projects = set()
-        active_projects = set()
-        known_workspaces = {str(self.workspace)}
+        scan = _InventoryScan(known_workspaces={str(self.workspace)})
         projects = self.root / "projects"
         if projects.exists():
             for project in sorted(projects.iterdir()):
@@ -106,166 +107,183 @@ class FileStorageObjects:
                     or project.is_symlink()
                 ):
                     continue
-                sessions = project / "sessions"
-                workspaces = set()
-                if sessions.exists():
-                    for session in sorted(sessions.iterdir()):
-                        if not session.is_dir() or session.is_symlink():
-                            continue
-                        log = session / "entries.jsonl"
-                        if log.exists():
-                            writer_lock = session / "writer.lock"
-                            owned = (
-                                project.resolve() == self.project
-                                and session.name == self.owned_session_id
-                            )
-                            if writer_lock.exists() and not owned:
-                                probe = FileLease(writer_lock)
-                                try:
-                                    probe.acquire()
-                                except StorageError:
-                                    active_projects.add(project.name)
-                                finally:
-                                    probe.close()
-                            with log.open("rb") as source:
-                                header = decode_header(source.readline())
-                                if (
-                                    header.session_id != session.name
-                                    or StorageLayout(Path(header.workspace), self.root).project.name
-                                    != project.name
-                                ):
-                                    raise StorageError(
-                                        "gc_session_identity_conflict",
-                                        "Session references belong to another project",
-                                    )
-                                workspaces.add(header.workspace)
-                                known_workspaces.add(header.workspace)
-                                for line in source:
-                                    if not line.strip():
-                                        continue
-                                    try:
-                                        entry = decode_entry(line)
-                                    except StorageError:
-                                        if not line.endswith(b"\n"):
-                                            uncertain_projects.add(project.name)
-                                            break
-                                        raise
-                                    tokens = string_values(plain_data(entry))
-                                    root_tokens.extend(tokens)
-                                    for token in tokens:
-                                        previous = reference_details.get(token)
-                                        if (
-                                            previous is None
-                                            or entry.timestamp >= previous["timestamp"]
-                                        ):
-                                            reference_details[token] = {
-                                                "session_id": session.name,
-                                                "entry_id": entry.id,
-                                                "timestamp": entry.timestamp,
-                                            }
-                        results = session / "tool-results"
-                        if results.exists():
-                            for path in sorted(results.glob("output_*.json")):
-                                if path.name.endswith(".artifact.json"):
-                                    continue
-                                data = self.read_json(path)
-                                output_id = data["output_id"]
-                                if (
-                                    not re.fullmatch(r"output_[a-f0-9]{32}", output_id)
-                                    or path.stem != output_id
-                                    or data["session_id"] != session.name
-                                ):
-                                    raise StorageError(
-                                        "gc_output_identity_conflict",
-                                        "Output object identity cannot be verified",
-                                    )
-                                identifier = f"output:{project.name}:{session.name}:{output_id}"
-                                files = [
-                                    path,
-                                    results / (output_id + ".txt"),
-                                    results / (output_id + ".artifact.json"),
-                                ]
-                                item = self.descriptor(
-                                    identifier,
-                                    "output",
-                                    files,
-                                    protected=data.get("source_entry_id") is None
-                                    or data.get("status") not in {"completed", "interrupted"},
-                                    metadata={"project_id": project.name},
-                                )
-                                objects[identifier] = item
-                                aliases.setdefault(output_id, []).append(identifier)
-                            for partial in results.glob("*.partial"):
-                                identifier = (
-                                    "partial:" + hashlib.sha256(str(partial).encode()).hexdigest()
-                                )
-                                objects[identifier] = self.descriptor(
-                                    identifier,
-                                    "partial",
-                                    [partial],
-                                    protected=True,
-                                    metadata={"project_id": project.name},
-                                )
-                summaries = project / "summaries"
-                if summaries.exists():
-                    grouped = {}
-                    for path in sorted(summaries.glob("*.json")):
-                        job_id = path.name.split(".", 1)[0]
-                        if re.fullmatch(r"[a-f0-9]{32}", job_id):
-                            grouped.setdefault(job_id, []).append(path)
-                    for job_id, files in grouped.items():
-                        identifier = f"summary:{project.name}:{job_id}"
-                        objects[identifier] = self.descriptor(
-                            identifier,
-                            "summary",
-                            files,
-                            protected=not any(
-                                path.name.endswith((".result.json", ".invalidated.json"))
-                                for path in files
-                            ),
-                            metadata={"project_id": project.name},
-                        )
-                        aliases.setdefault(job_id, []).append(identifier)
-                        tokens = []
-                        for path in files:
-                            tokens.extend(string_values(self.read_json(path)))
-                        tokens_by_object[identifier] = tokens
-                trees = project / "snapshots" / "trees"
-                if trees.exists():
-                    for path in sorted(trees.glob("*.json")):
-                        if not re.fullmatch(r"[a-f0-9]{40}", path.stem):
-                            continue
-                        identifier = f"snapshot:{project.name}:{path.stem}"
-                        objects[identifier] = self.descriptor(
-                            identifier,
-                            "snapshot",
-                            [path],
-                            metadata={
-                                "project_id": project.name,
-                                "tree_id": path.stem,
-                                "gitdir": str(project / "snapshots" / "repository.git"),
-                            },
-                        )
-                        aliases.setdefault(path.stem, []).append(identifier)
-                restores = project / "snapshots" / "restores"
-                if restores.exists():
-                    for path in restores.glob("*.json"):
-                        root_tokens.extend(string_values(self.read_json(path)))
-                for workspace in workspaces:
-                    plans = Path(workspace).resolve() / ".pycode" / "plans"
-                    if plans not in self.allowed_roots:
-                        self.allowed_roots.append(plans)
-                    if not plans.exists():
+                self.inventory_project(project, scan)
+        self.inventory_deleted_sessions(projects, scan)
+        self.inventory_memory_roots(scan)
+        self.inventory_quarantine(scan)
+        return self.resolve_inventory(scan)
+
+    def inventory_project(self, project, scan):
+        sessions = project / "sessions"
+        workspaces = set()
+        if sessions.exists():
+            for session in sorted(sessions.iterdir()):
+                if not session.is_dir() or session.is_symlink():
+                    continue
+                self.inventory_session_log(project, session, workspaces, scan)
+                self.inventory_outputs(project, session, scan)
+        self.inventory_summaries(project, scan)
+        self.inventory_snapshots(project, scan)
+        self.inventory_restore_references(project, scan)
+        self.inventory_plans(project, workspaces, scan)
+
+    def inventory_session_log(self, project, session, workspaces, scan):
+        log = session / "entries.jsonl"
+        if log.exists():
+            writer_lock = session / "writer.lock"
+            owned = project.resolve() == self.project and session.name == self.owned_session_id
+            if writer_lock.exists() and not owned:
+                probe = FileLease(writer_lock)
+                try:
+                    probe.acquire()
+                except StorageError:
+                    scan.active_projects.add(project.name)
+                finally:
+                    probe.close()
+            with log.open("rb") as source:
+                header = decode_header(source.readline())
+                if (
+                    header.session_id != session.name
+                    or StorageLayout(Path(header.workspace), self.root).project.name != project.name
+                ):
+                    raise StorageError(
+                        "gc_session_identity_conflict",
+                        "Session references belong to another project",
+                    )
+                workspaces.add(header.workspace)
+                scan.known_workspaces.add(header.workspace)
+                for line in source:
+                    if not line.strip():
                         continue
-                    for path in sorted(plans.glob("*/*.md")):
-                        if not re.fullmatch(r"[a-f0-9]{32}", path.stem):
-                            continue
-                        identifier = f"plan:{project.name}:{path.parent.name}:{path.stem}"
-                        objects[identifier] = self.descriptor(
-                            identifier, "plan", [path], metadata={"project_id": project.name}
-                        )
-                        aliases.setdefault(str(path.resolve()), []).append(identifier)
-                        aliases.setdefault(path.stem, []).append(identifier)
+                    try:
+                        entry = decode_entry(line)
+                    except StorageError:
+                        if not line.endswith(b"\n"):
+                            scan.uncertain_projects.add(project.name)
+                            break
+                        raise
+                    tokens = string_values(plain_data(entry))
+                    scan.root_tokens.extend(tokens)
+                    for token in tokens:
+                        previous = scan.reference_details.get(token)
+                        if previous is None or entry.timestamp >= previous["timestamp"]:
+                            scan.reference_details[token] = {
+                                "session_id": session.name,
+                                "entry_id": entry.id,
+                                "timestamp": entry.timestamp,
+                            }
+
+    def inventory_outputs(self, project, session, scan):
+        results = session / "tool-results"
+        if results.exists():
+            for path in sorted(results.glob("output_*.json")):
+                if path.name.endswith(".artifact.json"):
+                    continue
+                data = self.read_json(path)
+                output_id = data["output_id"]
+                if (
+                    not re.fullmatch(r"output_[a-f0-9]{32}", output_id)
+                    or path.stem != output_id
+                    or data["session_id"] != session.name
+                ):
+                    raise StorageError(
+                        "gc_output_identity_conflict",
+                        "Output object identity cannot be verified",
+                    )
+                identifier = f"output:{project.name}:{session.name}:{output_id}"
+                files = [
+                    path,
+                    results / (output_id + ".txt"),
+                    results / (output_id + ".artifact.json"),
+                ]
+                item = self.descriptor(
+                    identifier,
+                    "output",
+                    files,
+                    protected=data.get("source_entry_id") is None
+                    or data.get("status") not in {"completed", "interrupted"},
+                    metadata={"project_id": project.name},
+                )
+                scan.objects[identifier] = item
+                scan.aliases.setdefault(output_id, []).append(identifier)
+            for partial in results.glob("*.partial"):
+                identifier = "partial:" + hashlib.sha256(str(partial).encode()).hexdigest()
+                scan.objects[identifier] = self.descriptor(
+                    identifier,
+                    "partial",
+                    [partial],
+                    protected=True,
+                    metadata={"project_id": project.name},
+                )
+
+    def inventory_summaries(self, project, scan):
+        summaries = project / "summaries"
+        if summaries.exists():
+            grouped = {}
+            for path in sorted(summaries.glob("*.json")):
+                job_id = path.name.split(".", 1)[0]
+                if re.fullmatch(r"[a-f0-9]{32}", job_id):
+                    grouped.setdefault(job_id, []).append(path)
+            for job_id, files in grouped.items():
+                identifier = f"summary:{project.name}:{job_id}"
+                scan.objects[identifier] = self.descriptor(
+                    identifier,
+                    "summary",
+                    files,
+                    protected=not any(
+                        path.name.endswith((".result.json", ".invalidated.json")) for path in files
+                    ),
+                    metadata={"project_id": project.name},
+                )
+                scan.aliases.setdefault(job_id, []).append(identifier)
+                tokens = []
+                for path in files:
+                    tokens.extend(string_values(self.read_json(path)))
+                scan.tokens_by_object[identifier] = tokens
+
+    def inventory_snapshots(self, project, scan):
+        trees = project / "snapshots" / "trees"
+        if trees.exists():
+            for path in sorted(trees.glob("*.json")):
+                if not re.fullmatch(r"[a-f0-9]{40}", path.stem):
+                    continue
+                identifier = f"snapshot:{project.name}:{path.stem}"
+                scan.objects[identifier] = self.descriptor(
+                    identifier,
+                    "snapshot",
+                    [path],
+                    metadata={
+                        "project_id": project.name,
+                        "tree_id": path.stem,
+                        "gitdir": str(project / "snapshots" / "repository.git"),
+                    },
+                )
+                scan.aliases.setdefault(path.stem, []).append(identifier)
+
+    def inventory_restore_references(self, project, scan):
+        restores = project / "snapshots" / "restores"
+        if restores.exists():
+            for path in restores.glob("*.json"):
+                scan.root_tokens.extend(string_values(self.read_json(path)))
+
+    def inventory_plans(self, project, workspaces, scan):
+        for workspace in workspaces:
+            plans = Path(workspace).resolve() / ".pycode" / "plans"
+            if plans not in self.allowed_roots:
+                self.allowed_roots.append(plans)
+            if not plans.exists():
+                continue
+            for path in sorted(plans.glob("*/*.md")):
+                if not re.fullmatch(r"[a-f0-9]{32}", path.stem):
+                    continue
+                identifier = f"plan:{project.name}:{path.parent.name}:{path.stem}"
+                scan.objects[identifier] = self.descriptor(
+                    identifier, "plan", [path], metadata={"project_id": project.name}
+                )
+                scan.aliases.setdefault(str(path.resolve()), []).append(identifier)
+                scan.aliases.setdefault(path.stem, []).append(identifier)
+
+    def inventory_deleted_sessions(self, projects, scan):
         if projects.exists():
             for project in sorted(projects.iterdir()):
                 deleted = project / "quarantine" / "sessions"
@@ -283,7 +301,7 @@ class FileStorageObjects:
                         if path.exists():
                             files.append(str(path))
                             size += path.stat().st_size
-                    objects[identifier] = StoredObject(
+                    scan.objects[identifier] = StoredObject(
                         identifier,
                         "session",
                         tuple(files),
@@ -295,7 +313,7 @@ class FileStorageObjects:
                             "project_id": project.name,
                         },
                     )
-                    aliases.setdefault(data["session_id"], []).append(identifier)
+                    scan.aliases.setdefault(data["session_id"], []).append(identifier)
                     references = []
                     for filename in files:
                         if Path(filename).name != "entries.jsonl":
@@ -309,19 +327,23 @@ class FileStorageObjects:
                                         "Deleted history has a partial tail",
                                     )
                                 references.extend(string_values(plain_data(decode_entry(raw))))
-                    tokens_by_object[identifier] = references
-        for workspace in known_workspaces:
+                    scan.tokens_by_object[identifier] = references
+
+    def inventory_memory_roots(self, scan):
+        for workspace in scan.known_workspaces:
             root = Path(workspace).resolve() / ".pycode" / "memory"
             if root not in self.memory_roots:
                 self.memory_roots.append(root)
+
+    def inventory_quarantine(self, scan):
         if self.quarantine.exists():
             for path in sorted(self.quarantine.glob("*/record.json")):
                 data = self.read_json(path)
                 identifier = data["object_id"]
                 if data["status"] != "quarantined":
                     continue
-                # Records retain original paths so restored references resolve to
-                # the same identity, without making quarantine a second history.
+                    # Records retain original paths so restored references resolve to
+                    # the same identity, without making quarantine a second history.
                 stored = StoredObject(
                     identifier,
                     data["kind"],
@@ -331,37 +353,39 @@ class FileStorageObjects:
                     protected=data.get("protected", False),
                     metadata=data.get("metadata", {}),
                 )
-                objects[identifier] = stored
+                scan.objects[identifier] = stored
                 alias = stored.metadata.get("alias")
                 if alias:
-                    aliases.setdefault(alias, []).append(identifier)
+                    scan.aliases.setdefault(alias, []).append(identifier)
                 tokens = []
                 for moved in data["moved"]:
                     target = self.checked(moved["quarantine"])
                     if target.suffix == ".json" and target.exists():
                         tokens.extend(string_values(self.read_json(target)))
-                tokens_by_object[identifier] = tokens
+                scan.tokens_by_object[identifier] = tokens
+
+    def resolve_inventory(self, scan):
         roots = set()
         last_references = {}
-        for token in root_tokens:
-            identifiers = aliases.get(token, ())
+        for token in scan.root_tokens:
+            identifiers = scan.aliases.get(token, ())
             roots.update(identifiers)
-            detail = reference_details.get(token)
+            detail = scan.reference_details.get(token)
             if detail is not None:
                 for identifier in identifiers:
                     previous = last_references.get(identifier)
                     if previous is None or detail["timestamp"] >= previous["timestamp"]:
                         last_references[identifier] = detail
-        for identifier, item in list(objects.items()):
+        for identifier, item in list(scan.objects.items()):
             references = set()
-            for token in tokens_by_object.get(identifier, ()):
-                references.update(aliases.get(token, ()))
+            for token in scan.tokens_by_object.get(identifier, ()):
+                references.update(scan.aliases.get(token, ()))
             protected = (
                 item.protected
-                or item.metadata.get("project_id") in uncertain_projects
-                or item.metadata.get("project_id") in active_projects
+                or item.metadata.get("project_id") in scan.uncertain_projects
+                or item.metadata.get("project_id") in scan.active_projects
             )
-            objects[identifier] = replace(
+            scan.objects[identifier] = replace(
                 item,
                 references=tuple(sorted(references)),
                 protected=protected,
@@ -372,7 +396,7 @@ class FileStorageObjects:
                     ),
                 },
             )
-        return StorageInventory(tuple(objects.values()), tuple(sorted(roots)))
+        return StorageInventory(tuple(scan.objects.values()), tuple(sorted(roots)))
 
     async def inventory(self):
         return await owned_io(self.inventory_sync)

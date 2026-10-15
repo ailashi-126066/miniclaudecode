@@ -11,7 +11,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.kernel import FileLease, ToolError, atomic_write, data_hash, json_dumps, owned_io
+from pycode.kernel import ToolError, data_hash, json_dumps
+from pycode.kernel.adapters.file_lease import FileLease
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 
 
 class WorktreeManager:

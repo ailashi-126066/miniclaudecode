@@ -1,4 +1,4 @@
-from pycode.app.composition import build_tui
+from pycode.app.bootstrap import compose_application
 from pycode.app.config import AppConfig
 from tests.session.adapters.test_revert_http import command_reply
 from tests.support.execution import provider
@@ -14,7 +14,9 @@ async def test_standard_80_by_24_terminal_keeps_prompt_and_focused_approval_visi
         url,
         requests,
     ):
-        app = build_tui(AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),))
+        app = compose_application(
+            AppConfig(tmp_path, tmp_path / "data", memory_mode="off"), (provider(url),)
+        ).tui()
         async with app.run_test(size=(80, 24)) as pilot:
             await app.ready.wait()
             await app.send_text("write")

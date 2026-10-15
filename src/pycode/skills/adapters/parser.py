@@ -9,6 +9,7 @@
 
 import hashlib
 import re
+from typing import Literal, cast
 
 import yaml
 
@@ -58,6 +59,14 @@ def parse_skill(raw: str, path: str, source: str, *, content_hash=None) -> Skill
         raise ToolError("invalid_skill", "Skill model must be a nonempty string")
     digest = content_hash or hashlib.sha256(raw.encode()).hexdigest()
     entry = SkillEntry(
-        name, description, source, path, digest, mode, tuple(allowed), context, model
+        name,
+        description,
+        source,
+        path,
+        digest,
+        cast(Literal["inline", "fork"], mode),
+        tuple(allowed),
+        cast(Literal["full", "recent", "none"], context),
+        model,
     )
     return SkillDocument(entry, raw, "".join(lines[closing + 1 :]).lstrip("\n"))

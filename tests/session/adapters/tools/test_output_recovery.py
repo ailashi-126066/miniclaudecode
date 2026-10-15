@@ -4,9 +4,9 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.kernel.contracts.messages import Message, ToolResult
-from pycode.kernel.errors import ToolError
-from pycode.kernel.values import plain_data
+from pycode.kernel.domain.errors import ToolError
+from pycode.kernel.domain.messages import Message, ToolResult
+from pycode.kernel.domain.values import plain_data
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.tools.adapters.test_output_store import save, setup

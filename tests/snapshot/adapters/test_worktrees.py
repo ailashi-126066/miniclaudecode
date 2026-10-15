@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pycode.kernel.errors import ToolError
+from pycode.kernel.domain.errors import ToolError
 from pycode.snapshot.adapters.git_tree import GitSnapshotStore
 from pycode.team.adapters.worktrees import WorktreeManager
 from tests.snapshot.adapters.test_git_tree import git, repository
