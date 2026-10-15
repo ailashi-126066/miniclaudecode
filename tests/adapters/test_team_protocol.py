@@ -17,6 +17,9 @@ from tests.workflows.test_agent import assemble, tool_response
 from pycode.adapters.team.protocol import LocalAgentProtocol
 from pycode.core.messages import Message
 
+TOKEN = "protocol-test-token"
+AUTHORIZATION = {"Authorization": "Bearer " + TOKEN}
+
 
 class FixedWorker:
     def __init__(self):
@@ -69,7 +72,7 @@ async def server(initial_role="worker"):
     listener.bind(("127.0.0.1", 0))
     listener.setblocking(False)
     url = "http://127.0.0.1:" + str(listener.getsockname()[1])
-    host = uvicorn.Server(uvicorn.Config(protocol.application(), log_level="error", ws="none"))
+    host = uvicorn.Server(uvicorn.Config(protocol.application(TOKEN), log_level="error", ws="none"))
     running = asyncio.create_task(host.serve(sockets=[listener]))
     try:
         async with asyncio.timeout(10):
@@ -92,6 +95,7 @@ def tools_for(url, graph_id="worker"):
                 "description": "fixed Worker",
                 "graph_id": graph_id,
                 "url": url,
+                "headers": AUTHORIZATION,
             }
         ]
     )
@@ -197,7 +201,7 @@ async def test_existing_worker_rejects_role_or_workspace_change_before_interrupt
                     }
                 }
             )
-        async with httpx.AsyncClient(base_url=url, timeout=5) as client:
+        async with httpx.AsyncClient(base_url=url, timeout=5, headers=AUTHORIZATION) as client:
             response = await client.post(
                 f"/threads/{task_id}/runs",
                 json={
@@ -211,3 +215,43 @@ async def test_existing_worker_rejects_role_or_workspace_change_before_interrupt
         assert protocol.threads[task_id].graph_id == initial_role
         assert protocol.runs[run_id]["status"] == "running"
         assert workers[0].instructions == ["wait"] and not workers[0].cancelled
+
+
+@pytest.mark.parametrize(
+    ("headers", "status"),
+    [
+        ({}, 401),
+        ({"Authorization": "Bearer wrong-token"}, 401),
+        ({"Authorization": TOKEN}, 401),
+        ({**AUTHORIZATION, "Host": "attacker.example"}, 403),
+        ({**AUTHORIZATION, "Host": "127.0.0.1.attacker.example:2024"}, 403),
+        (AUTHORIZATION, 200),
+        ({**AUTHORIZATION, "Host": "localhost:2024"}, 200),
+        ({**AUTHORIZATION, "Host": "[::1]"}, 200),
+    ],
+)
+async def test_every_request_requires_local_host_and_bearer_token(headers, status):
+    async with server() as (url, protocol, workers):
+        # trust_env=False: a system HTTP proxy must not answer for the forged Host header.
+        async with httpx.AsyncClient(
+            base_url=url, timeout=5, headers=headers, trust_env=False
+        ) as client:
+            health = await client.get("/ok")
+            created = await client.post("/threads", json={})
+    assert health.status_code == created.status_code == status
+    assert len(protocol.threads) == (1 if status == 200 else 0)
+    assert not workers
+
+
+async def test_native_tools_without_token_cannot_start_workers():
+    async with server() as (url, protocol, workers):
+        middleware = AsyncSubAgentMiddleware(
+            async_subagents=[
+                {"name": "worker", "description": "fixed Worker", "graph_id": "worker", "url": url}
+            ]
+        )
+        start = next(tool for tool in middleware.tools if tool.name == "start_async_task")
+        runtime = ToolRuntime({}, None, {}, lambda value: None, uuid4().hex, None)
+        result = await start.coroutine(runtime=runtime, description="wait", subagent_type="worker")
+        assert "Invalid Worker host token" in str(result)
+        assert not protocol.threads and not workers

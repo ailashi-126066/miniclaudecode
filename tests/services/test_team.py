@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from tests.adapters.test_team_protocol import server
+from tests.adapters.test_team_protocol import AUTHORIZATION, server
 from tests.services.test_model_control import store_for
 
 from pycode.core.errors import ToolError
@@ -22,6 +22,7 @@ def manager(store, url):
                 "description": role.description,
                 "graph_id": role.graph_id,
                 "url": role.url,
+                "headers": AUTHORIZATION,
             }
         ]
     )

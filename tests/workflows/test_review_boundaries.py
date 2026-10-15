@@ -89,7 +89,9 @@ async def test_native_update_after_worker_wait_must_accept_new_instruction(tmp_p
         host = LocalAgentProtocol(factory)
         try:
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=host.application()), base_url="http://audit"
+                transport=httpx.ASGITransport(app=host.application("audit-token")),
+                base_url="http://127.0.0.1",
+                headers={"Authorization": "Bearer audit-token"},
             ) as client:
                 thread = (await client.post("/threads", json={})).json()["thread_id"]
                 first = (

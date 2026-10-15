@@ -5,7 +5,9 @@ tasks and cancellation, not an Agent loop or a second conversation store.
 """
 
 import asyncio
+import hmac
 import json
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -13,14 +15,49 @@ from uuid import uuid4
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
+from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from pycode.core.values import plain_data
 
+LOCAL_HOST = re.compile(r"(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?", re.IGNORECASE)
+
 
 def timestamp():
     return datetime.now(UTC).isoformat()
+
+
+class LocalAccessGuard:
+    """Require a loopback Host (DNS rebinding) and the host's bearer token on every request."""
+
+    def __init__(self, app, token):
+        self.app = app
+        self.expected = ("Bearer " + token).encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        hosts = []
+        authorizations = []
+        for name, value in scope.get("headers", ()):
+            if name == b"host":
+                hosts.append(value)
+            elif name == b"authorization":
+                authorizations.append(value)
+        if len(hosts) != 1 or not LOCAL_HOST.fullmatch(hosts[0].decode("latin-1")):
+            response = JSONResponse({"detail": "Host not allowed"}, status_code=403)
+        elif len(authorizations) != 1 or not hmac.compare_digest(authorizations[0], self.expected):
+            response = JSONResponse(
+                {"detail": "Invalid Worker host token"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            await self.app(scope, receive, send)
+            return
+        await response(scope, receive, send)
 
 
 @dataclass
@@ -217,7 +254,10 @@ class LocalAgentProtocol:
         if errors:
             raise ExceptionGroup("Worker close failures", errors)
 
-    def application(self):
+    def application(self, token):
+        if not isinstance(token, str) or not token:
+            raise ValueError("Worker host requires a bearer token")
+
         @asynccontextmanager
         async def lifespan(app):
             try:
@@ -230,6 +270,7 @@ class LocalAgentProtocol:
 
         return Starlette(
             lifespan=lifespan,
+            middleware=[Middleware(LocalAccessGuard, token=token)],
             routes=[
                 Route("/ok", health),
                 Route("/threads", self.create_thread, methods=["POST"]),

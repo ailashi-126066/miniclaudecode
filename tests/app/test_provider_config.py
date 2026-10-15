@@ -37,6 +37,10 @@ def test_multiple_provider_instances_have_distinct_stable_names(tmp_path):
         ("thinking", {"type": "enabled"}),
         ("base_url", "https://[broken"),
         ("base_url", "https://example.invalid:99999"),
+        ("base_url", "http://api.example.invalid/v1"),
+        ("base_url", "http://192.168.1.10:8000/v1"),
+        ("base_url", "http://127.0.0.1.example.invalid/v1"),
+        ("base_url", "http://localhost.example.invalid"),
         ("api_key", "must-not-be-stored"),
     ],
 )
@@ -46,6 +50,23 @@ def test_invalid_provider_configuration_is_rejected_once_at_boundary(tmp_path, f
     with pytest.raises(DomainError) as error:
         load_providers(write_config(tmp_path, [data]))
     assert error.value.code == "invalid_provider_config"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.example.invalid/v1",
+        "http://127.0.0.1:8080/v1",
+        "http://127.8.9.10/v1",
+        "http://localhost:11434",
+        "http://LOCALHOST.:11434",
+        "http://[::1]:8000/v1",
+    ],
+)
+def test_plain_http_is_allowed_only_for_loopback_provider_hosts(tmp_path, base_url):
+    data = asdict(configuration("deepseek"))
+    data["base_url"] = base_url
+    assert load_providers(write_config(tmp_path, [data]))[0].base_url == base_url
 
 
 def test_duplicate_provider_names_and_implicit_openai_mode_are_rejected(tmp_path):

@@ -12,7 +12,12 @@ from tests.support.http_provider import chat_completion, protocol_server
 from tests.workflows.test_skills_http import skill_reply
 
 from pycode.app.config import AppConfig
-from pycode.app.container import build_tui, build_worker_host, open_agent_session
+from pycode.app.container import (
+    build_tui,
+    build_worker_host,
+    issue_worker_host_token,
+    open_agent_session,
+)
 from pycode.core.errors import ToolError
 from pycode.core.messages import Message
 
@@ -23,7 +28,10 @@ async def worker_server(config, providers):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.setblocking(False)
-    host = uvicorn.Server(uvicorn.Config(protocol.application(), log_level="error", ws="none"))
+    port = listener.getsockname()[1]
+    # Clients find the token through the user data directory, exactly as with `team serve`.
+    token = issue_worker_host_token(config, port)
+    host = uvicorn.Server(uvicorn.Config(protocol.application(token), log_level="error", ws="none"))
     running = asyncio.create_task(host.serve(sockets=[listener]))
     try:
         async with asyncio.timeout(10):
@@ -31,7 +39,7 @@ async def worker_server(config, providers):
                 if running.done():
                     await running
                 await asyncio.sleep(0.01)
-        yield "http://127.0.0.1:" + str(listener.getsockname()[1]), protocol, worktrees
+        yield "http://127.0.0.1:" + str(port), protocol, worktrees
     finally:
         host.should_exit = True
         await asyncio.wait_for(running, 10)

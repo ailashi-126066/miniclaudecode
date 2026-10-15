@@ -574,7 +574,7 @@ def runtime_subagents(config, provider, history, consumers, run_id=None):
             "description": "Inspect code and report findings without modifications",
             "runnable": RunnableLambda(delegate.invoke),
         },
-        *async_agent_specs(config.team_agents),
+        *async_agent_specs(config.team_agents, config.user_data),
     )
 
 
@@ -600,7 +600,7 @@ def build_team_manager(config, history, *, plans=None):
         history,
         config.team_agents,
         concurrency=config.team_concurrency,
-        commands=NativeTeamCommands(async_agent_specs(config.team_agents)),
+        commands=NativeTeamCommands(async_agent_specs(config.team_agents, config.user_data)),
         plans=plans,
     )
 
@@ -633,6 +633,18 @@ def build_worker_host(config, providers):
         config, providers, open_agent_session, worktrees, layout.runtime_database
     )
     return LocalAgentProtocol(workers.create, concurrency=load_team_concurrency(config)), worktrees
+
+
+def issue_worker_host_token(config, port):
+    from pycode.adapters.team.token import issue_token
+
+    return issue_token(config.user_data, port)
+
+
+def revoke_worker_host_token(config, port, token):
+    from pycode.adapters.team.token import revoke_token
+
+    revoke_token(config.user_data, port, token)
 
 
 def build_worktree_manager(config):
@@ -696,16 +708,30 @@ def build_evaluation_solver(config, providers):
     return ConfiguredEvaluationSolver(config, providers, open_agent_session, identity, trace_path)
 
 
-def async_agent_specs(agents):
+def async_agent_specs(agents, user_data):
+    from urllib.parse import urlsplit
+
+    from pycode.adapters.team.token import read_token
+    from pycode.core.network import is_loopback_host
+
     specs = []
     for agent in agents:
+        headers = dict(agent.headers)
+        url = urlsplit(agent.url)
+        explicit = any(key.casefold() == "authorization" for key in headers)
+        if not explicit and is_loopback_host(url.hostname):
+            # Local `team serve` hosts publish a per-port token in the user data directory.
+            port = url.port or (443 if url.scheme == "https" else 80)
+            token = read_token(user_data, port)
+            if token is not None:
+                headers["Authorization"] = "Bearer " + token
         specs.append(
             {
                 "name": agent.name,
                 "description": agent.description,
                 "graph_id": agent.graph_id,
                 "url": agent.url,
-                "headers": dict(agent.headers),
+                "headers": headers,
             }
         )
     return specs

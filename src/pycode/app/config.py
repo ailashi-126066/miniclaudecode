@@ -16,6 +16,7 @@ from pycode.core.models import (
     ProviderConfig,
     ToolSelectorSettings,
 )
+from pycode.core.network import is_loopback_host
 from pycode.core.sandbox import SandboxSettings
 from pycode.core.team import TeamAgent
 
@@ -194,6 +195,11 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
         ):
             raise DomainError(
                 "invalid_provider_config", "Provider base URL must be HTTP(S) without credentials"
+            )
+        if url.scheme != "https" and not is_loopback_host(url.hostname):
+            # API keys travel in request headers; plain HTTP is only acceptable on this machine.
+            raise DomainError(
+                "invalid_provider_config", "Provider base URL must use HTTPS unless loopback"
             )
         if url.query or url.fragment:
             raise DomainError(

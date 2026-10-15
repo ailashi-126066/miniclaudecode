@@ -189,6 +189,13 @@ TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先
 pycode team --providers providers.json serve --port 2024
 ```
 
+本地服务只监听 127.0.0.1。每次启动生成随机 bearer token，以 0600 权限原子写入
+用户数据目录的 `team-tokens/端口.token`，退出时删除；所有请求须携带
+`Authorization: Bearer <token>`，否则返回 401，Host 头只接受 `127.0.0.1`、`localhost`
+或 `[::1]`（可带端口），否则返回 403 以防 DNS rebinding。`team.json` 中指向 loopback
+地址且未显式配置 `Authorization` 的条目由 pycode 自动读取对应端口的 token；
+服务需与客户端使用同一用户数据目录。
+
 本地 graph_id 为 `readonly`、`worker` 或显式集成任务的 `integration`。
 修改型 Worker 使用独立 worktree，文件写入限定
 其中，Bash／Python／外部动作继续保留对应审批。任务 start／check／update／cancel／list
