@@ -118,7 +118,6 @@ class PyApp(App):
         self._sandbox_status = sandbox_status
         self.session: InteractiveSession | None = None
         self._render_failed = False
-        self._pending_worker = None
         self._tree_nodes = {}
         self._tree_session = None
         self.session_id = None
@@ -401,13 +400,6 @@ class PyApp(App):
             nodes[entry["id"]] = parent.add(label, data=entry["id"], expand=True)
         await self.query_one("#pending", Vertical).remove_children()
         pending = self.state["pending"]
-        self._pending_worker = None
-        if not pending:
-            for identifier, task in self.state.get("team", {}).items():
-                if task.get("pending"):
-                    self._pending_worker = identifier
-                    pending = task["pending"]
-                    break
         if pending:
             payload = pending[0]
             if payload["kind"] == "permission":
@@ -420,7 +412,6 @@ class PyApp(App):
                                 "arguments": payload["call"]["arguments"],
                                 "details": payload.get("approval_details", {}),
                                 "sandbox": payload.get("sandbox"),
-                                "worker": self._pending_worker,
                             },
                             ensure_ascii=False,
                             indent=2,
@@ -548,10 +539,7 @@ class PyApp(App):
         self.respond(event.answer)
 
     def respond(self, answer):
-        if self._pending_worker is not None:
-            self.start_operation(self.session.team_answer, self._pending_worker, answer)
-        else:
-            self.start_operation(self.session.resume, answer)
+        self.start_operation(self.session.resume, answer)
 
     def on_plan_panel_responded(self, event):
         self.respond(event.answer)
@@ -745,20 +733,6 @@ class PyApp(App):
     async def command_usage(self, args):
         self.push_screen(UsageScreen(await self.session.usage()))
 
-    async def command_team(self, args):
-        if args in ([], ["list"]):
-            self.start_operation(self.team_list)
-        elif len(args) == 2 and args[0] in {"check", "cancel"}:
-            self.start_operation(self.team_action, args[0] + "_async_task", {"task_id": args[1]})
-        elif len(args) >= 3 and args[0] == "update":
-            self.start_operation(
-                self.team_action,
-                "update_async_task",
-                {"task_id": args[1], "message": " ".join(args[2:])},
-            )
-        else:
-            return False
-
     async def command_compact(self, args):
         if args:
             return False
@@ -807,13 +781,6 @@ class PyApp(App):
 
     async def show_memory(self):
         self._memory_report = await self.session.memory_list()
-
-    async def team_list(self):
-        result = await self.session.team_control("list_async_tasks", {"status_filter": "all"})
-        self.notice(result)
-
-    async def team_action(self, name, arguments):
-        self.notice(await self.session.team_control(name, arguments))
 
     async def show_storage(self):
         report = await self.session.storage_status()

@@ -13,7 +13,7 @@ conversion and decorators stay in workflow/adapter boundaries. Imports construct
 its minimal state/context. `history.py` restores canonical projected input and records model
 responses before tools. `settlement.py` validates, authorizes, invokes the framework handler,
 orders durable result settlement, binds objects/snapshots and emits final events. Native tools
-can return Command state updates; settlement retains todos/async-task updates.
+can return Command state updates; settlement retains todo updates.
 
 FilesystemMiddleware uses PycodeBackend and explicit routes: `/workspace/`, `/plans/`,
 `/skills/<source>/`, `/large_tool_results/`, `/conversation_history/`.
@@ -42,10 +42,10 @@ Project prompt snapshots refresh only at new tasks. Store entries are immutable,
 by ID; active-path IDs and projection revision caches avoid deep-copying complete history.
 
 Native sync task uses independent read-only sessions. Fork Skills inherit full/recent/no parent
-context without loading into the parent. Async Subagents use the public native tools and Agent
-Protocol; local hosting invokes the same AgentSession, owns cancellation, retains JSONL/worktrees,
-and has no worker mailbox/cursor. TeamManager adds dependency policy and concurrency, never a
-second tool/model scheduler. Usage retains purpose/agent/session identity and known team totals.
+context without loading into the parent. Remote Async Subagents, `team serve` and the Agent
+Protocol host are removed; multi-agent work will return in-process. TeamManager (task store,
+dependency policy, concurrency) and WorktreeManager stay as unwired building blocks for it.
+Usage retains purpose/agent/session identity and known team totals.
 
 Plan is an exact writable document with run-bound approved hash; restart expires approvals.
 Memory uses official LangMem manage/search tools and Store Manager over JsonMemoryStore.
@@ -71,10 +71,7 @@ Evaluation runs the same harness in isolated declared-file workspaces and tests 
 Build/tests operate here without initializing the project Git directory. Reference projects
 remain read-only. Temporary Git/worktree/evaluation operations are confined to tests-owned roots.
 
-Review fixes: one TeamManager is injected into both session controls and live runs. The same
-Plan/concurrency policy governs CLI, TUI, dependency starts and native model tools. Worker waits
-are surfaced by native check results; explicit user answers use native update on the same thread.
-Ordinary update/cancel expires the old wait. Serial tools wait for preceding durable settlement
+Review fixes: serial tools wait for preceding durable settlement
 or interrupt, rather than racing a lock and an outdated failure count. Live tool tasks are
 owned and collected when persistence or a critical synchronous Hook fails.
 

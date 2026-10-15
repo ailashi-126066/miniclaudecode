@@ -42,7 +42,14 @@ def test_fixed_event_and_condition_vectors_parse_before_execution():
 
 
 @pytest.mark.parametrize(
-    "change", [{"async": True}, {"event": "invalid"}, {"reject": "yes"}, {"action": []}]
+    "change",
+    [
+        {"async": True},
+        {"event": "invalid"},
+        {"reject": "yes"},
+        {"action": []},
+        {"action": {"type": "http", "url": "https://hooks.example.test"}},
+    ],
 )
 def test_invalid_configuration_is_a_domain_error(change):
     with pytest.raises(DomainError):

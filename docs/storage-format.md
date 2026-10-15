@@ -3,7 +3,7 @@
 ```text
 ~/.pycode/
   model-catalog.json
-  mcp.json / hooks.json / team.json
+  mcp.json / hooks.json
   skills/
   memory/                       # memory.json, versions/, jobs/, moves/
   projects/<normalized-workspace-hash>/
@@ -21,7 +21,7 @@
 <workspace>/.pycode/
   plans/<session-id>/<plan-id>.md
   memory/
-  skills/ / mcp.json / hooks.json / team.json
+  skills/ / mcp.json / hooks.json
 ```
 
 Main Graph checkpoint and progress events are memory-only. runtime.sqlite has no current

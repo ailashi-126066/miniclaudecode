@@ -53,7 +53,7 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
 - `adapters/mcp/*`、`services/mcp*.py`：MewCode 产品命名/目录策略，LangChain MCPAdapter
   唯一连接及协议实现；stdio/HTTP、direct/dispatch、资源/提示和错误经过同一结算边界。
   不保留直接协议 SDK 客户端或额外 adapter 包。
-- `services/hooks.py`、`adapters/hooks/*`：MewCode 条件、模板、command/prompt/HTTP 复用；
+- `services/hooks.py`、`adapters/hooks/*`：MewCode 条件、模板、command/prompt 复用（HTTP 动作已删除）；
   JSONL once/结果、owned background、真实只读 Agent 动作和 Plan/权限边界为本项目接入。
 - `services/plans.py`、`adapters/storage/plans.py`、`workflows/plans.py`：精确 Markdown 路径，
   当前进程审批、批准内容 hash、反馈与重启过期语义。AskUser 使用同样 live interrupt。
@@ -61,8 +61,8 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   官方 LangMem Store Manager／管理搜索工具／prompt_memory 适配，三类 JSON 记忆、可信来源、
   单一召回、分组提交、持久作业／来源游标和规则比较为本项目接入。旧格式迁移与恢复代码、
   旧提取器、人工审阅服务和 Markdown 工具路由均已退出运行包。
-- `services/team.py`、`workflows/team.py`、`adapters/team/*`：Deep Agents Async Subagents
-  五个 native tools 及 Agent Protocol；pycode 添加依赖、并发、worktree 和安全集成清理。
+- `services/team.py`、`adapters/team/worktrees.py`：任务存储、依赖校验与并发策略，以及
+  worktree 和安全集成清理，留待进程内多 Agent 复用；`team serve`／Agent Protocol 已删除。
   没有独立 Worker 消息队列／已消费游标；同步只读子任务和 fork Skill 使用 native task。
 - `services/storage_gc.py`、`adapters/storage/objects.py`：引用标记、30 天隔离/恢复、会话显式
   删除及审计；保护全部分支、fork、summary/Plan/memory/team。快照 Git GC 与 worktree 分开。

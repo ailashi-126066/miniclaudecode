@@ -21,8 +21,6 @@ REQUIRED_TOOLS = frozenset(
         "SkillSearch",
         "AskUserQuestion",
         "ExitPlanMode",
-        "check_async_task",
-        "list_async_tasks",
         "manage_user_memory",
         "search_user_memory",
         "manage_project_memory",

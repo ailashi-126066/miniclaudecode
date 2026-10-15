@@ -46,12 +46,6 @@ COMMANDS = (
     ),
     Command("/plan", "Enter plan mode", "command_plan", "[TASK]", True),
     Command("/usage", "Show token usage", "command_usage"),
-    Command(
-        "/team",
-        "Manage background tasks",
-        "command_team",
-        "[list|check ID|cancel ID|update ID TEXT]",
-    ),
     Command("/compact", "Compact conversation context", "command_compact"),
     Command("/reload", "Refresh the skill catalog", "command_reload"),
     Command("/skills", "Search available skills", "command_skills", "[QUERY]", True),

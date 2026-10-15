@@ -89,8 +89,7 @@ Provider 配置可包含 `tool_selector`。默认开启，候选可选工具超�
 
 名称是显示 metadata。完整 session_id 仍是唯一身份；重名要求明确选择 ID。
 TUI 支持 `/session name 名称`、`/session open ID-or-name`、`/session fork 新ID`、
-`/plan`、`/memory`、`/storage status`、`/storage gc --dry-run`、`/team list`、
-`/team check ID`、`/team update ID 新指令`、`/team cancel ID` 和 `/skill:NAME 参数`。
+`/plan`、`/memory`、`/storage status`、`/storage gc --dry-run` 和 `/skill:NAME 参数`。
 
 ## 主模型故障切换
 
@@ -152,7 +151,7 @@ Skill 来源按内置、用户、受信任项目 `.agents/skills`、项目 `.pyc
 GitHub 安装采用 staging、校验与旧版本备份。Python 工具只在选择后验证、执行前逐次审批，
 显示脚本／schema 哈希及隔离状态。fork Skill 使用原生 task，支持 full／recent／none。
 
-Hooks 支持 command、prompt、HTTP 和真实只读子 Agent 动作；同步失败明确报错，后台任务
+Hooks 支持 command、prompt 和真实只读子 Agent 动作；同步失败明确报错，后台任务
 由会话收拢。MCP 支持 stdio、HTTP、direct／dispatch、资源与提示，共用 MCPAdapter 连接。
 Windows／Linux 没有 Seatbelt；macOS Bash 可选 `--sandbox on|on-auto`，
 `--sandbox-network` 显式允许网络。macOS 物理隔离仍须在目标平台验收。
@@ -182,39 +181,7 @@ TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先
 迁入不同作用域的用户偏好／项目知识标为明确作用域纠正；迁入规则由该次用户动作明确采用，
 修改案例正文时取消原“已验证”标记。迁移备份与旧格式原件仍用于恢复。
 
-`team.json` 位于用户数据目录或受信任项目目录，声明 `name`、`description`、`graph_id`、
-`url`、可选 `headers` 和 `modifies_workspace`。本地服务：
-
-```powershell
-pycode team --providers providers.json serve --port 2024
-```
-
-本地服务只监听 127.0.0.1。每次启动生成随机 bearer token，以 0600 权限原子写入
-用户数据目录的 `team-tokens/端口.token`，退出时删除；所有请求须携带
-`Authorization: Bearer <token>`，否则返回 401，Host 头只接受 `127.0.0.1`、`localhost`
-或 `[::1]`（可带端口），否则返回 403 以防 DNS rebinding。`team.json` 中主机为 `127.0.0.1`
-或 `localhost` 且未显式配置 `Authorization` 的条目由 pycode 自动读取对应端口的 token；
-服务需与客户端使用同一用户数据目录。建议写 `http://127.0.0.1:端口`：`localhost` 可能先解析到
-`[::1]`，同机其他用户若抢先监听该地址即可截获 token。端口已被占用时 `team serve` 直接报错退出，
-不会改动运行中服务的 token。TUI／CLI 的 team 命令每次执行都重新读取 token；Lead 模型使用的
-Async Subagents 在会话打开时读取，先开会话后启动或重启 `team serve` 时需重开会话。
-
-本地 graph_id 为 `readonly`、`worker` 或显式集成任务的 `integration`。
-修改型 Worker 使用独立 worktree，文件写入限定
-其中，Bash／Python／外部动作继续保留对应审批。任务 start／check／update／cancel／list
-直接使用 Deep Agents Async Subagents；update 中断旧 run，在同一 thread 启动新 run。
-pycode 管理依赖、引用与集成检查。默认活动并发上限 4；用户数据目录或受信任项目目录的
-`team-settings.json` 可设置 `{"concurrency": 2}`，项目配置覆盖用户配置。
-Worker 完成不自动提交／合并；只有确认已集成、验证通过、停止且干净后才移除 worktree。
-本地服务退出会收拢 Worker；重启查询真实状态，不自动续跑旧工具。
-使用 `team start ROLE "任务" --base REV --include-uncommitted` 显式选择本地修改型 Worker
-的起点；默认从 HEAD 创建，不隐式复制未提交文件。选项经过原生 start API 的任务描述
-传到本地服务，已有 Worker 的 update 保留原工作区。
-`team check ID` 返回当前 Worker 的待审批信息；TUI 将审批转发给 Lead 界面。
-CLI 使用 `team answer ID --answers-file answers.json` 提交当前操作的明确回答。
-普通 update 或 cancel 会结束旧等待，旧答案失效；Python 工具仍逐次审批。
-PLAN 中的 CLI／TUI Team 控制与模型工具共用策略，只允许只读 Worker。
-集成任务在目标工作区执行明确指定的审查、测试和合并，修改仍需审批。
+多 Agent 将在后续阶段以进程内方式重新实现。
 `worktree inspect ID` 查看保留路径与差异；完成集成后使用
 `worktree confirm-integration ID --validated --worker-stopped`。
 该命令重新核对目标分支包含关系及干净状态，再删除工作区和对应分支。

@@ -60,31 +60,6 @@ def build_parser():
     evaluation.add_argument("--full", action="store_true")
     evaluation.add_argument("--keep-work", action="store_true")
     evaluation.add_argument("--langfuse", action="store_true")
-    team = commands.add_parser("team", help="Manage native Async Subagents or serve local Workers")
-    execution_options(team, suppress=True)
-    team_actions = team.add_subparsers(dest="team_command", required=True)
-    serve = team_actions.add_parser("serve")
-    serve.add_argument("--port", type=int, default=2024)
-    team_actions.add_parser("list")
-    start = team_actions.add_parser("start")
-    start.add_argument("agent")
-    start.add_argument("description")
-    start.add_argument("--dependency", action="append", default=[])
-    start.add_argument("--queue", action="store_true")
-    start.add_argument("--base", help="Explicit Git revision for a local modifying Worker")
-    start.add_argument(
-        "--include-uncommitted",
-        action="store_true",
-        help="Capture the current uncommitted workspace as the Worker start",
-    )
-    answer = team_actions.add_parser("answer", help="Answer a current Worker approval or form")
-    answer.add_argument("task_id")
-    answer.add_argument("--answers-file", required=True)
-    for name in ("check", "cancel", "update"):
-        action = team_actions.add_parser(name)
-        action.add_argument("task_id")
-        if name == "update":
-            action.add_argument("message")
     model = commands.add_parser("model", aliases=["/model"], help="List or select models")
     model.add_argument("--providers", required=True)
     model.add_argument("--cached", action="store_true")

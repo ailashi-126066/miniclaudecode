@@ -1,1 +1,1 @@
-"""Agent Protocol and isolated Git worktree boundaries."""
+"""Isolated Git worktree boundaries."""

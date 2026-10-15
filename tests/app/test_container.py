@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pycode.app.config import AppConfig, load_team_concurrency
+from pycode.app.config import AppConfig
 from pycode.app.container import build_container, build_evaluation_runner
 from pycode.core.errors import StorageError
 from pycode.core.models import ProviderConfig
@@ -77,14 +77,3 @@ def test_evaluation_rejects_runtime_artifact_symlink_escape(tmp_path):
             runtime / "work",
             runtime / "results",
         )
-
-
-def test_team_concurrency_uses_only_trusted_project_override(tmp_path):
-    user = tmp_path / "data"
-    user.mkdir()
-    project = tmp_path / ".pycode"
-    project.mkdir()
-    (user / "team-settings.json").write_text(json.dumps({"concurrency": 2}))
-    (project / "team-settings.json").write_text(json.dumps({"concurrency": 6}))
-    assert load_team_concurrency(AppConfig(tmp_path, user)) == 2
-    assert load_team_concurrency(AppConfig(tmp_path, user, project_trusted=True)) == 6

@@ -7,7 +7,7 @@ from dataclasses import asdict, replace
 
 import pytest
 from tests.support.execution import provider
-from tests.support.http_provider import HTTPResponse, chat_completion, protocol_server
+from tests.support.http_provider import chat_completion, protocol_server
 from tests.workflows.test_revert_http import command_reply
 from tests.workflows.test_skills_http import skill_reply
 from tests.workflows.test_summary_http import seed
@@ -139,47 +139,6 @@ async def test_command_once_persists_and_cannot_approve_parent_tool(tmp_path, mo
             await session.aclose()
 
 
-async def test_actual_http_hook_and_scope_order_do_not_replace_parent_history(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
-    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    with protocol_server([HTTPResponse(b"received", content_type="text/plain")]) as (
-        hook_url,
-        hook_requests,
-    ):
-        await hook_file(
-            config,
-            [
-                {
-                    "id": "send",
-                    "event": "pre_send",
-                    "action": {"type": "http", "url": hook_url, "body": '{"event":"$EVENT"}'},
-                }
-            ],
-        )
-        with protocol_server([chat_completion()]) as (url, requests):
-            session = await open_session(config, url, create=True)
-            try:
-                assert (await session.run(Message("u1", "user", "task"))).outcome == "completed"
-                assert len(hook_requests) == len(requests) == 1
-                assert hook_requests[0]["body"] == {"event": "pre_send"}
-                state = await session.inspect()
-                hook_result = next(
-                    entry
-                    for entry in state["snapshot"]["entries"]
-                    if entry["type"] == "hook_result"
-                )
-                assert "received" in hook_result["data"]["result"]["text"]
-                assert [
-                    item["content"]
-                    for item in requests[0]["body"]["messages"]
-                    if item["role"] == "user"
-                ] == ["task"]
-            finally:
-                await session.aclose()
-
-
 async def test_hook_configuration_change_cannot_bypass_pending_approval(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
@@ -250,54 +209,6 @@ async def test_startup_once_result_survives_close_before_first_user(tmp_path):
         session = await open_session(config, "http://127.0.0.1:1", create=True)
         await session.aclose()
     assert (tmp_path / "boot.txt").read_text() == "once"
-
-
-async def test_http_uncertain_outcome_interrupts_for_review_without_repeating_request(
-    tmp_path, monkeypatch
-):
-    import threading
-
-    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
-    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    release = threading.Event()
-    delayed = HTTPResponse(b"accepted", content_type="text/plain", release=release)
-    with protocol_server([delayed]) as (hook_url, hook_requests):
-        await hook_file(
-            config,
-            [
-                {
-                    "id": "send",
-                    "event": "pre_send",
-                    "action": {
-                        "type": "http",
-                        "url": hook_url,
-                        "body": '{"task":"accepted"}',
-                        "timeout": 0.2,
-                    },
-                }
-            ],
-        )
-        with protocol_server([chat_completion()]) as (url, requests):
-            session = await open_session(config, url, create=True)
-            try:
-                with pytest.raises(StorageError) as error:
-                    await session.run(Message("u1", "user", "task"))
-                assert error.value.code == "hook_effects_uncertain"
-                assert len(hook_requests) == 1 and not requests
-                release.set()
-                state = await session.inspect()
-                operation = next(
-                    entry["operation_id"]
-                    for entry in state["snapshot"]["entries"]
-                    if entry["type"] == "hook_call"
-                )
-                await session.aclose()
-                session = await open_session(config, url)
-                await session.reconcile_hook(operation, "result", "Verified HTTP was accepted")
-                assert len(hook_requests) == 1 and not requests
-            finally:
-                release.set()
-                await session.aclose()
 
 
 async def test_background_command_is_nonblocking_and_close_collects_process(tmp_path, monkeypatch):

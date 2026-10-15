@@ -78,7 +78,6 @@ async def test_command_variables_are_data_and_cannot_inject_shell_or_environment
     )
     assert not result.is_error and result.text == value
     assert not (tmp_path / "injected").exists()
-    assert runner.expand("$MESSAGE", context) == value
 
 
 async def test_command_receives_only_explicit_environment_references(tmp_path, monkeypatch):

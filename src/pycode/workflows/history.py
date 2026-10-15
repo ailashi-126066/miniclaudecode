@@ -87,8 +87,6 @@ class HistoryMiddleware(AgentMiddleware):
             if turn > 1:
                 await context.events.emit("turn_start", {"turn": turn})
             updates = {"turn": turn}
-            if context.team is not None:
-                updates["async_tasks"] = await context.team.tasks()
             if context.history_store is not None:
                 snapshot = await context.history_store.snapshot()
                 projection = context.projector.project(snapshot)

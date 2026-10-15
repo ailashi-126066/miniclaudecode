@@ -3,19 +3,15 @@
 import asyncio
 from dataclasses import replace
 
-import httpx
 from langchain_core.messages import AIMessage
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 from tests.workflows.test_agent import Recorder, assemble
-from tests.workflows.test_questions import question_response
 from tests.workflows.test_skills_http import skill_reply
 
-from pycode.adapters.team.protocol import LocalAgentProtocol
 from pycode.adapters.tools.backend import PycodeBackend
 from pycode.app.config import AppConfig
 from pycode.app.container import build_tui, open_agent_session
-from pycode.app.team_runtime import SessionWorker
 from pycode.core.errors import ToolError
 from pycode.core.messages import Message
 
@@ -69,71 +65,6 @@ async def test_dialogue_revert_must_restore_plan_policy(tmp_path, monkeypatch):
             assert view["plan"] is None
         finally:
             await session.aclose()
-
-
-async def test_native_update_after_worker_wait_must_accept_new_instruction(tmp_path, monkeypatch):
-    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
-    args = {"questions": [{"type": "text", "name": "q", "message": "Answer?"}]}
-    with protocol_server([question_response(args), chat_completion()]) as (url, requests):
-
-        async def factory(identifier, graph):
-            session = await open_agent_session(
-                AppConfig(tmp_path, tmp_path / "data", memory_mode="off", allow_delegation=False),
-                (provider(url),),
-                "worker-" + identifier,
-                create=True,
-                refresh_models=False,
-            )
-            return SessionWorker(session)
-
-        host = LocalAgentProtocol(factory)
-        try:
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=host.application("audit-token")),
-                base_url="http://127.0.0.1",
-                headers={"Authorization": "Bearer audit-token"},
-            ) as client:
-                thread = (await client.post("/threads", json={})).json()["thread_id"]
-                first = (
-                    await client.post(
-                        f"/threads/{thread}/runs",
-                        json={
-                            "assistant_id": "worker",
-                            "input": {"messages": [{"role": "user", "content": "Ask me"}]},
-                        },
-                    )
-                ).json()
-                await host.running[thread]
-                second = (
-                    await client.post(
-                        f"/threads/{thread}/runs",
-                        json={
-                            "assistant_id": "worker",
-                            "multitask_strategy": "interrupt",
-                            "input": {
-                                "messages": [
-                                    {
-                                        "role": "user",
-                                        "content": "Cancel that question and inspect code instead",
-                                    }
-                                ]
-                            },
-                        },
-                    )
-                ).json()
-                await host.running[thread]
-                state = (await client.get(f"/threads/{thread}/runs/{second['run_id']}")).json()
-                print(
-                    "first",
-                    host.runs[first["run_id"]],
-                    "updated",
-                    state,
-                    "model_requests",
-                    len(requests),
-                )
-                assert state["status"] == "success"
-        finally:
-            await host.aclose()
 
 
 def test_file_deleted_since_read_must_conflict(tmp_path):

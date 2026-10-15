@@ -11,7 +11,6 @@ import json
 import re
 from dataclasses import fields
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from pycode.core.errors import DomainError
 from pycode.core.hooks import HOOK_EVENTS, Hook, HookAction, parse_condition
@@ -54,19 +53,16 @@ def parse_hooks(raw, source="user"):
             not in {
                 "command",
                 "prompt",
-                "http",
                 "agent",
             }
         ):
             raise DomainError("invalid_hook_config", "Unknown Hook action")
         if not set(action) <= {item.name for item in fields(HookAction)}:
             raise DomainError("invalid_hook_config", "Unknown Hook action field")
-        required = {"command": "command", "prompt": "message", "http": "url", "agent": "prompt"}[
-            action["type"]
-        ]
+        required = {"command": "command", "prompt": "message", "agent": "prompt"}[action["type"]]
         if not isinstance(action.get(required), str) or not action[required]:
             raise DomainError("invalid_hook_config", "Hook action is missing required text")
-        for key in ("command", "message", "url", "method", "body", "prompt"):
+        for key in ("command", "message", "prompt"):
             if not isinstance(action.get(key, ""), str) or len(action.get(key, "")) > 64000:
                 raise DomainError("invalid_hook_config", "Hook action text exceeds limit")
         seconds = action.get("timeout", 30)
@@ -76,41 +72,6 @@ def parse_hooks(raw, source="user"):
             or not 0 < seconds <= 600
         ):
             raise DomainError("invalid_hook_config", "Hook timeout must be positive and bounded")
-        headers = action.get("headers", {})
-        if not isinstance(headers, dict) or any(
-            not isinstance(key, str) or not isinstance(value, str) for key, value in headers.items()
-        ):
-            raise DomainError("invalid_hook_config", "HTTP headers must be text")
-        for key, value in headers.items():
-            if key.casefold() in {"authorization", "cookie", "x-api-key"} and "$ENV." not in value:
-                raise DomainError(
-                    "invalid_hook_config", "Authentication headers need environment references"
-                )
-        if action["type"] == "http":
-            try:
-                url = urlsplit(action["url"])
-                valid = url.port is None or 0 < url.port < 65536
-            except ValueError as error:
-                raise DomainError("invalid_hook_config", "Invalid Hook URL") from error
-            if (
-                not valid
-                or url.scheme not in {"http", "https"}
-                or not url.hostname
-                or url.username
-                or url.password
-            ):
-                raise DomainError(
-                    "invalid_hook_config", "Hook URL must be HTTP(S) without credentials"
-                )
-            if action.get("method", "POST") not in {
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-                "HEAD",
-            }:
-                raise DomainError("invalid_hook_config", "Invalid Hook HTTP method")
         hooks.append(
             Hook(
                 name,

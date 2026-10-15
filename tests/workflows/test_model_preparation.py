@@ -77,15 +77,6 @@ class SteeringJournal(Journal):
         return await super().append_message(message)
 
 
-class Team:
-    def __init__(self, trace):
-        self.trace = trace
-
-    async def tasks(self):
-        self.trace.append("team")
-        return []
-
-
 def preparation():
     trace = []
     _, context, _, _, _, _ = assemble([])
@@ -93,7 +84,6 @@ def preparation():
     context.summary = Summary(trace)
     context.eviction = Eviction(trace)
     context.hooks = Hooks(trace)
-    context.team = Team(trace)
     context.journal = SteeringJournal(trace)
     context.inputs.submit(Message("steer", "user", "new instruction"), "steer")
     return context, trace
@@ -110,10 +100,8 @@ async def test_preparation_keeps_refresh_summary_protection_steering_and_turn_or
         "eviction",
         "steering",
         "turn_start",
-        "team",
     ]
     assert updates["turn"] == 2
-    assert updates["async_tasks"] == []
     assert len(updates["messages"]) == 1
     assert updates["messages"][0].content == "new instruction"
     assert len(context.journal.messages) == 1

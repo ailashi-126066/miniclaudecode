@@ -61,8 +61,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                         "grep",
                         "write_todos",
                         "task",
-                        "check_async_task",
-                        "list_async_tasks",
                     }
                     spec = ToolSpec(
                         call.name,
@@ -154,9 +152,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
         if result is None:
             try:
                 spec = context.registry.get_spec(call.name)
-                if call.name == "TeamTask" and context.team is not None:
-                    if await context.team.read_only_call(call.name, call.arguments):
-                        spec = replace(spec, category="read")
                 request = request.override(tool=make_framework_tool(spec, context, tool_context))
             except ToolError:
                 resource = (
@@ -189,17 +184,9 @@ class ToolSettlementMiddleware(AgentMiddleware):
                             "grep",
                             "write_todos",
                             "task",
-                            "check_async_task",
-                            "list_async_tasks",
                         }
                         else "write"
                     )
-                    if call.name in {"start_async_task", "update_async_task"}:
-                        category = "external"
-                        if context.team is not None and await context.team.read_only_call(
-                            call.name, call.arguments
-                        ):
-                            category = "read"
                     schema = request.tool.args_schema if request.tool is not None else {}
                     if not isinstance(schema, dict):
                         schema = schema.model_json_schema()
@@ -261,18 +248,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                         context.workspace_files.end_invocation(token)
                     if invocation.result is not None:
                         return invocation.result
-                elif (
-                    current_call.name in {"start_async_task", "update_async_task"}
-                    and context.team is not None
-                ):
-                    async with context.team.lock:
-                        await context.team.validate_call(current_call.name, current_call.arguments)
-                        response = await handler(current_request)
-                        if isinstance(response, Command):
-                            # Reserve the slot before another framework tool starts.
-                            await context.team.record_updates(
-                                response.update.get("async_tasks", {}), context.run_id
-                            )
                 elif current_spec.category == "read":
                     retry = ToolRetryMiddleware(
                         max_retries=3,
@@ -325,19 +300,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                     else json_dumps(response.content, ensure_ascii=False)
                 )
                 code = None
-                if (
-                    current_call.name.endswith("_async_task")
-                    or current_call.name == "list_async_tasks"
-                ):
-                    if content.startswith(("Failed to ", "No tracked task ", "Unknown async ")):
-                        return ToolResult(
-                            call.id,
-                            call.name,
-                            content,
-                            is_error=True,
-                            error_code="async_subagent_error",
-                            details={"executed": False},
-                        )
                 if response.status == "error":
                     error_text = content.removeprefix("Error: ")
                     candidate = error_text.partition(":")[0]
@@ -462,14 +424,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 Message("result:" + saved_result.operation_id, "tool", tool_result=saved_result),
                 emit_start=True,
             )
-            if context.team is not None:
-                await context.team.record_updates(
-                    saved_updates.get("async_tasks", {}),
-                    context.run_id,
-                    result_text=saved_result.text,
-                )
-                if saved_call.name in {"check_async_task", "list_async_tasks"}:
-                    await context.team.schedule_ready()
             if (
                 saved_call.name == "SkillSearch"
                 and not saved_result.is_error

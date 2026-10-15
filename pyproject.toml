@@ -27,7 +27,6 @@ pycode = "pycode.app.cli:main"
 
 [project.optional-dependencies]
 eval = ["langfuse==4.17.0", "openevals==0.2.0", "agentevals==0.0.9"]
-team = ["starlette==1.7.0", "uvicorn==0.54.0"]
 dev = ["editables==0.6", "pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.17,<1", "build>=1,<2", "hatchling>=1.27,<2"]
 
 [tool.hatch.build.targets.wheel]

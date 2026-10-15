@@ -1,122 +1,80 @@
-"""Dependency scheduling and durable native task references have one execution owner."""
-
-import asyncio
+"""Team task storage, dependency validation and scheduling stay usable without a remote host."""
 
 import pytest
-from tests.adapters.test_team_protocol import AUTHORIZATION, server
 from tests.services.test_model_control import store_for
 
 from pycode.core.errors import ToolError
 from pycode.core.messages import Message
 from pycode.core.team import TeamAgent
 from pycode.services.team import TeamManager
-from pycode.workflows.team import NativeTeamCommands
 
 
-def manager(store, url):
-    role = TeamAgent("worker", "fixed Worker", "worker", url)
-    commands = NativeTeamCommands(
-        [
-            {
-                "name": role.name,
-                "description": role.description,
-                "graph_id": role.graph_id,
-                "url": role.url,
-                "headers": AUTHORIZATION,
-            }
-        ]
-    )
-    return TeamManager(store, (role,), commands=commands)
+class FakeCommands:
+    """In-process stand-in for the task command port; no network service is involved."""
+
+    def __init__(self):
+        self.started = []
+        self.status = {}
+
+    async def execute(self, name, arguments, tasks):
+        if name == "start_async_task":
+            identifier = "task-" + str(len(self.started))
+            self.started.append(arguments["description"])
+            self.status[identifier] = "running"
+        else:
+            identifier = arguments["task_id"]
+        task = {
+            "task_id": identifier,
+            "thread_id": identifier,
+            "agent_name": "reader",
+            "status": self.status[identifier],
+        }
+        return {identifier: task}, identifier
 
 
-async def test_concurrency_dependencies_query_update_and_single_start_after_restart(tmp_path):
+def manager(store, commands, concurrency=2):
+    role = TeamAgent("reader", "Read-only reviewer", "readonly", "local")
+    return TeamManager(store, (role,), concurrency=concurrency, commands=commands)
+
+
+async def test_concurrency_dependencies_and_cycle_validation(tmp_path):
     store = store_for(tmp_path)
     await store.append_message(Message("u1", "user", "team"))
-    async with server() as (url, protocol, workers):
-        team = manager(store, url)
-        try:
-            for _ in range(4):
-                await team.execute(
-                    "start_async_task", {"subagent_type": "worker", "description": "wait"}
-                )
-            tasks = await team.tasks()
-            assert len(tasks) == 4 and len(workers) == 4
-            with pytest.raises(ToolError) as error:
-                await team.execute(
-                    "start_async_task", {"subagent_type": "worker", "description": "finish"}
-                )
-            assert error.value.code == "team_concurrency_limit" and len(workers) == 4
-            predecessor = next(iter(tasks))
-            pending_id = await team.queue("worker", "finish", (predecessor,))
-            assert len(workers) == 4
-            await team.execute("update_async_task", {"task_id": predecessor, "message": "finish"})
-            async with asyncio.timeout(10):
-                while (await team.tasks())[predecessor]["status"] != "success":
-                    await team.execute("check_async_task", {"task_id": predecessor})
-                    await asyncio.sleep(0.01)
-            await team.schedule_ready()
-            assert len(workers) == 5
-            pending = [
-                entry
-                for entry in (await store.snapshot()).entries
-                if entry.type == "team_pending" and entry.data["id"] == pending_id
-            ]
-            assert pending[-1].data["status"] == "started"
-            restarted = manager(store, url)
-            await restarted.reconcile()
-            await restarted.schedule_ready()
-            assert len(workers) == 5
-            first = (await restarted.tasks())[predecessor]
-            assert first["task_id"] == first["thread_id"] and first["status"] == "success"
-            assert first["service_url"] == url
-            with pytest.raises(ToolError, match="acyclic"):
-                await restarted.add_dependencies(predecessor, (predecessor,))
-        finally:
-            await store.aclose()
-
-
-async def test_unreachable_executor_marked_interrupted_without_automatic_run(tmp_path):
-    store = store_for(tmp_path)
-    await store.append_message(Message("u1", "user", "team"))
-    async with server() as (url, _, _):
-        team = manager(store, url)
-        await team.execute("start_async_task", {"subagent_type": "worker", "description": "wait"})
-        task_id = next(iter(await team.tasks()))
+    commands = FakeCommands()
+    team = manager(store, commands)
     try:
-        restarted = manager(store, url)
-        await restarted.reconcile()
-        task = (await restarted.tasks())[task_id]
-        assert task["status"] == "interrupted"
-        assert task["reconciliation_error"] == "team_service_unavailable"
-        assert task["task_id"] == task_id
+        for _ in range(2):
+            await team.execute("start_async_task", {"subagent_type": "reader", "description": "a"})
+        with pytest.raises(ToolError) as error:
+            await team.execute("start_async_task", {"subagent_type": "reader", "description": "b"})
+        assert error.value.code == "team_concurrency_limit"
+        first = next(iter(await team.tasks()))
+        pending_id = await team.queue("reader", "after first", (first,))
+        assert commands.started == ["a", "a"]
+        commands.status[first] = "success"
+        await team.execute("check_async_task", {"task_id": first})
+        await team.schedule_ready()
+        assert commands.started == ["a", "a", "after first"]
+        pending = [
+            entry
+            for entry in (await store.snapshot()).entries
+            if entry.type == "team_pending" and entry.data["id"] == pending_id
+        ]
+        assert pending[-1].data["status"] == "started"
+        with pytest.raises(ToolError, match="acyclic"):
+            await team.add_dependencies(first, (first,))
+        with pytest.raises(ToolError) as error:
+            await team.queue("reader", "missing", ("unknown",))
+        assert error.value.code == "unknown_dependency"
     finally:
         await store.aclose()
 
 
-async def test_native_commands_reread_specifications_before_each_command():
-    # A host started or restarted after the session publishes a token the next command uses.
-    headers = {}
-
-    def specifications():
-        return [
-            {
-                "name": "worker",
-                "description": "fixed Worker",
-                "graph_id": "worker",
-                "url": url,
-                "headers": dict(headers),
-            }
-        ]
-
-    async with server() as (url, protocol, workers):
-        commands = NativeTeamCommands(specifications)
+async def test_execution_requires_a_command_port(tmp_path):
+    store = store_for(tmp_path)
+    try:
         with pytest.raises(ToolError) as error:
-            await commands.execute(
-                "start_async_task", {"subagent_type": "worker", "description": "finish"}, {}
-            )
-        assert error.value.code == "team_service_unavailable" and not workers
-        headers.update(AUTHORIZATION)
-        updates, _ = await commands.execute(
-            "start_async_task", {"subagent_type": "worker", "description": "finish"}, {}
-        )
-        assert len(updates) == 1 and len(workers) == 1
+            await manager(store, None).execute("list_async_tasks", {})
+        assert error.value.code == "team_unavailable"
+    finally:
+        await store.aclose()

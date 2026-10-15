@@ -18,7 +18,6 @@ from pycode.core.models import (
 )
 from pycode.core.network import is_loopback_host
 from pycode.core.sandbox import SandboxSettings
-from pycode.core.team import TeamAgent
 
 
 @dataclass(frozen=True)
@@ -30,8 +29,6 @@ class AppConfig:
     project_trusted: bool = False
     skill_index_budget: int = 2000
     memory_mode: str | None = None
-    team_agents: tuple[TeamAgent, ...] = ()
-    team_concurrency: int = 4
     read_only: bool = False
     allow_delegation: bool = True
     agent_id: str = "lead"
@@ -42,12 +39,6 @@ class AppConfig:
     credential_workspace: Path | None = None
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.team_concurrency, bool)
-            or not isinstance(self.team_concurrency, int)
-            or self.team_concurrency < 1
-        ):
-            raise ValueError("Team concurrency must be a positive integer")
         if self.memory_mode not in {None, "auto", "off"}:
             raise ValueError("Memory mode must be auto or off")
         if (
@@ -73,69 +64,6 @@ def load_config(workspace: str | None = None, user_data: str | None = None) -> A
     project = Path(workspace).expanduser().resolve() if workspace else Path.cwd().resolve()
     data = Path(user_data).expanduser().resolve() if user_data else Path.home() / ".pycode"
     return AppConfig(workspace=project, user_data=data)
-
-
-def load_team_concurrency(config):
-    concurrency = config.team_concurrency
-    paths = [config.user_data / "team-settings.json"]
-    if config.project_trusted:
-        paths.append(config.workspace / ".pycode" / "team-settings.json")
-    for path in paths:
-        if not path.exists():
-            continue
-        try:
-            value = json.loads(path.read_bytes())
-            if not isinstance(value, dict) or set(value) != {"concurrency"}:
-                raise ValueError("Expected only concurrency")
-            concurrency = value["concurrency"]
-            if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
-                raise ValueError("Team concurrency must be a positive integer")
-        except (OSError, ValueError) as error:
-            raise DomainError("invalid_team_config", "Cannot validate Team concurrency") from error
-    return concurrency
-
-
-def load_team_agents(config):
-    paths = [config.user_data / "team.json"]
-    if config.project_trusted:
-        paths.append(config.workspace / ".pycode" / "team.json")
-    agents = {}
-    for path in paths:
-        if not path.exists():
-            continue
-        try:
-            values = json.loads(path.read_bytes())
-            if not isinstance(values, list) or len(values) > 16:
-                raise ValueError("Expected at most sixteen Agent declarations")
-            for value in values:
-                if not isinstance(value, dict) or set(value) - {
-                    "name",
-                    "description",
-                    "graph_id",
-                    "url",
-                    "modifies_workspace",
-                    "headers",
-                }:
-                    raise ValueError("Unknown Team configuration field")
-                agent = TypeAdapter(TeamAgent).validate_json(json.dumps(value), strict=True)
-                url = urlsplit(agent.url)
-                if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", agent.name):
-                    raise ValueError("Invalid Agent name")
-                if (
-                    url.scheme not in {"http", "https"}
-                    or not url.hostname
-                    or url.username
-                    or url.password
-                ):
-                    raise ValueError("Agent Protocol URL must be HTTP(S) without credentials")
-                if not agent.graph_id or not agent.description:
-                    raise ValueError("Agent role and description must be nonempty")
-                agents[agent.name] = agent
-        except (OSError, ValueError, ValidationError) as error:
-            raise DomainError(
-                "invalid_team_config", "Cannot validate Team configuration"
-            ) from error
-    return tuple(agents.values())
 
 
 def load_providers(path: Path) -> tuple[ProviderConfig, ...]:

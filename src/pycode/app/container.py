@@ -59,16 +59,10 @@ from pycode.adapters.tools.plans import ExitPlanMode
 from pycode.adapters.tools.read_tool_result import ReadToolResult
 from pycode.adapters.tools.schema import JsonSchemaValidator
 from pycode.adapters.tools.skills import InstallSkill, SkillSearch
-from pycode.adapters.tools.team import TeamTask
 from pycode.adapters.ui.console import ConsoleOutput
 from pycode.adapters.ui.tui import PyApp
 from pycode.app.background_models import ConfiguredSummaryGenerator
-from pycode.app.config import (
-    AppConfig,
-    credential_environment,
-    load_team_agents,
-    load_team_concurrency,
-)
+from pycode.app.config import AppConfig, credential_environment
 from pycode.app.evaluation_solver import ConfiguredEvaluationSolver
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
 from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
@@ -117,7 +111,6 @@ from pycode.services.skill_resources import SkillLoadRecorder, SkillResources
 from pycode.services.skills import SkillService, SkillToolGate
 from pycode.services.storage_gc import StorageGC
 from pycode.services.summary import SummaryService
-from pycode.services.team import TeamManager
 from pycode.services.tool_eviction import ToolEvictionService
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
@@ -130,7 +123,6 @@ from pycode.workflows.permissions import InterruptToolGate
 from pycode.workflows.plans import InterruptPlanPrompt
 from pycode.workflows.questions import InterruptQuestionPrompt
 from pycode.workflows.summary import prepare_summary
-from pycode.workflows.team import NativeTeamCommands
 from pycode.workflows.tool_errors import execute_tool_errors
 from pycode.workflows.tool_selection import ToolSelector
 
@@ -280,7 +272,6 @@ def build_runtime(
     plan_backend=None,
     durable_inputs=None,
     effective_tools=(),
-    team_manager=None,
     skill_selection=None,
     model_resolver=None,
     memory=None,
@@ -316,11 +307,6 @@ def build_runtime(
     if config.read_only:
         enabled_tools = tuple(tool for tool in enabled_tools if tool.spec.category == "read")
     registry = ToolRegistry(validator, enabled_tools)
-    team = team_manager
-    if team is None and history_store is not None:
-        team = build_team_manager(config, history_store, plans=plans)
-    if team is not None:
-        registry.replace_source("team", (TeamTask(team),))
     event_store = MemoryEventJournal() if event_journal is None else None
     events = EventStream(session_id, run_id, consumers, journal=event_journal or event_store)
     request_store = SQLiteRequestStore(
@@ -434,7 +420,6 @@ def build_runtime(
         plans=plans,
         workspace_files=workspace_files,
         model_tools=effective_tools,
-        team=team,
         skill_selection=skill_selection,
         read_only=config.read_only,
     )
@@ -572,7 +557,6 @@ def runtime_subagents(config, provider, history, consumers, run_id=None):
             "description": "Inspect code and report findings without modifications",
             "runnable": RunnableLambda(delegate.invoke),
         },
-        *async_agent_specs(config.team_agents, config.user_data),
     )
 
 
@@ -589,21 +573,6 @@ def build_synchronous_delegate(config, provider, history, consumers, run_id=None
     )
 
     return SynchronousDelegate(workers, history, run_id)
-
-
-def build_team_manager(config, history, *, plans=None):
-    if not config.team_agents:
-        return None
-    return TeamManager(
-        history,
-        config.team_agents,
-        concurrency=config.team_concurrency,
-        # Re-read per command so a host started or restarted after the session still works.
-        commands=NativeTeamCommands(
-            lambda: async_agent_specs(config.team_agents, config.user_data)
-        ),
-        plans=plans,
-    )
 
 
 def fork_skill_specs(config, provider, history, consumers, run_id, entries, catalog):
@@ -623,29 +592,6 @@ def fork_skill_specs(config, provider, history, consumers, run_id, entries, cata
             }
         )
     return specs
-
-
-def build_worker_host(config, providers):
-    from pycode.adapters.team.protocol import LocalAgentProtocol
-
-    layout = StorageLayout(config.workspace, config.user_data)
-    worktrees = WorktreeManager(config.workspace, layout.project / "worktrees")
-    workers = ConfiguredWorkers(
-        config, providers, open_agent_session, worktrees, layout.runtime_database
-    )
-    return LocalAgentProtocol(workers.create, concurrency=load_team_concurrency(config)), worktrees
-
-
-def issue_worker_host_token(config, port):
-    from pycode.adapters.team.token import issue_token
-
-    return issue_token(config.user_data, port)
-
-
-def revoke_worker_host_token(config, port, token):
-    from pycode.adapters.team.token import revoke_token
-
-    revoke_token(config.user_data, port, token)
 
 
 def build_worktree_manager(config):
@@ -707,36 +653,6 @@ def build_evaluation_solver(config, providers):
         )
 
     return ConfiguredEvaluationSolver(config, providers, open_agent_session, identity, trace_path)
-
-
-def async_agent_specs(agents, user_data):
-    from urllib.parse import urlsplit
-
-    from pycode.adapters.team.token import read_token
-
-    specs = []
-    for agent in agents:
-        headers = dict(agent.headers)
-        url = urlsplit(agent.url)
-        explicit = any(key.casefold() == "authorization" for key in headers)
-        # Only names that can reach `team serve` (bound to 127.0.0.1) get its token, so it is
-        # never sent to another loopback listener such as [::1] or 127.0.0.2.
-        if not explicit and (url.hostname or "").casefold() in {"127.0.0.1", "localhost"}:
-            # Local `team serve` hosts publish a per-port token in the user data directory.
-            port = url.port or (443 if url.scheme == "https" else 80)
-            token = read_token(user_data, port)
-            if token is not None:
-                headers["Authorization"] = "Bearer " + token
-        specs.append(
-            {
-                "name": agent.name,
-                "description": agent.description,
-                "graph_id": agent.graph_id,
-                "url": agent.url,
-                "headers": headers,
-            }
-        )
-    return specs
 
 
 def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime):
@@ -819,7 +735,6 @@ async def build_configured_run(launcher, provider, store, run_id):
         plan_backend=launcher.plan_backend,
         durable_inputs=launcher.durable_inputs,
         effective_tools=tuple(inherited_tools),
-        team_manager=launcher.team,
         skill_selection=selection,
     )
     if launcher.config.allow_delegation:
@@ -852,11 +767,6 @@ async def build_configured_run(launcher, provider, store, run_id):
             "execute",
             "write_todos",
             "task",
-            "start_async_task",
-            "check_async_task",
-            "update_async_task",
-            "cancel_async_task",
-            "list_async_tasks",
         ),
         history=store,
     )
@@ -877,13 +787,6 @@ async def open_agent_session(
 ) -> AgentSession:
     if not providers:
         raise ValueError("At least one configured provider is required")
-    if config.allow_delegation:
-        config = replace(
-            config, team_concurrency=await asyncio.to_thread(load_team_concurrency, config)
-        )
-    if config.allow_delegation and not config.team_agents:
-        configured_agents = await asyncio.to_thread(load_team_agents, config)
-        config = replace(config, team_agents=configured_agents)
     if not create:
         session_id = await build_session_service(config).resolve(session_id)
     catalog = build_model_catalog(config, providers)
@@ -1000,7 +903,6 @@ async def open_agent_session(
             model_resolver=catalog.resolve,
             hook_factory=build_lifecycle_hook_engine,
             lifecycle_provider=providers[0],
-            team=build_team_manager(config, store, plans=plans),
             memory=memory,
             prompt_factory=lambda history: PromptService(
                 history,
@@ -1036,7 +938,6 @@ async def open_agent_session(
             plans=plans,
             storage=build_storage_gc(config, owned_session_id=session_id),
             memory=memory,
-            team=launcher.team,
             recover_tool=memory.recover_active_operation,
             recovery_outputs=FileToolOutputStore(layout.sessions, session_id, store),
         )
@@ -1048,8 +949,6 @@ async def open_agent_session(
         raise
     try:
         await session.initialize_memory()
-        if session.team is not None:
-            await session.team.reconcile()
         if startup_hooks:
             await launcher.startup(store)
     except BaseException:

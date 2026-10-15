@@ -150,11 +150,6 @@ async def command(args, config):
         value = await runner.run(smoke=not args.full, cleanup=not args.keep_work)
         output.value({"model": providers[0].model_id, "results": value})
         return 0 if all(result["outcome"] == "passed" for result in value) else 1
-    if args.command == "team" and args.team_command == "serve":
-        from pycode.app.team_server import serve_workers
-
-        await serve_workers(config, providers, args.port)
-        return 0
     if args.session is None and args.command not in {"run", "plan", "/plan"}:
         raise DomainError("session_required", "This command requires --session")
     if args.create and args.command not in {"run", "plan", "/plan", "hooks"}:
@@ -171,10 +166,6 @@ async def command(args, config):
         connect_mcp=args.command != "hooks",
     )
     try:
-        if args.command == "team":
-            value = await team_command(session, args)
-            output.value({"session_id": session_id, "result": value})
-            return 0
         if args.command == "run":
             if not args.prompt.strip():
                 raise DomainError("empty_prompt", "Prompt must not be empty")
@@ -289,29 +280,6 @@ async def revert_command(args, session, output):
         }
     )
     return 0
-
-
-async def team_command(session, args):
-    if args.team_command == "answer":
-        return await session.team_answer(args.task_id, read_json(args.answers_file))
-    if args.team_command == "start":
-        command = "queue" if args.queue else "start_async_task"
-        return await session.team_control(
-            command,
-            {
-                "subagent_type": args.agent,
-                "description": args.description,
-                "base": args.base,
-                "include_uncommitted": args.include_uncommitted,
-            },
-            dependencies=args.dependency,
-        )
-    if args.team_command == "list":
-        return await session.team_control("list_async_tasks", {"status_filter": "all"})
-    arguments = {"task_id": args.task_id}
-    if args.team_command == "update":
-        arguments["message"] = args.message
-    return await session.team_control(args.team_command + "_async_task", arguments)
 
 
 async def view_command(args, config, output):

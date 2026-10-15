@@ -104,7 +104,6 @@ class ConfiguredWorkers:
             workspace=Path(worktree["path"]) if worktree else self.config.workspace,
             read_only=graph_id == "readonly",
             allow_delegation=False,
-            team_agents=(),
             agent_id="worker:" + thread_id,
             request_database=self.request_database,
             memory_mode="off",

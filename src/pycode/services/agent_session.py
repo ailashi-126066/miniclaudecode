@@ -47,7 +47,6 @@ class AgentSession:
         plans=None,
         storage=None,
         memory=None,
-        team=None,
         recover_tool=None,
         recovery_outputs=None,
     ) -> None:
@@ -70,7 +69,6 @@ class AgentSession:
         self._memory = memory
         self._recover_tool = recover_tool
         self._recovery_outputs = recovery_outputs
-        self.team = team
 
     async def submit_input(self, message: Message, kind: InputKind) -> bool:
         if self._durable_inputs is None:
@@ -470,7 +468,6 @@ class AgentSession:
             if self._plans is not None and self._plans.state is not None
             else None
         )
-        state["team"] = await self.team.tasks() if self.team is not None else {}
         return state
 
     async def usage(self, run_id=None):
@@ -521,33 +518,6 @@ class AgentSession:
             if self._memory is None:
                 raise StorageError("memory_unavailable", "This session has no memory service")
             return await self._memory.move(memory_id, scope, from_scope=from_scope)
-
-    async def team_control(self, command, arguments, *, dependencies=()):
-        async with self.execution():
-            self.require_settled(await self._store.snapshot())
-            if self.team is None:
-                raise StorageError(
-                    "team_unavailable", "Configure Agent Protocol roles in team.json"
-                )
-            if command == "queue":
-                return await self.team.queue(
-                    arguments["subagent_type"],
-                    arguments["description"],
-                    dependencies,
-                    base=arguments.get("base"),
-                    include_uncommitted=arguments.get("include_uncommitted", False),
-                )
-            result = await self.team.execute(command, arguments, dependencies=dependencies)
-            if command in {"check_async_task", "list_async_tasks"}:
-                await self.team.schedule_ready()
-            return result
-
-    async def team_answer(self, task_id, answers):
-        async with self.execution():
-            self.require_settled(await self._store.snapshot())
-            if self.team is None:
-                raise StorageError("team_unavailable", "No Team is configured")
-            return await self.team.answer(task_id, answers)
 
     async def memory_clear(self):
         async with self.execution():

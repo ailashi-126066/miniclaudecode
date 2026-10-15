@@ -67,7 +67,6 @@ class RunContext:
     skill_resources: Any = None
     skill_recorder: Any = None
     plans: Any = None
-    team: Any = None
     workspace_files: Any = None
     model_tools: tuple[ToolSpec, ...] = ()
     system_hash: str = ""

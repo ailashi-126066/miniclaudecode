@@ -118,8 +118,6 @@ async def filter_model_tools(request):
                 "grep",
                 "write_todos",
                 "task",
-                "check_async_task",
-                "list_async_tasks",
             }
             permitted = []
             for tool in request.tools:

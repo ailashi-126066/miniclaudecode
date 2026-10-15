@@ -37,7 +37,6 @@ class ConfiguredRuntimeLauncher:
         hook_factory=None,
         prompt_factory=None,
         lifecycle_provider=None,
-        team=None,
         memory=None,
     ) -> None:
         self.config = config
@@ -46,7 +45,6 @@ class ConfiguredRuntimeLauncher:
         self._hook_factory = hook_factory
         self._prompt_factory = prompt_factory
         self.lifecycle_provider = lifecycle_provider
-        self.team = team
         self.memory = memory
         self.tools = tools
         self.consumers = consumers

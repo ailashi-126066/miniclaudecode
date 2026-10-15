@@ -76,10 +76,6 @@ class HookAction:
     type: str
     command: str = ""
     message: str = ""
-    url: str = ""
-    method: str = "POST"
-    body: str = ""
-    headers: dict[str, str] = field(default_factory=dict)
     prompt: str = ""
     timeout: float = 30
 

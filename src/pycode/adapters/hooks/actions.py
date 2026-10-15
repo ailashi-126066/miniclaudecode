@@ -1,29 +1,25 @@
 # Source: MewCode local hooks/executors.py; SHA-256:
 # 2b16275a172f0c998ee24da7b693c3aa0bb248e374bff66e7b027c15672806f3
-# Adaptation: owned native processes, cancellable HTTP, bounded outputs and no fake agent success.
+# Adaptation: owned native processes, bounded outputs and no fake agent success.
 # 来源：公众号@小林coding
 # 后端八股网站：xiaolincoding.com
 # Agent网站：xiaolinnote.com
 # 简历模版：jianli.xiaolinnote.com
-"""Configured commands and HTTP requests share controlled execution and output limits."""
+"""Configured commands share controlled execution and output limits."""
 
 import asyncio
 import os
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
-
-import httpx
 
 from pycode.adapters.tools.process_runner import run_process
-from pycode.core.errors import StorageError, ToolError
+from pycode.core.errors import ToolError
 from pycode.core.messages import ToolResult
 from pycode.core.subprocess_env import subprocess_environment
 from pycode.core.tools import ToolContext
 from pycode.core.values import json_dumps, plain_data
 
-MAX_HTTP_BYTES = 50 * 1024
 TOKENS = (
     r"\$ENV\.[A-Z_][A-Z0-9_]*|\$TOOL_ARGS\.[A-Za-z0-9_-]+|"
     r"\$(?:EVENT|TOOL_NAME|FILE_PATH|MESSAGE|ERROR)\b"
@@ -83,9 +79,6 @@ class ConfiguredHookActions:
                 result.error_code or "hook_condition_failed", "Hook condition failed or timed out"
             )
         return result.text.strip() == "true"
-
-    def expand(self, value, context):
-        return re.sub(TOKENS, lambda match: self.token(match.group(0), context), value)
 
     def token(self, token, context):
         if not token.startswith("$ENV."):
@@ -150,64 +143,4 @@ class ConfiguredHookActions:
                 prefix="hook_command",
                 environment=environment,
             )
-        return await self.http(action, context, tool)
-
-    async def http(self, action, context, tool):
-        url = self.expand(action["url"], context)
-        try:
-            parsed = urlsplit(url)
-            valid_port = parsed.port is None or 0 < parsed.port < 65536
-        except ValueError as error:
-            raise ToolError("invalid_hook_url", "Expanded Hook URL is malformed") from error
-        if (
-            not valid_port
-            or parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-        ):
-            raise ToolError("invalid_hook_url", "Expanded Hook URL is not HTTP(S)")
-        headers = {key: self.expand(value, context) for key, value in action["headers"].items()}
-        body = self.expand(action["body"], context).encode() if action["body"] else None
-        if body and "Content-Type" not in headers:
-            headers["Content-Type"] = "application/json"
-        writer = await self._outputs.begin(tool, "head")
-        try:
-            async with httpx.AsyncClient(timeout=action["timeout"], trust_env=False) as client:
-                async with client.stream(
-                    action["method"], url, headers=headers, content=body
-                ) as response:
-                    size, truncated = 0, False
-                    await writer.append(f"HTTP {response.status_code}\n".encode())
-                    async for content in response.aiter_bytes():
-                        remaining = MAX_HTTP_BYTES - size
-                        await writer.append(content[:remaining])
-                        size += min(len(content), remaining)
-                        if len(content) > remaining:
-                            truncated = True
-                            break
-                    if truncated:
-                        await writer.append(b"\n[Hook HTTP response reached its byte limit]\n")
-                    return await writer.finish(
-                        ToolResult(
-                            tool.call_id,
-                            tool.tool_name,
-                            "",
-                            is_error=not 200 <= response.status_code < 300,
-                            error_code="hook_http_status"
-                            if not 200 <= response.status_code < 300
-                            else None,
-                            details={"http_status": response.status_code, "truncated": truncated},
-                        )
-                    )
-        except (httpx.ConnectError, httpx.InvalidURL) as error:
-            await writer.abort()
-            raise ToolError("hook_http_connection", "Hook HTTP connection failed") from error
-        except httpx.HTTPError as error:
-            await writer.abort()
-            raise StorageError(
-                "hook_effects_uncertain", "Hook HTTP outcome is uncertain; review before retry"
-            ) from error
-        except BaseException:
-            await writer.abort()
-            raise
+        raise ToolError("unknown_hook_action", "Unknown Hook action")
