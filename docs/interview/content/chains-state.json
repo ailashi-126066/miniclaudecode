@@ -1,0 +1,2235 @@
+{
+  "12-session:run": {
+    "title": "先保存修复请求，再启动本轮图",
+    "input_label": "用户输入 → 应用会话",
+    "request": "AgentSession.run(Message(id='u1', role='user', text='修复 parser.py，并跑测试'))",
+    "intro": "会话先保存输入和运行身份，launcher再经注入工厂创建容器；模型与工具期间的History方法由框架回调。",
+    "why": "先保证失败后能找回用户请求，再让唯一框架图执行，最后由会话保存等待或结束。",
+    "result": [
+      "用户请求先保存，随后每个工具结果都关联同一轮任务。",
+      "等待审批时保留当前图；结束记录不允许重做已完成工具。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.run",
+        "purpose": "取得排他执行权，进入已识别的用户任务",
+        "notes": [
+          "`message.role` 和消息ID先说明这是用户输入；`_execution.locked()` 则防止同一会话同时开始两次修改。",
+          "随后进入 `execution()` 再调用 `_run_locked`，执行结束才把结果交回界面；运行中的补充输入另走排队入口。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/agent_session.py",
+            "name": "AgentSession.execution",
+            "purpose": "检查关闭与回退状态，拥有当前执行任务",
+            "notes": [
+              "`_closing` 阻止关闭中的新操作；进入 `_execution` 后登记 `_active_task`，取消入口才知道要等待谁。",
+              "退出总会清理任务引用；发生取消还通知团队停止相关子任务，不能只解锁就让子助手继续执行。"
+            ],
+            "guide": "运行、恢复和切换分支都会改变同一会话，所以外层入口先进入这个异步上下文。它拒绝关闭中的新操作，并登记当前任务供取消使用；退出时清掉登记。若任务被取消，还要等待相关子助手停止，而不是只释放锁就让后台继续改文件。"
+          },
+          {
+            "file": "src/pycode/session/services/agent_session.py",
+            "name": "AgentSession._run_locked",
+            "purpose": "识别输入重放，先存用户消息，再写run_start",
+            "notes": [
+              "先比较旧输入的内容和当前分支，已有完成结果就读回，不重跑可能改文件的工具。",
+              "新输入通过 `append_message` 保存后再准备记忆、模型和技能；写成 `run_start` 后才交 `_launcher.run`。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/session/adapters/storage/session.py",
+                "name": "JsonlSessionStore.append_message",
+                "purpose": "将完成消息的身份转为EntryDraft",
+                "notes": [
+                  "从 `tool_result` 取得工具消息所属运行和操作，普通用户消息不套用工具身份。",
+                  "构造统一记录后调用 `append_entry`，返回保存记录的ID，完整输出随后可以绑定它。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/session/adapters/storage/session.py",
+                    "name": "JsonlSessionStore.append_entry",
+                    "purpose": "load、写者租约、去重、分支检查和写入日志",
+                    "notes": [
+                      "内部追加过程先 `load` 并取得写入资格，重复ID只有同内容、同分支才可当作成功重放。",
+                      "`will_persist` 区分是否真正发布新记录；写入完成才更新索引与当前位置，避免内存提前宣布成功。"
+                    ],
+                    "helpers": [
+                      {
+                        "file": "src/pycode/session/adapters/storage/session.py",
+                        "name": "JsonlSessionStore.write_entry",
+                        "purpose": "日志字节落盘并fsync，再更新文件内容校验值",
+                        "notes": [
+                          "首次写入先准备完整临时文件，再用 `os.replace` 发布，读者不会见到半个会话头。",
+                          "已有日志用追加模式写入，再执行 `flush` 和 `fsync`；成功后才更新文件位置和变化检测信息。"
+                        ],
+                        "guide": "上层校验完记录后，这里负责真正写磁盘。首次创建先在临时文件写好头部和待存记录，再整体替换；已有文件则追加并刷新到磁盘。完成后才更新读写位置及文件校验信息，因此调用者得到成功时，不只是数据进入了一个内存列表。"
+                      }
+                    ],
+                    "guide": "消息转换好后仍不能直接追加字节：还需加载现有日志、取得跨进程写入资格，并检查同ID是否已经存在。只有正文一致且属于当前分支才视为重复成功；新记录写成后才更新索引和当前位置，防止内存先宣布保存成功而磁盘并未接收。"
+                  }
+                ],
+                "guide": "上层已经决定保存一条完整消息，此处把它转换成日志能够统一处理的记录。工具消息还会带上所属运行和操作，用户消息则不会编造这些身份。实际写入继续交给追加函数，返回记录ID，让完整输出能够关联到已经保存的那条消息。"
+              }
+            ],
+            "guide": "取得执行位置后，还要分清这是不是重复提交。这里比较消息ID、正文和当前分支，已完成的相同输入直接读旧结果；真正的新输入先保存，再选择记忆、模型和技能。最后写下本轮开始记录并交给执行器，后续结果才有明确的任务归属。"
+          }
+        ],
+        "guide": "界面把“修复解析器并跑测试”作为一条用户消息交到这里。服务先检查消息身份和会话是否忙，再取得本轮独占的执行位置，交给内部运行函数。这样用户重复按回车不会同时启动两次修改；返回值最后交回界面展示等待问题或最终结果。"
+      },
+      {
+        "file": "src/pycode/app/lifecycle/session.py",
+        "name": "ConfiguredRuntimeLauncher.run",
+        "purpose": "从已落盘run_start找到本轮身份，再进入execute",
+        "notes": [
+          "沿 `path` 倒查本输入的 `run_start`，取得上层已经保存的运行ID，不在这里另起身份。",
+          "再把模型、存储与输入交给 `execute`；资源工厂在后者的新任务分支才会调用。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/app/lifecycle/session.py",
+            "name": "ConfiguredRuntimeLauncher.execute",
+            "purpose": "新任务注入工厂，恢复任务重用容器",
+            "notes": [
+              "新任务先刷新提示并调用 `_runtime_factory`；恢复则读取 `_active_container`，必须是同一轮的活容器。",
+              "返回等待输入时保留容器；其它结束路径在最后关闭。答案格式错误可继续等待，不能为一次输错丢掉活图。"
+            ],
+            "edge": "通过注入工厂／活容器",
+            "helpers": [
+              {
+                "file": "src/pycode/app/composition/run.py",
+                "name": "build_configured_run",
+                "purpose": "连接选中的Skills/MCP会话产物，再组装run",
+                "notes": [
+                  "`prepare_run` 准备所选技能与连接这轮需要的工具状态，接线沿用传入模块。",
+                  "再调用 `build_runtime` 交入历史、运行身份和准备结果；返回容器供launcher使用，不私自改回默认实现。"
+                ],
+                "edge": "注入runtime_factory的实际实现",
+                "guide": "执行器需要的不只是模型，还包括这次实际选中的技能、连接和工具。这个注入工厂先准备本轮能力，再交给统一运行组装，把历史、运行身份和所选模块接到同一容器。容器返回执行器后才启动图，不会偷偷替换成另一套默认模块。"
+              }
+            ],
+            "guide": "这一步区分新任务和继续等待：新任务刷新提示后调用组装时传入的工厂，取得本轮运行容器；恢复则必须复用仍保存的那个容器。普通结束会关闭资源，等用户时保留容器。缺少活容器就明确拒绝，不能用历史记录假装旧执行还在。"
+          }
+        ],
+        "guide": "会话已经保存本轮开始记录，接下来需要把同一身份交给模型执行。这里沿当前历史寻找与用户输入匹配的运行记录，再将模型、历史和运行ID传入执行入口。它不随意重新生成ID，否则审批、工具结果和会话结束记录会对不上同一轮任务。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/agent.py",
+        "name": "AgentRuntime.run",
+        "purpose": "以输入构建唯一Deep Agents图并调用invoke",
+        "notes": [
+          "用户消息仍通过 `append_message` 进入同一存储，因此上层已保存的相同消息不会生成第二份。",
+          "追加后才设置初始标题，再 `build` 并 `invoke`；模型和工具循环交给那张框架图。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/agent/adapters/agent.py",
+            "name": "AgentRuntime.build",
+            "purpose": "注册harness并安装原生后端与有序middleware",
+            "notes": [
+              "`HarnessProfile` 关闭与项目实现重叠的默认能力，例如默认摘要和通用子助手，避免重复流程。",
+              "把文件、AGENTS指令、扩展、历史与结算处理器交给 `create_deep_agent`，框架随后在对应时点调用它们。"
+            ],
+            "guide": "正式请求模型前，需要把文件后端、指令文件和各阶段处理器装进同一张图。这里按明确顺序传给框架建图函数，并关闭项目已有替代实现的默认能力。返回图供本轮执行使用；历史保存和工具结算也因此在框架调度时进入项目代码。"
+          },
+          {
+            "file": "src/pycode/agent/adapters/agent.py",
+            "name": "AgentRuntime.invoke",
+            "purpose": "graph.ainvoke是真实框架执行边界",
+            "notes": [
+              "`graph.ainvoke` 才真正驱动模型、工具和暂停，章节中的回调发生在这次等待期间。",
+              "取消先等待 `collect_tools`；正常返回后再读取检查点，将未回答问题整理为等待输入结果交上层。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/agent/adapters/history.py",
+                "name": "HistoryMiddleware.awrap_model_call",
+                "purpose": "框架模型边界保存完整assistant",
+                "notes": [
+                  "通过 `model_step.ainvoke` 得到完整模型响应，再转为项目助手消息并调用 `save_message`。",
+                  "保存完成才建立工具顺序和待结算状态；零散文字只供显示，不能提前当作完整助手结果。"
+                ],
+                "edge": "框架在ainvoke期间回调",
+                "helpers": [
+                  {
+                    "file": "src/pycode/agent/adapters/boundaries.py",
+                    "name": "save_message",
+                    "purpose": "正式消息→输出绑定→快照事实→message_end",
+                    "notes": [
+                      "`journal.append_message` 保存正式消息后，再用 `outputs.bind` 关联完整输出，并追加文件快照记录。",
+                      "这些步骤完成才加入 `context.completed` 并发送 `message_end`；界面更新必须在可靠保存之后。"
+                    ],
+                    "guide": "模型或工具的正式消息都要经过同一个保存出口。它先追加历史，再把已有完整输出绑定到消息，并补文件快照记录，最后通知界面消息结束。调用者等它成功才继续后续确认，这样“用户看见成功”和“重开会话还能读到结果”才不会颠倒。"
+                  }
+                ],
+                "guide": "这是图请求模型时触发的处理器，而不是会话结束后再补写的一步。它先调用本轮模型，拿到完整助手响应后转为项目消息并保存，再整理其中的工具调用顺序。界面上的零散文字没有经过这个完整响应边界，不能提前算作持久化回复。"
+              }
+            ],
+            "guide": "上层准备好图和输入后，这个函数等待框架完成实际执行。模型请求、工具和暂停问题都发生在这次等待期间；返回后再读取检查点，把尚待回答的问题转换成运行结果。取消时先等待工具处理结束，避免把图的取消误说成外部动作肯定没发生。"
+          }
+        ],
+        "guide": "运行容器把用户输入交到这里，才进入框架执行层。它再次追加同一消息时由真实存储识别重复，之后设置初始标题、创建图，并把消息和初始运行状态交给调用函数。真正的模型和工具交替由那张图完成，此处没有第二套聊天循环。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.record_run_result",
+        "purpose": "统一保存run_wait或run_end",
+        "notes": [
+          "`needs_input` 分支只保存当前问题和检查点，说明尚未结束，不触发后台记忆。",
+          "其它结果记下输入与最终回复，再让计划结束；只有 `completed` 才通知记忆服务安排整理。"
+        ],
+        "edge": "图返回后的会话结算",
+        "guide": "图返回以后，会话还需要把这轮状态保存完整。如果仍在等待用户，这里记录问题和检查点；否则保存结束结果、相关输入和最后回复，再结束本轮计划。只有正常完成才通知后台记忆，因此审批暂停不会被误当成一次聊天已经全部结束。"
+      }
+    ]
+  },
+  "12-session:resume": {
+    "title": "在同一窗口回答测试审批",
+    "input_label": "用户回答当前审批",
+    "request": "AgentSession.resume(answer)",
+    "intro": "这里继续现有图。新容器工厂仅作分支对照，恢复不会调用它重建旧任务。",
+    "why": "先核当前问题和答案，再交框架恢复，结束仍使用同一结果保存路径。",
+    "result": [
+      "同进程答案正确才继续原运行；重启后旧图无法复活。",
+      "答案无效保留等待，已完成工具结果不会被清除。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.resume",
+        "purpose": "排他读取当前分支尚未结束的run",
+        "notes": [
+          "`pending_run` 必须存在，模型选择也从当前运行恢复，不能由答案正文改成别的任务。",
+          "调用 `resume_run` 使用原运行ID；如果已丢失活图，后面的launcher会明确拒绝继续。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/agent_session.py",
+            "name": "AgentSession.resume_run",
+            "purpose": "run_resume先落盘，再传答案给launcher",
+            "notes": [
+              "先追加 `run_resume`，留下这次回答发生在当前运行的证据，再交 `_launcher.resume`。",
+              "返回后仍用 `settle_run` 保存结果；取消则整理日志，不从原用户消息再跑旧工具。"
+            ],
+            "guide": "恢复入口先记录这次回答对应哪轮运行，再把答案交给执行器，便于之后解释等待是怎样结束的。执行返回后仍复用正常结果保存路径。取消时整理已发生记录，不重新运行旧工具，因此重复恢复不能变成重复修改文件的捷径。"
+          }
+        ],
+        "guide": "用户在同一窗口回答审批时，入口先取得会话执行位置，并查找当前尚未结束的运行。它从会话配置恢复模型选择，而不是相信答案正文指定另一轮任务，再交给恢复函数。找不到待继续的运行就报错，不能将任意旧批准当成新任务输入。"
+      },
+      {
+        "file": "src/pycode/app/lifecycle/session.py",
+        "name": "ConfiguredRuntimeLauncher.resume",
+        "purpose": "将答案交给execute的resume分支",
+        "notes": [
+          "这里把 `run_id` 和 `answers` 原样交到恢复执行分支，不生成新的运行身份。",
+          "`resume=True` 要求取到对应活容器；没有容器就返回运行已过期，磁盘中的旧问题不能替代它。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/app/lifecycle/session.py",
+            "name": "ConfiguredRuntimeLauncher.execute",
+            "purpose": "新任务注入工厂，恢复任务重用容器",
+            "notes": [
+              "新任务先刷新提示并调用 `_runtime_factory`；恢复则读取 `_active_container`，必须是同一轮的活容器。",
+              "返回等待输入时保留容器；其它结束路径在最后关闭。答案格式错误可继续等待，不能为一次输错丢掉活图。"
+            ],
+            "edge": "通过注入工厂／活容器",
+            "helpers": [
+              {
+                "file": "src/pycode/app/composition/run.py",
+                "name": "build_configured_run",
+                "purpose": "连接选中的Skills/MCP会话产物，再组装run",
+                "notes": [
+                  "`prepare_run` 与 `build_runtime` 解释新容器怎样产生；它们不是每次resume都会执行的步骤。",
+                  "恢复分支只使用仍保存的活容器。放在这里对照，是为了说明不能通过重建容器复活旧审批。"
+                ],
+                "edge": "注入runtime_factory的实际实现",
+                "guide": "这段工厂实现只属于新任务分支，当前恢复不会调用它，展开是为了对照两条路径。新任务先准备所选技能与连接，再组装带本轮身份的容器交回执行器；恢复已有等待则直接取原容器，缺失时明确过期，不能借工厂重建后重放旧工具。"
+              }
+            ],
+            "guide": "这一步区分新任务和继续等待：新任务刷新提示后调用组装时传入的工厂，取得本轮运行容器；恢复则必须复用仍保存的那个容器。普通结束会关闭资源，等用户时保留容器。缺少活容器就明确拒绝，不能用历史记录假装旧执行还在。"
+          }
+        ],
+        "guide": "会话已确认待继续的运行，这里只把原运行ID和答案交给执行入口的恢复分支。它不会重新组装一张空图来接收旧答案；必须找到匹配的在等容器才能继续。返回的等待或完成结果仍交回会话保存，容器是否关闭也沿相同规则处理。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/agent.py",
+        "name": "AgentRuntime.resume",
+        "purpose": "校验当前interrupt并创建Command(resume)",
+        "notes": [
+          "先从活图取得当前问题，按中断ID或单问题形态调用 `validate_runtime_answer`，不能只信界面参数。",
+          "清理待恢复的临时标记后再调用图，不删除已完成结果；通过框架恢复命令继续原来那次等待。"
+        ],
+        "edge": "同一个活图恢复",
+        "helpers": [
+          {
+            "file": "src/pycode/agent/adapters/agent.py",
+            "name": "validate_runtime_answer",
+            "purpose": "按问题契约校验，不直接执行动作",
+            "notes": [
+              "`question_extensions` 先判断谁负责这类问题；无人处理时仍走普通 `validate_operation_answer`。",
+              "通过只表示答案身份和结构合法。工具恢复后还要比较当前操作内容，不能由这个返回值授予永久权限。"
+            ],
+            "guide": "恢复前不能只检查答案是个字典，还要知道它回答哪类问题。这里先让已注册的问题扩展认领并校验，没人认领时使用普通操作答案规则。通过只表示答案形状和身份合法，真正恢复后仍有对应工具检查当前内容，不能据此跳过执行权限。"
+          }
+        ],
+        "guide": "执行器找到原容器以后，运行时还要读取图里真正待答的问题。它按问题身份逐项校验答案，只有全部符合才用框架的恢复命令继续执行。之前已保存的完整工具结果不清除；因此这一步是回答现有暂停，不是从用户消息再执行一遍整轮。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.settle_run",
+        "purpose": "提交锁下完成运行结算",
+        "notes": [
+          "`_submission` 把结束状态写入与新排队输入串行化，避免一边说结束一边仍返回排队成功。",
+          "真正保存仍调用 `record_run_result`，新任务和恢复任务因此没有两套彼此不同的结束规则。"
+        ],
+        "guide": "新输入可能恰好在执行结束时到达，因此保存结束状态也要与输入提交串行处理。这个入口取得同一把提交锁，再调用正常结果保存函数。它不另造一套恢复专用结束规则，返回后调用方才能可靠判断这一轮还在等待还是已经结束。"
+      }
+    ]
+  },
+  "12-session:queue": {
+    "title": "执行中补充“只跑parser测试”",
+    "input_label": "运行中的用户补充",
+    "request": "submit_input(message, kind='steer' 或 'follow_up')",
+    "intro": "用户提交与框架交付是两个时点：先保存队列，之后模型前或结束回调才把内容送入对话。",
+    "why": "排队成功必须有记录；关闭接收前最后检查一次，不能把迟到说明静默当作已读。",
+    "result": [
+      "已排队表示输入写入日志，模型读到还要等交付时点。",
+      "运行结束后拒绝新提交，旧输入仍能查到处理状态。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.submit_input",
+        "purpose": "确认运行归属后接受steer/follow_up",
+        "notes": [
+          "先检查 `_submission` 保护的状态和待回退计划，再找到当前运行；无当前运行只允许识别旧同ID提交。",
+          "消息交给 `_durable_inputs.submit`，返回已排队时已经有日志，模型是否读到还要等交付边界。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/durable_inputs.py",
+            "name": "DurableInputs.submit_locked",
+            "purpose": "按ID/内容/分支/负责关闭的对象验证后写入日志入队",
+            "notes": [
+              "核对旧输入的正文、类型、运行和活动分支，完全相同才表示已经接收，不重复追加。",
+              "`closed_runs` 拒绝迟到输入；新输入先追加 `input_queued` 才返回成功，团队上层据此决定能否确认送达。"
+            ],
+            "guide": "接收团队说明或用户补充时，此处核对输入ID、正文、运行与当前分支，避免同一消息重复进入对话。新输入先保存为排队记录再返回；运行已经关闭则拒绝。上层只有拿到真实接收依据才能确认团队消息，不能把调用过提交函数当作提交成功。"
+          }
+        ],
+        "guide": "用户执行中补充“只跑解析器测试”时会来到这里，而不是再开一轮运行。服务检查回退预览和当前待运行身份，将消息交给持久队列。返回排队成功代表输入已经保存；模型何时读到要等框架边界，不能把按钮反馈当作模型已执行补充要求。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/history.py",
+        "name": "HistoryMiddleware.abefore_model",
+        "purpose": "模型前维护能力、flush收件箱并交付steer",
+        "notes": [
+          "先 `maintain_context` 准备能力和上下文，再由 `deliver_steering` 处理收件箱与持久队列。",
+          "即时输入通过 `deliver_input` 保存后才进入 `project_turn` 生成的模型消息；这里是图的模型前回调。"
+        ],
+        "edge": "框架模型前回调",
+        "helpers": [
+          {
+            "file": "src/pycode/agent/adapters/boundaries.py",
+            "name": "deliver_input",
+            "purpose": "交付补充消息后发送input_delivered通知",
+            "notes": [
+              "先 `save_message` 把排队说明转为对话里的真实消息，再通知输入已交付。",
+              "通知附输入ID与类型，供界面解释进度；不能拿通知代替之前已保存的排队记录。"
+            ],
+            "guide": "模型前处理器拿到一条排队说明后，调用这里把它保存为真实输入消息。保存完成才发布包含输入ID和队列类型的交付通知，随后模型请求才能包含它。排队记录证明应用接收过，当前消息证明已转入对话；只发一个刷新事件不能代替这两步。"
+          }
+        ],
+        "guide": "框架准备再请求模型时，才调用这个入口。它先更新可用工具和上下文，再经当前成员处理团队消息、恢复已保存补充输入，把即时说明加入本次模型消息。团队消息不是由前一个工具直接塞给模型；处理成功以后还会进入各自的保存确认流程。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/history.py",
+        "name": "HistoryMiddleware.aafter_agent",
+        "purpose": "自然结束边界选择follow_up，再关闭输入接收",
+        "notes": [
+          "`take_queued` 优先取即时补充，再取后续输入；有消息便回到模型节点，继续同一轮。",
+          "结束钩子以后再进 `finish_boundary` 检查队列，减少用户刚提交补充却被当作已经结束的窗口。"
+        ],
+        "edge": "框架自然结束回调",
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/durable_inputs.py",
+            "name": "DurableInputs.finish_boundary",
+            "purpose": "接收锁下确认队列空才关闭run",
+            "notes": [
+              "在 `_admission` 锁内重建待处理输入，不能只看稍早的内存队列是否为空。",
+              "两类队列都空才登记到 `_closed_runs`；否则把待处理内容返回框架结束回调，继续处理再判断。"
+            ],
+            "guide": "上层准备宣布这轮结束前，需要排除最后一刻还有输入的情况。这里在输入接收锁内重建当前待处理队列；仍有即时或后续输入就返回给调用方继续处理，两者都空才标记运行不再接收。这样保存输入与关闭入口不会各自看见一个过时状态。"
+          }
+        ],
+        "guide": "图认为一轮可以自然结束时，这个回调还要检查用户有没有后续说明。有待处理输入就回到模型节点继续同一运行，而不是重建任务。结束钩子之后再次在输入锁下核对队列，才最终关闭接收入口，尽量避免用户刚排队就被当成已经结束。"
+      }
+    ]
+  },
+  "12-session:recover": {
+    "title": "昨天中断后重开，或今天主动停止",
+    "input_label": "打开旧会话 / 停止 / 关闭",
+    "request": "open_session / cancel / aclose",
+    "intro": "三个并列入口分别解释打开旧记录、停止当前工作和最终关闭，不是打开后自动取消。",
+    "why": "整理未知结果不重新跑工具，关闭则逐项等待已创建资源结束。",
+    "result": [
+      "不能确认工具结果时明确标中断，需要检查实际文件。",
+      "关闭逐项等待任务与连接结束，最后才报告首个错误。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/app/composition/session.py",
+        "name": "open_agent_session",
+        "purpose": "先恢复持久事实，再连接完整会话能力",
+        "notes": [
+          "先取得写入资格并 `recover_conversation`，解释旧运行以后才初始化计划、技能及执行资源。",
+          "中途构造失败用所选会话模块的清理能力关闭已创建对象，原错误保留，不返回半初始化会话。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/restart.py",
+            "name": "recover_conversation",
+            "purpose": "扫描配对并补中断结果，不调用旧业务工具",
+            "notes": [
+              "用已发出的助手工具调用与正式结果配对；缺少结果时补 `tool_interrupted`，不假定动作肯定没发生。",
+              "未消费队列记为 `input_expired`，未结束运行补结束记录；这里没有重新调用旧Bash或文件工具。"
+            ],
+            "guide": "打开或取消后需要判断旧日志留下了什么，这里只分析保存的助手调用和工具结果。已配对的保留，无法核实的补中断，旧排队输入留下过期提示，并结束未完成运行。它不调用原业务工具，因此恢复历史不会自动再跑测试或重复修改解析器。"
+          }
+        ],
+        "guide": "界面请求打开会话时，这个应用组装入口先取得日志写入资格并整理旧运行，再连接当前选择的计划、技能、记忆和执行器。成功返回的会话能处理完整业务命令；中途失败则按已创建资源逐项关闭，不能把半初始化对象交给窗口继续使用。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.cancel",
+        "purpose": "由owned取消任务等待当前执行等待停止并回收",
+        "notes": [
+          "内部取消过程区分仍在执行的任务和已经暂停的等待；发出取消信号以后还要等待它们停止。",
+          "关联团队任务和未完成日志也在此处理。已经发生的代码修改不自动回退，用户须检查实际文件。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/app/lifecycle/session.py",
+            "name": "ConfiguredRuntimeLauncher.cancel_wait",
+            "purpose": "取消后台能力，丢弃活图并关闭容器",
+            "notes": [
+              "核对 `run_id` 后先取消后台摘要，并等待钩子任务完成取消处理。",
+              "最后 `runtime.discard` 并关闭容器；保留的输出仍供日志恢复核查，取消不能顺手抹掉结果材料。"
+            ],
+            "guide": "如果没有主执行任务在跑、却还保留着审批等待，这里负责丢弃它。先核运行身份，再取消后台摘要并等待钩子任务，最后丢弃图并关闭容器。完整输出仍可供恢复核查，取消不应顺手抹掉判断旧工具是否发生过的材料。"
+          }
+        ],
+        "guide": "用户按取消时，服务先识别当前是正在执行，还是保留着等待审批的图，再启动一次被明确等待的取消处理。它还会处理关联子任务和日志中的未完成记录。返回之前等待实际停止，但不承诺回退已经写过的文件；撤销代码是另外的确认操作。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.aclose",
+        "purpose": "先停止普通Team任务，完成shutdown Hook后再最终关Team",
+        "notes": [
+          "`_closing` 先阻止新执行，再登记记忆、停止普通团队任务、launcher、最终团队、视图和存储的关闭顺序。",
+          "停止普通团队任务后保留只读委派供shutdown Hook使用；`SessionCleanup` 会逐项尝试，前项失败不跳过后项。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/ownership.py",
+            "name": "SessionCleanup.close",
+            "purpose": "单owned task抵抗调用方重复取消",
+            "notes": [
+              "只创建一次实际回收任务，用 `shield` 等待，外部再次取消也不能直接杀掉这个回收任务。",
+              "记录首个错误后仍完成所有关闭动作，最后再向调用方传播；重复close不重新执行这些动作。"
+            ],
+            "guide": "父函数已经列好应关闭的资源，这个辅助对象把真正回收放进只创建一次的任务。调用方反复取消时仍等待该任务，不让后面的连接被跳过；某个关闭失败也继续尝试余项。最后返回或传播首错，重复关闭不会再次执行相同资源操作。"
+          }
+        ],
+        "guide": "用户离开会话后，不能只关日志就让模型和子任务继续工作。这里先禁止新操作，再依次安排记忆、普通团队任务、执行器、最终团队、视图与存储关闭。关闭执行器时仍给退出钩子保留只读委派机会；全部尝试完才把首个错误交回调用方。"
+      }
+    ]
+  },
+  "12-session:navigate": {
+    "title": "回看旧思路、撤代码或缩短历史",
+    "input_label": "独立导航与维护操作",
+    "request": "branch / preview_revert 再 revert / compact",
+    "intro": "这些入口都要求没有活跃运行，但分别改变历史位置、工作区文件与模型读取的上下文。",
+    "why": "先明确用户要改哪一个对象；预览不是应用，压缩也不是重做原任务。",
+    "result": [
+      "切历史不改文件；恢复文件必须先预览并确认。",
+      "摘要正式保存后才通知记忆整理，不重跑修复任务。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.branch",
+        "purpose": "仅切换历史leaf，完成后重建Plan状态",
+        "notes": [
+          "`execution` 和当前运行检查先挡住执行中的分支切换，避免图与历史指向不同位置。",
+          "存储切换后调用 `plans.initialize`；旧批准不能跟着错误分支继续用，工作区代码则不会在此回退。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/adapters/storage/session.py",
+            "name": "JsonlSessionStore.branch",
+            "purpose": "持writer lease校验目标并发布当前位置",
+            "notes": [
+              "先验证目标叶节点存在，再持写入资格发布新位置，原日志记录仍然不变。",
+              "当前位置单独保存，所以切换不需重写旧消息；它只改变之后读哪条历史，不恢复磁盘文件。"
+            ],
+            "guide": "会话已决定切换历史，这里验证目标记录确实存在，再持写入资格发布新的当前位置。旧日志仍然追加保存，不改旧消息正文，也不通过复制整段聊天制造新历史。返回后上层可以按新分支读取状态，但不能推导磁盘代码也已回到那个时刻。"
+          }
+        ],
+        "guide": "用户想从旧消息换一种修法时，这里先确认当前没有运行或审批等待，再切换日志活动节点。接着重新初始化计划，防止沿用另一分支的批准。它返回的是新的历史位置，不修改工作区文件；需要恢复代码时应使用预览和确认回退的独立入口。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.preview_revert",
+        "purpose": "只计算可审阅回退计划，不直接写文件",
+        "notes": [
+          "`require_settled` 确认没有活运行，再把用户选的对话、代码或两者范围交给回退服务。",
+          "返回计划固定了来源历史与预期文件版本；这里只供审阅，实际应用仍需用户确认后的独立调用。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/revert.py",
+            "name": "RevertService.preview",
+            "purpose": "从file_snapshot构造目标与预期树",
+            "notes": [
+              "只检查目标之后的 `file_snapshot`，无法确认完成版本时明确报错，不猜磁盘状态。",
+              "快照服务核对能恢复的文件并返回计划；没有可靠快照时不能宣称代码回退可用。"
+            ],
+            "guide": "父入口需要知道哪些文件能恢复，这里读取目标之后的文件快照并核对结果是否可确认。缺少可靠完成快照或底层快照能力时就报错，不从模型文字猜旧内容。返回的计划说明目标版本和当前预期版本，真正恢复留给用户确认后的另一步。"
+          }
+        ],
+        "guide": "用户要撤回修改时，服务先要求运行已结束，再把对话、代码或两者一起的范围交给回退服务。得到的只是包含源历史和预期文件版本的预览，供用户判断会失去哪些改动。此时没有写文件，确认入口还会再次核对预览是否仍适用。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.revert",
+        "purpose": "用户确认后进入可恢复文件事务",
+        "notes": [
+          "先确认运行已结束，再调用 `_revert.apply` 使用已经确认的恢复计划，之后让旧摘要失效。",
+          "它与预览入口分开，显示“将修改哪些文件”时不会顺手写文件，当前内容变化也不能默默覆盖。"
+        ],
+        "guide": "用户确认预览以后，服务再次要求没有活跃运行，然后把固定的恢复计划交给回退服务应用，并让旧摘要失效。这才是会写文件的入口，不能与展示预览混为一谈。执行结果交回调用方，若当前文件已经偏离预览，也不能直接覆盖用户新改动。"
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.compact",
+        "purpose": "记录维护请求，交给launcher压缩入口",
+        "notes": [
+          "确认没有活跃运行，恢复模型配置并保存 `compact_request`，让维护动作有记录。",
+          "后面交 `_launcher.compact`，不会调用普通运行入口重新执行原来的修复请求。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/app/lifecycle/session.py",
+            "name": "ConfiguredRuntimeLauncher.compact",
+            "purpose": "经注入工厂准备真实工具后安全采用摘要",
+            "notes": [
+              "准备真实工具声明并交摘要服务；已有有效工具历史时使用对应信息，避免按想象的工具集合压缩。",
+              "调用 `summary.prepare(manual=True)` 安全采用摘要后再处理钩子，最后关闭这次临时容器。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/context/services/summary.py",
+                "name": "SummaryService.adopt",
+                "purpose": "来源验证成功后追加compaction，再触发后置回调",
+                "notes": [
+                  "`valid_source` 核对摘要来源、分支与配置仍匹配，成功才追加压缩记录，原消息不改写。",
+                  "正式保存之后才调用 `_on_compacted`；应用把记忆整理接在这里，失败草稿不会触发它。"
+                ],
+                "edge": "安全采用／通过注入回调",
+                "guide": "摘要模型返回文本并不意味着可以替换上下文，这里再次核对来源历史、分支和配置是否仍一致。检查通过才追加压缩记录，保留原消息及必须留给后续的尾部。保存成功后才调用注入的后续通知，例如记忆整理；失败摘要不会触发这条通知。"
+              }
+            ],
+            "guide": "压缩入口还需要知道这轮实际可见哪些工具，因此先经注入工厂准备容器和工具声明，再让摘要服务执行手动压缩。已有有效工具快照时使用对应信息，避免摘要配置与真实运行脱节。完成相应钩子后关闭临时容器，结果返回会话维护命令。"
+          }
+        ],
+        "guide": "用户只是觉得历史太长时，这里先确认没有正在运行的任务，再保存一次压缩请求并恢复所需模型配置。它交给执行器专用压缩能力，而不是重新发送修复请求。返回的是安全采用摘要的结果，旧对话和当前文件都不会因此被当作撤回。"
+      }
+    ]
+  },
+  "13-memory:recall": {
+    "title": "新任务怎样读到已有偏好",
+    "input_label": "新任务召回 / 建图来源",
+    "request": "MemoryService.select；ContextModule.instructions；AgentRuntime.build",
+    "intro": "JSON笔记与AGENTS指令并列展示，它们有不同来源和开关，在模型请求处汇合。",
+    "why": "本轮选哪些笔记先留下记录；可信指令交框架加载，不能混说成同一个记忆文件。",
+    "result": [
+      "二十条以内全选，更多时最多选十条，并保存本轮选择。",
+      "关闭笔记不关闭AGENTS指令，两条来源分别控制。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/memory/services/memory.py",
+        "name": "MemoryService.select",
+        "purpose": "少量全召回，多量最多选择10条",
+        "notes": [
+          "`mode` 关闭时不自动召回；总数不超过 `RECALL_ALL_LIMIT` 则全选并保存本轮选择。",
+          "更多条目交选择器；失败记错误并退回最近十条，主任务仍能继续，选中内容也有历史可查。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/services/memory.py",
+            "name": "MemoryService.records",
+            "purpose": "把各固定作用域JSON条目转成统一MemoryRecord",
+            "notes": [
+              "遍历固定范围调用 `store.snapshot`，再把条目变成带范围和ID的统一记录。",
+              "读取根由应用决定；同ID不同范围仍是不同记录，返回目录不允许模型改成任意文件路径。"
+            ],
+            "guide": "选择器和手工列表需要统一的笔记表示，这里逐个读取应用配置允许的存储位置，并附上范围与记录ID。相同ID在用户和项目中仍是两条，模型不能提供路径改变读取根目录。结果返回选择过程，供后续确定哪些内容真正加入本次请求。"
+          },
+          {
+            "file": "src/pycode/memory/adapters/background.py",
+            "name": "ConfiguredMemoryUpdater.select",
+            "purpose": "分批覆盖全部候选，按分数合并作用域ID",
+            "notes": [
+              "按每批一百条遍历整个目录，而非永远只看前一百条；返回ID还要经过候选白名单过滤。",
+              "按分数合并、按范围和ID去重后返回，并在最后关闭本次模型连接；这里不修改笔记内容。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/memory/adapters/memory_query.py",
+                "name": "MemoryDirectorySelector.__call__",
+                "purpose": "结构化schema验证选择结果",
+                "notes": [
+                  "`chain.ainvoke` 接收查询与候选目录，结构化结果只表达选中ID及分数，不接收任意自由文本。",
+                  "类型或解析错误转成 `invalid_memory_selection`，父服务才能明确采用降级选择，而不是把坏结果加入提示。"
+                ],
+                "guide": "上层需要相关笔记的ID而不是一段自由回答，因此这里把查询和候选目录交给带结构化输出的提示链。返回值必须满足ID和分数的结构，解析失败明确报错，让调用方采用降级选择。它只帮助挑条目，不是自动整理或修改笔记的模型流程。"
+              }
+            ],
+            "guide": "条目较多时，父服务把候选目录交给这个受控模型调用。它按批覆盖全部候选，只保留目录里确实存在的ID，再按分数合并去重。模型连接在成功、失败和取消后都关闭；返回的是选择结果，不在这里修改任何长期笔记正文。"
+          }
+        ],
+        "guide": "会话刚保存新请求后，会调用这里决定这轮读哪些长期笔记。数量少时全部选入，更多时请受限选择器挑相关条目，并把选中内容保存到本轮历史。选择失败退回最近条目并记错误，因此主聊天能继续，而且后来能查明这轮究竟用了哪些笔记。"
+      },
+      {
+        "file": "src/pycode/context/module.py",
+        "name": "ContextModule.instructions",
+        "purpose": "生成用户与受信任项目AGENTS的只读来源",
+        "notes": [
+          "用户AGENTS是默认候选，项目AGENTS只有可信时加入，且解析后的文件仍须位于工作区。",
+          "来源交给指令文件后端与框架middleware，处理的是指令；这里不负责JSON笔记的选择或自动写入。"
+        ],
+        "guide": "运行图准备指令时会询问哪些文件允许读取。这里默认加入用户指令文件，只有项目受信任才加入项目根文件，并检查解析后的路径仍在工作区。返回的是只读来源配置，交给框架记忆处理器加载；它不读取或选择长期JSON笔记。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/agent.py",
+        "name": "AgentRuntime.build",
+        "purpose": "建图时注册AGENTS MemoryMiddleware",
+        "notes": [
+          "`MemoryMiddleware` 在这次建图时接入允许的AGENTS来源，内容进入框架私有状态，再用于模型请求。",
+          "JSON笔记的 `memory_load` 由另一条选择与上下文路径处理；不能把框架指令middleware说成长期笔记存储。"
+        ],
+        "edge": "建图时安装框架middleware",
+        "guide": "笔记选择与指令来源准备好后，运行图才在这里接入框架处理器。允许的AGENTS文件交给记忆处理器，每轮读入后加到各次系统提示；JSON笔记另按保存的选择加入上下文。两者在同一请求中相遇，但关闭笔记不等于关闭指令文件。"
+      }
+    ]
+  },
+  "13-memory:tools": {
+    "title": "明确说“记住先给最小例子”",
+    "input_label": "模型主动调用manage/search",
+    "request": "manage_user_memory / search_project_memory",
+    "intro": "先看模块怎样提供官方工具，再看统一执行器调用它时怎样经服务和JSON存储。",
+    "why": "LangMem负责工具动作，项目限制用户项目范围，并记录真实写入结果。",
+    "result": [
+      "新增修改都经过同一内容与密钥检查，再发布文件。",
+      "查找也只能访问固定用户或项目范围，不能指定任意路径。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/memory/adapters/memory_tools.py",
+        "name": "memory_tools",
+        "purpose": "mode与只读设置决定官方工具集合",
+        "notes": [
+          "无服务或关闭模式时返回空集合；每个允许范围有search，非只读才再提供manage。",
+          "返回的声明交统一工具注册流程；不暴露模型管理工具不代表删除笔记或禁止用户离线手动管理。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/adapters/memory_tools.py",
+            "name": "ScopedMemoryTool.__init__",
+            "purpose": "官方native工具schema成为真实ToolSpec",
+            "notes": [
+              "从官方工具的 `get_input_schema` 获取真实参数结构，模型声明与后面调用使用同一份定义。",
+              "查找和修改分别设置类别，并把固定记忆范围写入审批详情，后续检查不依赖模型自称的路径。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/memory/adapters/memory_tools.py",
+                "name": "official_memory_tool",
+                "purpose": "显式namespace与store传给LangMem工具工厂",
+                "notes": [
+                  "管理走 `create_manage_memory_tool`，查找走 `create_search_memory_tool`，后者保留内容与附加数据结果。",
+                  "两者都显式绑定当前范围和记录变化的store，返回给包装器执行，不直接取得任意磁盘文件。"
+                ],
+                "guide": "包装器需要一个真正的LangMem工具时，在这里按查找或管理选择官方工厂，并显式传入当前范围和存储对象。返回给包装器的是框架工具，不是任意文件句柄。后面的修改仍经过相同存储检查，模型无法靠提供另一个路径切换笔记文件。"
+              }
+            ],
+            "guide": "模块创建每个范围的记忆工具时，这个构造器从LangMem实际工具读取参数结构，再生成项目工具声明。查找和修改有不同类别，并附带固定目标范围，后续执行器据此展示和检查。这样模型看到的参数与真正调用的官方工具保持一致。"
+          }
+        ],
+        "guide": "组装本轮工具时，这个函数根据记忆服务是否存在、是否关闭以及只读设置，决定向模型提供哪些查找和管理工具。返回的工具还要进入统一注册与执行流程；不提供管理工具不会删除已有笔记，也不会禁止用户通过离线管理命令纠正内容。"
+      },
+      {
+        "file": "src/pycode/memory/adapters/memory_tools.py",
+        "name": "ScopedMemoryTool.execute",
+        "purpose": "经统一执行器授权后调用官方工具",
+        "notes": [
+          "经服务执行前重新构造官方工具，传入本次记录变化的store；搜索保留原工具调用ID配对。",
+          "返回实际查找内容或修改ID给统一结算保存，不能只回复“已记住”却没有对应存储结果。"
+        ],
+        "edge": "ToolExecutor授权后调用",
+        "helpers": [
+          {
+            "file": "src/pycode/memory/services/memory.py",
+            "name": "MemoryService.tool_operation",
+            "purpose": "守住lead、mode、namespace及本会话互斥",
+            "notes": [
+              "先检查未关闭、未禁用、当前为主助手且范围获准，再在服务锁内调用工具。",
+              "退出时按工具来源记录真实变化；取消发生在写盘之后也要留下记录，不假装副作用没有发生。"
+            ],
+            "guide": "官方工具调用前，服务再次检查自己未关闭、记忆未禁用、当前是主助手且目标范围获准。随后在本会话修改锁内运行工具，退出时记录已经发生的变化。即使取消紧跟写盘之后，日志也保留实际改动，供用户查看或判断之后的撤销。"
+          }
+        ],
+        "guide": "统一执行器已检查声明和权限后，才调用此工具。它使用本次记录变化的存储对象构造官方工具，再经记忆服务执行，最后把实际查找结果或变更ID交回工具结算。模型声称已记住不算完成，结果必须对应真实存储操作并保存进历史。"
+      },
+      {
+        "file": "src/pycode/memory/adapters/storage/json_memory.py",
+        "name": "JsonMemoryStore.write",
+        "purpose": "作用域租约内读改写，新增/修改经过过滤",
+        "notes": [
+          "持文件锁读取最新版本，`existing_key` 将UUID两种拼写定位到已有记录，避免更新变新增。",
+          "规范化与过滤通过后递增版本并原子写入；成功发布才给记录视图增加前后值，供审计和撤销。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/domain/memory.py",
+            "name": "check_memory_write",
+            "purpose": "正文、完整value、数量和密钥形态一起检查",
+            "notes": [
+              "不仅检查显示正文，还检查完整序列化数据大小、数量和递归原始字符串，不能靠隐藏字段或转义藏秘密。",
+              "`WRITE_SECRET_PATTERNS` 命中即拒绝；父写入函数只有检查通过才发布JSON，自动整理可跳过被拒条目。"
+            ],
+            "guide": "写文件前需要防止长期笔记变成无限内容或秘密存储，这个纯检查同时核正文、完整值大小、条目数量和密钥形态。它还检查原始字符串，避免JSON转义掩盖秘密。通过后父函数才发布文件；失败时明确拒绝或由自动整理跳过该条。"
+          }
+        ],
+        "guide": "工具或手工操作提出修改后，这里先拿文件锁重读当前版本，规范记录并检查允许写入的内容，再原子替换JSON。成功发布后才登记前后值，返回真实修改结果。多个会话不会用各自过时的内存快照相互覆盖，同一UUID的两种拼写也会定位旧条目。"
+      }
+    ]
+  },
+  "13-memory:background": {
+    "title": "修复完成后整理长期偏好",
+    "input_label": "session_end / compaction",
+    "request": "run_end → settled；采用摘要 → on_compacted",
+    "intro": "完成聊天与采用摘要是两个触发点，都只预约同一个后台整理入口，不等于同步整理完成。",
+    "why": "后台输入有限，模型设置独立，已完成的部分写入也要如实留记录。",
+    "result": [
+      "后台只读有限摘要和最近文本，步骤与模型调用有上限。",
+      "已发生的部分修改仍记录，失败不自动重试或改变主聊天结果。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.record_run_result",
+        "purpose": "run_end正式完成后才预约自动整理",
+        "notes": [
+          "`needs_input` 分支只保存当前问题和检查点，说明尚未结束，不触发后台记忆。",
+          "其它结果记下输入与最终回复，再让计划结束；只有 `completed` 才通知记忆服务安排整理。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/services/memory.py",
+            "name": "MemoryService.settled",
+            "purpose": "至多一个未结束整理task，在干净Context启动",
+            "notes": [
+              "关闭、禁用或没有后台模型时直接返回；已有未完成任务也不再启动第二个。",
+              "`create_task` 使用独立上下文并登记任务；关闭会话会等它停止，预约不等于笔记已经整理成功。"
+            ],
+            "edge": "创建受拥有的asyncio任务",
+            "helpers": [
+              {
+                "file": "src/pycode/memory/services/memory.py",
+                "name": "MemoryService.consolidate",
+                "purpose": "后台普通失败只记日志，取消保持传播",
+                "notes": [
+                  "实际整理交 `_consolidate`；普通异常记录警告，已经保存的主聊天结果不随之改成失败。",
+                  "取消继续传播给关闭方等待处理；内部仍会记录已经发生的写入，不能因异常抹掉审计。"
+                ],
+                "edge": "后台task实际执行",
+                "helpers": [
+                  {
+                    "file": "src/pycode/memory/services/memory.py",
+                    "name": "MemoryService._consolidate",
+                    "purpose": "bounded来源、逐自动scope调用、finally审计部分写",
+                    "notes": [
+                      "没有可用来源就不请求模型；记录视图设置跳过被拒条目，让不合格笔记不影响其它候选。",
+                      "逐个自动允许范围调用整理，最后记录已写变化、拒绝和错误，准确说明失败前已完成哪些部分。"
+                    ],
+                    "helpers": [
+                      {
+                        "file": "src/pycode/memory/services/memory.py",
+                        "name": "consolidation_source",
+                        "purpose": "保留压缩尾部，给后台有限的用户/助手文本",
+                        "notes": [
+                          "先按压缩后的保留上下文重建顺序，摘要最多八千字符，不能丢掉压缩前留下的尾部。",
+                          "再选有限用户和助手文本，限制条数与总长度；返回给后台的是文本，不把无限工具日志交给模型。"
+                        ],
+                        "guide": "后台不能直接吞下整个会话，所以父流程在这里准备摘要与最近用户助手文本。它先按压缩后的实际保留顺序重建消息，再限制摘要字符数、消息数和总长度。返回给后台模型的是有限文本，不包含可以重新执行的历史工具调用。"
+                      },
+                      {
+                        "file": "src/pycode/memory/adapters/background.py",
+                        "name": "ConfiguredMemoryUpdater.consolidate",
+                        "purpose": "一次整理拥有一个受控后台模型scope",
+                        "notes": [
+                          "后台调用目的设为 `memory_extract`，把受限模型封装交整理器，而不是借用主聊天无限制调用。",
+                          "本次连接在最后关闭，成功、失败或取消都一样；请求和费用也能按后台目的单独查到。"
+                        ],
+                        "helpers": [
+                          {
+                            "file": "src/pycode/memory/adapters/memory_update.py",
+                            "name": "MemoryConsolidator.__call__",
+                            "purpose": "直接使用LangMem Store Manager",
+                            "notes": [
+                              "`create_memory_store_manager` 绑定说明、范围和store，由LangMem决定新增、合并或删除。",
+                              "调用消息里 `\"max_steps\": 1` 限制管理步骤；一次流程仍可能有多个模型请求，不可说成必定一次HTTP调用。"
+                            ],
+                            "helpers": [
+                              {
+                                "file": "src/pycode/memory/adapters/memory_update.py",
+                                "name": "framework_messages",
+                                "purpose": "摘要与最近对话转成框架消息",
+                                "notes": [
+                                  "摘要转 `SystemMessage`，筛选后的用户和助手分别转对应框架消息，保留消息ID。",
+                                  "结果只给记忆管理器阅读，不重建可执行的历史工具调用；来源长度已由父流程提前限制。"
+                                ],
+                                "guide": "记忆管理器需要框架消息格式，父整理器因此在这里转换已经筛选好的文本。摘要变系统消息，用户和助手分别用对应消息类，并保留原消息ID。返回后只作为整理输入，不把原工具调用还原成可执行动作，也不额外读取未筛选的历史。"
+                              }
+                            ],
+                            "guide": "后台模型和记录变化的存储已准备好，这里直接创建LangMem的记忆管理器，传入当前范围与整理说明，再以有限步骤调用。新增、更新或删除什么由管理器决定，项目没有另写抽取循环。实际操作仍回到受限存储，结果由父服务记审计。"
+                          }
+                        ],
+                        "guide": "父服务准备好来源和目标存储后，这里打开独立后台模型，将受限封装交给整理器。调用目的记为记忆提取，与主聊天设置和计量区分；无论模型返回、失败或取消，最后都关闭本次连接。返回的变化已经由实际存储记录，不靠自然语言声明。"
+                      },
+                      {
+                        "file": "src/pycode/memory/services/memory.py",
+                        "name": "MemoryService.log",
+                        "purpose": "一轮反复修改同条记录，只记初始before和最终after",
+                        "notes": [
+                          "按范围和键聚合变化，多次改同条只留最早before与最后after，撤销才能恢复整理前状态。",
+                          "没有净变化不追加；其余附来源、会话、运行与原因交变更日志保存，便于区分工具和后台修改。"
+                        ],
+                        "guide": "一次整理可能反复修改同一条笔记，直接逐次记日志会让撤销停在中间状态。这里按范围和键合并成最初值与最终值，补来源、会话和运行信息后追加记录。没有净变化就不写，调用方得到的审计能够解释这轮最终究竟改了什么。"
+                      }
+                    ],
+                    "guide": "真正整理前先取得有限对话，没有来源就不调用模型。随后逐个自动允许的笔记范围运行整理，过滤不合格条目，并在最后记录已经写成的变化和拒绝原因。返回时可能是成功或部分失败，调用方因此能区分没做、做完和已经写了一部分。"
+                  }
+                ],
+                "guide": "后台任务从这里进入实际整理流程。普通模型或存储异常会记录日志，让主聊天已保存的结果保持原样；取消则继续向外传播，让关闭过程能够等待停止。实际写过的条目由内部流程记录，不能因为最终异常就说整轮没有产生变化。"
+              }
+            ],
+            "guide": "正常聊天结束或摘要已采用后，服务可以在这里预约整理。关闭、禁用或缺模型时直接返回；已有未结束整理则不重复创建。新任务与主聊天的临时上下文隔开运行，并由服务记住以便关闭时等待，所以预约成功不等于长期笔记已经写完。"
+          }
+        ],
+        "guide": "图返回以后，会话还需要把这轮状态保存完整。如果仍在等待用户，这里记录问题和检查点；否则保存结束结果、相关输入和最后回复，再结束本轮计划。只有正常完成才通知后台记忆，因此审批暂停不会被误当成一次聊天已经全部结束。"
+      },
+      {
+        "file": "src/pycode/context/services/summary.py",
+        "name": "SummaryService.adopt",
+        "purpose": "压缩正式采用后触发注入的记忆回调",
+        "notes": [
+          "`valid_source` 核对摘要来源、分支与配置仍匹配，成功才追加压缩记录，原消息不改写。",
+          "正式保存之后才调用 `_on_compacted`；应用把记忆整理接在这里，失败草稿不会触发它。"
+        ],
+        "edge": "通过注入回调",
+        "helpers": [
+          {
+            "file": "src/pycode/memory/services/memory.py",
+            "name": "MemoryService.compacted",
+            "purpose": "压缩入口汇入同一个单task预约器",
+            "notes": [
+              "为压缩触发的整理生成独立ID与原因，再复用 `settled` 的单任务调度规则。",
+              "因此压缩不会另开一套同时写相同JSON的任务，真正模型调用和审计仍沿正常后台流程。"
+            ],
+            "guide": "摘要已正式采用后，应用注入的回调才进入这里。它给这次压缩相关整理独立身份和原因，再复用聊天结束使用的单任务预约入口。这样压缩与结束不会同时创建两条修改同一笔记的后台流程；真正写入仍由后续整理执行。"
+          }
+        ],
+        "guide": "摘要模型返回文本并不意味着可以替换上下文，这里再次核对来源历史、分支和配置是否仍一致。检查通过才追加压缩记录，保留原消息及必须留给后续的尾部。保存成功后才调用注入的后续通知，例如记忆整理；失败摘要不会触发这条通知。"
+      }
+    ]
+  },
+  "13-memory:undo": {
+    "title": "记错了，编辑或撤销最近整理",
+    "input_label": "/memory undo / edit",
+    "request": "MemoryService.undo / MemoryService.edit",
+    "intro": "手工编辑与撤销是独立入口；放在一起看，是为了理解旧撤销为什么不能覆盖后来纠正。",
+    "why": "恢复保存过的前后值，先比较当前状态；跨文件部分成功也明确记录。",
+    "result": [
+      "当前值不同于整理后值时拒绝撤销，保护后来的用户修改。",
+      "每个JSON单独原子替换，跨两个文件不保证同时成功。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/memory/services/memory.py",
+        "name": "MemoryService.undo",
+        "purpose": "选最近未完整撤销的自动整理，CAS后恢复",
+        "notes": [
+          "只选择自动整理来源且尚未完整撤销的记录，要求范围属于当前会话，不撤用户手工编辑。",
+          "恢复完比较实际变化，完整记 `undoes`，部分只记 `attempted_undo`；不会把半成功说成整轮已撤销。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/adapters/storage/json_memory.py",
+            "name": "JsonMemoryStore.restore",
+            "purpose": "拿齐scope租约，先整批比较再逐文件原子发布",
+            "notes": [
+              "按固定顺序拿齐文件锁，整批比较当前值等于记录after，再校验所有旧记录结构。",
+              "逐个范围原子发布，成功一个就立即记录其变化；后个文件失败时能审计已恢复部分，不承诺跨文件事务。"
+            ],
+            "guide": "撤销入口把原值和整理后值交到这里。它按固定顺序拿齐相关文件锁，先检查全部当前值与记录一致、旧值结构合法，再逐个发布恢复文件。每个已成功文件立即记入变化；因此第二个文件失败时，父函数仍知道第一处已恢复而不能宣称完全没改。"
+          },
+          {
+            "file": "src/pycode/memory/adapters/storage/json_memory.py",
+            "name": "MemoryChangeLog.append_sync",
+            "purpose": "审计追加也处理残缺尾部并fsync",
+            "notes": [
+              "尾部不以换行结束时先补换行，下一条合法JSON不会粘进残缺行一并丢失。",
+              "持日志锁追加编码和换行，再 `flush`、`fsync`，返回前完成真实写入，撤销依据不只在内存。"
+            ],
+            "guide": "父服务已经汇总一轮真实变化，这里负责把审计追加到磁盘。它取得日志锁，必要时先给残缺尾部补换行，避免下一条合法记录粘进去，然后刷新写盘。成功返回后，用户才能据此定位整理和撤销；日志失败也不能被说成已安全记账。"
+          }
+        ],
+        "guide": "用户要求撤销时，服务查找最近尚未完整撤销的自动整理，并要求涉及范围属于当前会话。它让存储先比较当前值再恢复旧值，最后记录实际完成范围。完全恢复才标记撤销成功，部分写失败只留尝试记录，不会把后来的手工修改强行抹掉。"
+      },
+      {
+        "file": "src/pycode/memory/services/memory.py",
+        "name": "MemoryService.edit",
+        "purpose": "手动编辑先消歧scope，再使用相同写边界",
+        "notes": [
+          "先找到唯一范围与键；同ID跨范围时让用户明确指定，不猜应改哪份笔记。",
+          "交 `write` 以手动来源保存，后来undo比较值不同就拒绝覆盖，保护本次纠正。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/memory/services/memory.py",
+            "name": "MemoryService.write",
+            "purpose": "手动操作在同一服务锁下审计已写变化",
+            "notes": [
+              "手工入口仍在服务锁内使用同一记录视图和JSON存储，不旁路内容检查。",
+              "最后记录已经发生的变化；取消紧随磁盘写完也留日志，让用户能核实手工修改结果。"
+            ],
+            "guide": "手工编辑或删除确定目标后，在这里取得本会话修改锁，并使用相同JSON存储执行。退出前记录已经发生的变化，即使调用方取消也不遗漏写盘结果。它与后台整理共用互斥和审计规则，而不是提供一个能绕过检查的管理员文件写入口。"
+          }
+        ],
+        "guide": "用户纠正笔记时，这里先按ID与可选范围找到唯一目标；两处同ID不会凭猜测覆盖。随后交给统一手工写入口，接受同样内容检查并记录来源。修改会改变后续撤销比较的当前值，所以旧自动整理不能悄悄把用户这次纠正覆盖回去。"
+      }
+    ]
+  },
+  "14-plans:enter": {
+    "title": "先规划parser修法，暂不改项目",
+    "input_label": "用户/plan；框架文件工具",
+    "request": "enter_plan(task)；write_file('/plans/P.md', content)",
+    "intro": "服务只创建方案身份，真正正文由后续框架文件工具写入，两个入口不是同步代写。",
+    "why": "只给当前方案文件写入例外，业务门与真实文件后端都要限制范围。",
+    "result": [
+      "方案ID和文件位置由模块生成，模型只写当前一份正文。",
+      "规划期间仍拒绝普通项目写入和外部命令。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.enter_plan",
+        "purpose": "排他进入规划，必要时启动规划任务",
+        "notes": [
+          "`require_settled` 阻止在活等待上另开计划，之后让计划服务创建当前会话状态。",
+          "无任务正文只保存进入规划消息；带正文才调用普通 `run`，不能把进入模式当成模型已完成方案。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/plans/services/plans.py",
+            "name": "PlanService.enter",
+            "purpose": "生成UUID，固定本会话Plan路径",
+            "notes": [
+              "`uuid4().hex` 生成方案ID，会话身份从日志头取得，文件路径由注入的文件能力生成。",
+              "保存初始规划状态后返回给会话，模型只能写当前方案，不能通过参数指定内部任意路径。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/plans/services/plans.py",
+                "name": "PlanService.save",
+                "purpose": "plan_state先落JSONL，再更新内存和后端active文件",
+                "notes": [
+                  "先追加 `plan_state` 记录，成功后才替换 `self.state` 并配置活动方案文件。",
+                  "所有模式变化共用此出口；日志失败不能只在内存变成已批准，让执行权限无记录可查。"
+                ],
+                "guide": "计划状态变化会影响后面工具能否写文件，所以这里先把完整状态追加到会话日志，成功后才替换内存状态并配置活动文件。父函数据此返回进入、批准或完成的结果；日志写失败时不能只在内存切换模式，让模型获得磁盘无法解释的权限。"
+              }
+            ],
+            "guide": "进入规划需要一份属于当前会话的方案，这里从历史头部取得会话身份，生成随机方案ID，再由文件能力计算路径。初始状态保存为规划中，交回上层启动普通模型运行。模型没有机会自己指定内部存储目录或借别的会话方案取得写入例外。"
+          }
+        ],
+        "guide": "用户选择先看方案时，会话先确认没有活跃任务或等待，再让计划服务创建当前方案。带任务正文时接着走普通运行，让模型只做规划；没有正文则只保存进入规划这件事。返回的方案状态供界面显示，不能把创建文件身份误说成方案已写完。"
+      },
+      {
+        "file": "src/pycode/plans/adapters/storage/plans.py",
+        "name": "PlanBackend.write",
+        "purpose": "框架文件工具只可写active Plan Markdown",
+        "notes": [
+          "`file_path != self.active_name` 直接拒绝，当前计划目录不是一个任意可写的区域。",
+          "符合才委托真实backend写入并返回结果，底层路径和搜索限制仍生效，规划例外不会扩展到项目源码。"
+        ],
+        "edge": "FilesystemMiddleware经/plans/路由调用",
+        "helpers": [
+          {
+            "file": "src/pycode/plans/adapters/storage/plans.py",
+            "name": "PlanBackend.check_path",
+            "purpose": "根目录仅作列举，其他路径必须精确active_name",
+            "notes": [
+              "只允许根列举或当前 `active_name`，其它入口抛出明确路径错误。",
+              "这个检查注入实际文件后端，发生在访问前；不是先读取其它方案再在界面隐藏。"
+            ],
+            "guide": "真实读写后端需要判断一个路径能否访问，这个检查只接受根目录列举或当前活动方案名，其余明确报错。它在文件操作入口生效，不是界面读取全部文件后隐藏结果。调用方检查通过才能继续委托实际后端，因而权限限制作用在真实磁盘访问上。"
+          },
+          {
+            "file": "src/pycode/plans/adapters/storage/plans.py",
+            "name": "PlanBackend.search_scope",
+            "purpose": "在rg启动前给出唯一扫描文件",
+            "notes": [
+              "先验证请求路径，再只返回当前活动文件；没有活动方案时不给搜索范围。",
+              "真正搜索进程启动前就受限制，不扫描全部内部计划后再过滤，避免读取不属于当前会话的内容。"
+            ],
+            "guide": "模型想搜索方案时，父后端先在这里验证请求路径，再取得当前允许扫描的那个文件名。没有活动方案就返回空范围，搜索进程启动前已经受限。结果交回真实搜索实现，而不是先扫描别的会话方案，再靠输出过滤假装它们从未被读取。"
+          }
+        ],
+        "guide": "规划中的模型调用普通文件写工具，路由到这里时，后端再次要求目标恰好是当前方案文件。符合才交给注入的真实文件后端写入，并把结果返回原工具；其它路径直接拒绝。这样允许写方案不会扩展成允许改整个内部目录或项目代码。"
+      }
+    ]
+  },
+  "14-plans:review": {
+    "title": "看过正文，反馈或批准",
+    "input_label": "模型控制工具 / 用户恢复",
+    "request": "ExitPlanMode；用户resume(answer)",
+    "intro": "审阅先保存正文，在框架暂停处等待；答案回来后仍需重读，UI不直接改已批准状态。",
+    "why": "答案要属于这次问题，批准内容也必须还是刚才那份文件。",
+    "result": [
+      "反馈继续规划；批准仅适用于本轮与用户看过的正文。",
+      "等待期间正文改变就要求重新审阅，不套用旧答案。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/plans/adapters/tools/plans.py",
+        "name": "ExitPlanMode.execute",
+        "purpose": "普通控制工具把审阅交给PlanService",
+        "notes": [
+          "`plans.review(context)` 是真实业务调用，控制工具不创建另一个Agent或直接批准状态。",
+          "它在规划期可声明为read类等待工具；用户决定仍经框架暂停返回，再进入普通结果保存。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/plans/services/plans.py",
+            "name": "PlanService.review",
+            "purpose": "保存正文快照，等待明确决定，恢复后重验内容",
+            "notes": [
+              "新问题保存正文、校验值与分支，已有同操作问题复用那份快照，不能临时替换用户看到的内容。",
+              "feedback保存为输入继续规划；批准前重读并比较，匹配才保存当前运行绑定，变更则重新审阅。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/plans/adapters/storage/plans.py",
+                "name": "FilePlanStore.read",
+                "purpose": "读取真实Markdown并返回内容哈希",
+                "notes": [
+                  "从本会话生成的受控路径读实际Markdown并检查文件归属，不把任意外部文件当方案。",
+                  "返回正文与 `sha256` 给review和guard比较；文件存在或修改时间不等于内容没变。"
+                ],
+                "guide": "审阅和执行检查都需要知道当前真实正文，因此调用这个文件读取入口。它根据本会话生成路径并检查文件归属，再返回正文、内容校验值和存储位置。父函数用这些值比较是否仍是用户看过的一份，不靠文件存在或修改时间猜测内容没变。"
+              },
+              {
+                "file": "src/pycode/plans/adapters/plans.py",
+                "name": "InterruptPlanPrompt.ask",
+                "purpose": "调用原生task并验证问题身份",
+                "notes": [
+                  "等待的是原生 `plan_answer` 任务，恢复后还核操作ID、方案ID与允许决定。",
+                  "通过才把答案交回服务复查正文；磁盘问题记录不代表新进程还能回答这次活图等待。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/plans/adapters/plans.py",
+                    "name": "plan_answer",
+                    "purpose": "原生interrupt使当前图等待",
+                    "notes": [
+                      "`@task` 标记框架任务，内部 `interrupt(payload)` 返回用户恢复带来的答案。",
+                      "此处只暂停和交回结果，方案正文是否变化由上层服务判断，不能在按钮点击时绕过内容复查。"
+                    ],
+                    "edge": "LangGraph原生等待／恢复",
+                    "guide": "审阅适配器通过框架任务调用这里，函数内部把准备好的问题交给原生暂停接口。此时图停止继续执行，等待同一进程的恢复命令带回答案。它只实现暂停和返回，不判断方案内容是否仍有效；返回后仍由上层适配器与业务服务完成那些检查。"
+                  }
+                ],
+                "guide": "计划服务已有正文快照后，调用这里把问题交给原生任务等待。框架恢复时，返回答案还需匹配当前操作、方案和允许的决定类型，才交回审阅服务复查正文。它不是一个跨进程保存的任意问答队列；关掉图以后日志仍在，等待本身已失效。"
+              }
+            ],
+            "guide": "审阅入口先读取真实方案，保存这次问题对应的正文和校验值，再等待用户。反馈交回模型继续改方案；批准则重读文件，确认与刚才展示的内容相同，才绑定当前运行保存。等待期间若正文变化，旧答案不能批准新内容，必须重新审阅。"
+          }
+        ],
+        "guide": "模型写完方案后需要请求用户阅读，普通工具执行入口因此调用当前计划服务的审阅方法。它自己不运行另一个模型，也不直接把模式改成已批准。返回要等原生问题得到有效答案并完成内容复查，之后才由统一工具流程保存正式结果。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/agent.py",
+        "name": "AgentRuntime.resume",
+        "purpose": "校验当前interrupt并创建Command(resume)",
+        "notes": [
+          "先从活图取得当前问题，按中断ID或单问题形态调用 `validate_runtime_answer`，不能只信界面参数。",
+          "清理待恢复的临时标记后再调用图，不删除已完成结果；通过框架恢复命令继续原来那次等待。"
+        ],
+        "edge": "同一个活图恢复",
+        "helpers": [
+          {
+            "file": "src/pycode/agent/adapters/agent.py",
+            "name": "validate_runtime_answer",
+            "purpose": "按问题契约校验，不直接执行动作",
+            "notes": [
+              "`question_extensions` 先判断谁负责这类问题；无人处理时仍走普通 `validate_operation_answer`。",
+              "通过只表示答案身份和结构合法。工具恢复后还要比较当前操作内容，不能由这个返回值授予永久权限。"
+            ],
+            "guide": "恢复前不能只检查答案是个字典，还要知道它回答哪类问题。这里先让已注册的问题扩展认领并校验，没人认领时使用普通操作答案规则。通过只表示答案形状和身份合法，真正恢复后仍有对应工具检查当前内容，不能据此跳过执行权限。"
+          }
+        ],
+        "guide": "执行器找到原容器以后，运行时还要读取图里真正待答的问题。它按问题身份逐项校验答案，只有全部符合才用框架的恢复命令继续执行。之前已保存的完整工具结果不清除；因此这一步是回答现有暂停，不是从用户消息再执行一遍整轮。"
+      },
+      {
+        "file": "src/pycode/plans/services/plans.py",
+        "name": "PlanService.save",
+        "purpose": "plan_state先落JSONL，再更新内存和后端active文件",
+        "notes": [
+          "先追加 `plan_state` 记录，成功后才替换 `self.state` 并配置活动方案文件。",
+          "所有模式变化共用此出口；日志失败不能只在内存变成已批准，让执行权限无记录可查。"
+        ],
+        "guide": "计划状态变化会影响后面工具能否写文件，所以这里先把完整状态追加到会话日志，成功后才替换内存状态并配置活动文件。父函数据此返回进入、批准或完成的结果；日志写失败时不能只在内存切换模式，让模型获得磁盘无法解释的权限。"
+      }
+    ]
+  },
+  "14-plans:guard": {
+    "title": "批准后每次工具还检查什么",
+    "input_label": "任意工具到授权边界",
+    "request": "普通Plan检查 / 合并检查 / worker检查",
+    "intro": "并列展开不同工具门，不表示普通Plan放行后会线性调用这里的所有门。",
+    "why": "普通自动执行与团队强制确认范围不同，不能拿一份计划省掉一次具体合并审批。",
+    "result": [
+      "普通动作分别按规划、自动或逐项审阅模式处理。",
+      "自动计划也跳不过worker命令与团队合并的强制检查。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/tools/services/plan_gate.py",
+        "name": "PlanToolGate.authorize",
+        "purpose": "危险命令拒绝后，组合Plan规则与原父gate",
+        "notes": [
+          "先检查禁止命令，再调用计划guard；只有guard明确放行才结束这层普通审批。",
+          "否则继续 `parent.authorize`。review模式保留普通父门，auto也不影响外面团队与worker强制检查。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/plans/services/plans.py",
+            "name": "PlanService.guard",
+            "purpose": "逐次检查模式、run_id和approved_hash",
+            "notes": [
+              "检查本轮批准与文件内容；旧运行、不再可读或正文改变都撤回到规划。",
+              "规划只允许读与写当前方案，已批正文禁止再写；auto只放行普通读写命令，其它仍交原权限链。"
+            ],
+            "guide": "工具门需要一个具体判断，这里同时检查模式、所属运行和方案内容。规划中只允许读取或写当前方案；旧运行批准、不可读或已变正文会撤回批准。返回给工具门后，由它决定继续父级审批还是放行，提醒模型的上下文文字本身不承担这些检查。"
+          }
+        ],
+        "guide": "任何普通工具准备执行时，这层先检查明确禁止的命令，再让计划服务判断当前模式。自动批准的普通类别可以返回放行，否则继续原父级审批。它返回的是该次工具检查结果，不能替代更外面的团队合并或子助手强制规则，也不从方案文字推导新权限。"
+      },
+      {
+        "file": "src/pycode/tools/adapters/permissions.py",
+        "name": "TeamToolGate.authorize",
+        "purpose": "merge不受Auto Plan提前返回影响",
+        "notes": [
+          "只认真实team来源的合并工具，先执行拒绝约束与计划检查，再固定源目标预览。",
+          "`mandatory.authorize` 单独问用户；预览变动就拒绝，不能让auto Plan跳过或审批后换另一份内容。"
+        ],
+        "edge": "Team强制外层门",
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.merge_preview",
+            "purpose": "成功停机worker、任务依赖与review缺一不可",
+            "notes": [
+              "成员必须完成且已审查，任务前置集成也须满足，缺一项都不产生可批预览。",
+              "交worktree管理器固定审查内容和操作类型，批准绑定的是实际代码与目标，不是角色说明。"
+            ],
+            "guide": "外层门请求审批材料时，协调器先核成员已停止且完成、改动已审查、相关前置任务满足合入次序，再交工作区管理器固定源目标。返回预览给这一次审批，缺一项都不能请求用户盲批。角色说明或任务已完成本身都不等于允许合并代码。"
+          }
+        ],
+        "guide": "普通自动计划不能决定是否将子目录改动合回主目录，所以合并工具在这里走独立外层检查。先保留现有拒绝约束，再取得绑定源与目标的预览并强制询问用户。批准后保存本次操作的预览给分派函数，内容改变就拒绝，不能借旧批准临时生成新预览。"
+      },
+      {
+        "file": "src/pycode/tools/services/permissions.py",
+        "name": "WorkerBoundaryGate.authorize",
+        "purpose": "固定子权限和严格命令审批",
+        "notes": [
+          "先固定readonly或worker模式和父拒绝约束，角色文字、计划内容都不能扩权。",
+          "自己的文件工具在固定根内工作，命令仍要强制审批和严格沙箱；没有严格隔离不会回落无隔离执行。"
+        ],
+        "edge": "Worker强制外层门",
+        "guide": "子助手每次使用工具时，外层检查先固定只读或独立工作区的权限，再保留父级拒绝。自己的文件工具在限定范围内工作，外部命令仍必须通过强制审批和严格沙箱。结果交回统一执行器，子方案、角色或主助手的自动模式都不能把范围扩大。"
+      }
+    ]
+  },
+  "14-plans:expire": {
+    "title": "任务结束，或明天重开",
+    "input_label": "run结束 / 打开历史 / 上下文投影",
+    "request": "finish / initialize / contribute",
+    "intro": "三个独立入口分别处理运行结束、从历史重建和给模型生成提醒；提醒不参与工具授权。",
+    "why": "保存批准用于解释历史，不是让旧批准永久有效；完成后旧提醒也要撤掉。",
+    "result": [
+      "本轮完成撤下批准，重开进程回规划，旧决定只供回看。",
+      "已完成方案不继续从旧压缩缓存给模型留下活动提醒。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/plans/services/plans.py",
+        "name": "PlanService.finish",
+        "purpose": "仅结束属于本run的批准",
+        "notes": [
+          "只有 `approved_run_id` 与结束运行相同才保存完成并清运行绑定。",
+          "其它运行和未批准规划不误标完成；上一轮批准也就不会为下一轮任务继续放行。"
+        ],
+        "guide": "会话保存一轮结束结果后，需要撤下只属于这一轮的批准。这里比较批准中的运行ID，匹配才保存完成状态并清掉运行绑定；其它运行或未批准方案保持原状。返回以后新任务不能继续借用旧批准，但历史仍能解释这份方案曾怎样被审阅和执行。"
+      },
+      {
+        "file": "src/pycode/plans/services/plans.py",
+        "name": "PlanService.initialize",
+        "purpose": "当前分支重建状态，重启旧批准过期",
+        "notes": [
+          "从当前分支找计划状态，核会话与受控路径，防止旧文件状态接到别的会话。",
+          "重建后的auto或review保存为planning并清批准，历史仍可解释昨天做过什么，但不能给新进程执行权。"
+        ],
+        "guide": "打开会话或换分支后，内存计划不能沿用旧值，因此这里从当前分支日志找状态并检查文件路径归属。此前自动或逐项审阅批准都退回规划并清除绑定。结果交给新会话使用，旧日志用于回看，不会因为磁盘存在批准记录就让新进程免审批。"
+      },
+      {
+        "file": "src/pycode/plans/services/projection.py",
+        "name": "PlanProjection.contribute",
+        "purpose": "纯历史提醒与自有checkpoint归属",
+        "notes": [
+          "只读本会话最新计划状态生成提醒，不读写Markdown，也不调用工具门。",
+          "每次先清 `checkpoint_keys` 再按当前状态更新，完成后不会因旧压缩快照残留而继续提示活动方案。"
+        ],
+        "guide": "模型上下文需要知道当前方案路径与阶段，这里只读会话记录生成提醒，不访问方案文件或判断执行权限。它先要求清除自己曾留下的计划键，再按最新状态补入，完成方案就不再保留旧提醒。结果返回上下文组合器，避免压缩缓存让模型以为旧计划仍在运行。"
+      }
+    ]
+  },
+  "15-team:spawn": {
+    "title": "主助手把测试任务分出去",
+    "input_label": "lead工具与后台子驱动",
+    "request": "create_task；spawn_agent；claim_task",
+    "intro": "创建、派发与认领是独立工具入口；派发后的drive为异步子任务，不是spawn同步等到测试完成。",
+    "why": "先保存身份、归属和启动状态，再创建工作区与子会话，角色文字不产生权限。",
+    "result": [
+      "成员启动与任务认领先保存，再创建子会话和工作区。",
+      "返回成员ID只代表启动结果，不表示测试已经完成。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/team/services/team_tasks.py",
+        "name": "TeamManager.create_task",
+        "purpose": "任务板锁内创建有界任务和依赖",
+        "notes": [
+          "先限制任务数与说明长度，`validate_dependencies` 检查依赖存在、不重复且无环。",
+          "调用注入 `_commit` 写成后才更新任务板，返回任务不意味着子模型已经启动或完成。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.commit",
+            "purpose": "单JSONL transition是团队状态权威",
+            "notes": [
+              "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
+              "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
+            ],
+            "guide": "成员、任务与消息可能需要一起改变，协调器因此用这一出口保存完整变化。它先追加一条团队日志，成功后再校验应用到内存并通知等待者。追加结果不确定时进入存储错误状态并查同一记录ID，不继续靠未经确认的内存数据派发新工作。"
+          }
+        ],
+        "guide": "主助手想分工时，先在这里登记要做什么。服务检查任务数量、说明长度和依赖是否存在且无环，再将新任务交给注入的保存函数。成功才更新团队状态并返回任务，尚未创建子会话；后面的派发或认领会以这份已保存任务为依据。"
+      },
+      {
+        "file": "src/pycode/team/adapters/team_tools.py",
+        "name": "TeamTool.execute",
+        "purpose": "固定actor的派发工具入口",
+        "notes": [
+          "当前成员身份来自组装的team/member，不接受模型参数冒充另一个发送者。",
+          "等待工具把具体消息ID放入结果，之后只按正式成功结果确认；此入口不能先行标已送达。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/adapters/team_tools.py",
+            "name": "TeamTool.dispatch",
+            "purpose": "此分支只展示spawn_agent的真实调用",
+            "notes": [
+              "当前路径按工具名称选择 `spawn`，传入本轮provider和run_id，成员身份来自固定包装器。",
+              "认领和合并是同函数的其它分支，并非派发后自动执行；这里的返回只说明启动结果，不说明测试完成。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/services/team.py",
+                "name": "AgentTeam.spawn",
+                "purpose": "锁下检查模式/名额/依赖并先写starting",
+                "notes": [
+                  "检查Git能力、权限与并发名额，等待审批的子助手也算活跃；只读主助手不能派可写worker。",
+                  "在团队和任务板锁内先保存启动与认领，再登记 `start`；只等待启动，不等整项测试结束。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/team/services/team.py",
+                    "name": "AgentTeam.start",
+                    "purpose": "拥有worktree创建与child session初始化",
+                    "notes": [
+                      "创建worktree明确使用当前提交且不含未提交内容；即使取消，迟到资源也要绑定原成员。",
+                      "打开子会话并写双向关联后才保存running和登记drive，启动失败不能伪装成已运行。"
+                    ],
+                    "helpers": [
+                      {
+                        "file": "src/pycode/team/adapters/worktrees.py",
+                        "name": "WorktreeManager.create",
+                        "purpose": "受控创建独立Git worktree",
+                        "notes": [
+                          "基线与是否带未提交内容是明确参数，团队选择不复制主目录尚未提交修改。",
+                          "路径、分支和基线一起记录，创建失败也保留可查身份，后面恢复或清理不会猜目录来源。"
+                        ],
+                        "guide": "启动任务需要独立代码目录时，调用这里按明确基线和是否包含未提交内容创建Git工作树。团队明确选择当前提交且不带主目录未提交改动，目录、分支和基线共同记入记录。返回资源身份给启动任务，之后审查、恢复和清理都有可核对的来源。"
+                      },
+                      {
+                        "file": "src/pycode/app/composition/team.py",
+                        "name": "ConfiguredChildSessions.open",
+                        "purpose": "所选模块scoped到子工作区，复用普通会话入口",
+                        "notes": [
+                          "子配置固定权限、成员ID和禁嵌套委派、记忆关闭，并沿父凭据来源获取模型。",
+                          "所选模块限定到子目录；fork条目是空列表也保持空选择，不错误退回完整历史。"
+                        ],
+                        "edge": "通过注入ChildSessions",
+                        "guide": "工作区准备好后，这个应用适配器把所选模块重新限定到子目录，再经普通会话入口打开子助手。它固定权限、禁嵌套委派并保留父凭据来源，分支上下文即使为空也不退回全部历史。返回独立会话由团队负责关闭，不直接在主历史里混跑子工具。"
+                      },
+                      {
+                        "file": "src/pycode/team/services/team.py",
+                        "name": "AgentTeam.drive",
+                        "purpose": "登记并等待结束的任务执行子run/resume并保存终态或审批",
+                        "notes": [
+                          "运行或恢复子会话后，等待问题保存为该成员的 `needs_approval`，供主UI准确回答。",
+                          "其它结果交finish；退出移除驱动并检查唤醒，释放的名额才能服务后面的显式新消息。"
+                        ],
+                        "edge": "受拥有的asyncio任务入口",
+                        "helpers": [
+                          {
+                            "file": "src/pycode/team/services/team.py",
+                            "name": "AgentTeam.finish",
+                            "purpose": "同一transition保存agent终态、任务状态与完成通知",
+                            "notes": [
+                              "成员终态、任务结果与主助手完成通知一起提交，重复终态处理不再生成第二份通知。",
+                              "保存后才发事件；工作区停止标记失败只记警告并保留材料，不篡改已经完成的子运行结果。"
+                            ],
+                            "guide": "驱动拿到子任务终态后，这里将成员状态、任务结果和发给主助手的完成消息一次保存，重复完成不重复处理。保存后才通知界面，工作区停止标记失败只保留警告与材料。返回完成事实不表示改动已合入，也不能替代真实测试结果或合并检查。"
+                          }
+                        ],
+                        "guide": "启动完成后，团队登记的任务在这里运行或恢复子会话。遇到用户问题就保存该成员的等待状态和问题，再通知主界面；其它结果交完成函数。退出时移除驱动并检查可唤醒成员，主助手的派发调用不会在这个函数里同步等待整项测试结束。"
+                      }
+                    ],
+                    "guide": "派发状态已保存以后，这个异步任务才实际创建工作区并打开子会话。创建即使迟于取消返回，也要关联资源记录，避免留下不知道属于谁的目录。成功后写双向会话链接、保存运行状态并启动驱动；失败明确结束启动，不把半初始化成员显示为正在工作。"
+                  }
+                ],
+                "guide": "收到派发请求后，这里检查权限模式、工作区能力、并发名额和依赖，在锁内把启动状态与任务认领一起保存。随后登记启动任务并等启动结果，不等子助手整项工作完成。返回的成员身份供主助手之后发消息、等结果和审查，不能当成代码已验证。"
+              }
+            ],
+            "guide": "当前展开只跟踪派发分支：包装器把当前成员和本轮模型信息交给协调器，后者检查名额、保存启动状态并创建子资源。分派函数本身不等待子模型完成；同文件还有认领和合并等分支，应按工具名称分别读，不能当成本次请求依次调用。"
+          }
+        ],
+        "guide": "模型调用团队工具时，这个入口使用组装好的当前成员身份，而不是相信参数自称谁。它把合法请求交给分派函数，并把等待消息的具体ID附在工具结果中。结果随后进入普通保存流程；尤其等待工具返回成功时，还不能在此提前宣布消息已送达。"
+      },
+      {
+        "file": "src/pycode/team/services/team_tasks.py",
+        "name": "TeamManager.claim_task",
+        "purpose": "子Agent认领任务受同一锁和依赖约束",
+        "notes": [
+          "检查已有归属和前置任务是否完成，再持任务板锁保存认领结果，防并发双方都宣布成功。",
+          "工具拿到结果后知道自己负责什么；认领不会创建新工作区或扩大已有成员权限。"
+        ],
+        "guide": "已有子助手想接一个任务时，任务板在锁内检查是否被占用、前置任务是否完成，再保存认领结果。并发调用不能同时宣称自己抢到了同一工作。结果返回当前工具让子助手知道负责范围；它改变任务归属，不创建工作区或扩大该成员已有权限。"
+      }
+    ]
+  },
+  "15-team:message": {
+    "title": "补充“也测空输入”",
+    "input_label": "send工具 / 收件模型边界",
+    "request": "send_message(to,text)；框架模型前flush_inbox",
+    "intro": "发送只先入团队日志；目标运行下一次模型前才尝试接收，刷新事件不代表已读。",
+    "why": "消息预约以后仍可能拒收，只有持久队列真的接收才确认送达。",
+    "result": [
+      "发送先写团队日志，界面提示不是目标模型已读证明。",
+      "目标输入队列接收成功才确认送达，拒收退回待送。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/team/services/team_inbox.py",
+        "name": "TeamInbox.send",
+        "purpose": "限制消息数量/收件人，先提交再提示或唤醒",
+        "notes": [
+          "先检查每轮发送与每收件人积压上限，保存消息后才发提示并尝试唤醒。",
+          "`wake_eligible.setdefault` 保留首次新消息顺序；成功发送只表示账本接收，不代表目标模型已看到。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.commit",
+            "purpose": "单JSONL transition是团队状态权威",
+            "notes": [
+              "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
+              "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
+            ],
+            "guide": "成员、任务与消息可能需要一起改变，协调器因此用这一出口保存完整变化。它先追加一条团队日志，成功后再校验应用到内存并通知等待者。追加结果不确定时进入存储错误状态并查同一记录ID，不继续靠未经确认的内存数据派发新工作。"
+          },
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.schedule_wakes",
+            "purpose": "空闲名额按首次新消息顺序唤醒可续一轮的终态",
+            "notes": [
+              "停止、关闭或存储出错时不继续调度；按新消息首次顺序检查名额与待送消息。",
+              "满足条件才保存新一轮状态并登记唤醒任务；重启不会自动把所有旧pending变成继续执行资格。"
+            ],
+            "guide": "新消息或驱动结束后可能空出名额，协调器在这里按首次新消息顺序找可继续的成员。停止、关闭和存储出错时不启动，有待送消息且容量足够才保存新轮次并开唤醒任务。结果是安排继续执行，不是确认消息已交给模型，重启也不自动补旧资格。"
+          }
+        ],
+        "guide": "发送说明时，这里检查收件人和消息上限，先把正文保存为待送消息，再通知界面或尝试唤醒空闲成员。新消息的首次顺序会保留，供有限名额下调度。返回成功只是团队接收，目标模型要等后续交付，不能将发送成功直接标为对方已读。"
+      },
+      {
+        "file": "src/pycode/agent/adapters/history.py",
+        "name": "HistoryMiddleware.abefore_model",
+        "purpose": "框架模型前把Team收件箱交给当前成员",
+        "notes": [
+          "先 `maintain_context` 准备能力和上下文，再由 `deliver_steering` 处理收件箱与持久队列。",
+          "即时输入通过 `deliver_input` 保存后才进入 `project_turn` 生成的模型消息；这里是图的模型前回调。"
+        ],
+        "edge": "框架回调／注入TeamMailbox",
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "TeamMember.flush_inbox",
+            "purpose": "固定agent_id进入自己的收件箱",
+            "notes": [
+              "`self.agent_id` 固定收件人，框架处理器不能通过模型参数选择别人的信箱。",
+              "窄接口把请求交给 `team.inbox.flush`，实际预约、入队和确认由收件箱服务完成。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/services/team_inbox.py",
+                "name": "TeamInbox.flush",
+                "purpose": "reserve后确认真实input_queued才确认送达",
+                "notes": [
+                  "为每条消息使用稳定输入ID，已有真实接收记录则不重复提交，否则走持久输入队列。",
+                  "仅成功接收才确认；接收入口关闭、无运行或已结束都释放预约回pending，拒收绝不标送达。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.reserve",
+                    "purpose": "pending预约为delivering并记via/负责关闭的对象",
+                    "notes": [
+                      "在团队锁下选pending并保存为delivering，同时记交付方式和接手操作。",
+                      "这只是领取处理资格，不是目标已读；返回消息给父交付流程，后续失败仍要release。"
+                    ],
+                    "guide": "交付或等待入口先到这里挑选待送消息，在团队锁下将它们保存为正在处理，并记录由哪个操作接手。返回消息供父函数继续写入接收会话；此时没有证明模型或历史已接收，所以不能直接算已送达。取消或保存失败还必须能释放这次预约。"
+                  },
+                  {
+                    "file": "src/pycode/session/services/durable_inputs.py",
+                    "name": "DurableInputs.submit_locked",
+                    "purpose": "按ID/内容/分支/负责关闭的对象验证后写入日志入队",
+                    "notes": [
+                      "核对旧输入的正文、类型、运行和活动分支，完全相同才表示已经接收，不重复追加。",
+                      "`closed_runs` 拒绝迟到输入；新输入先追加 `input_queued` 才返回成功，团队上层据此决定能否确认送达。"
+                    ],
+                    "guide": "接收团队说明或用户补充时，此处核对输入ID、正文、运行与当前分支，避免同一消息重复进入对话。新输入先保存为排队记录再返回；运行已经关闭则拒绝。上层只有拿到真实接收依据才能确认团队消息，不能把调用过提交函数当作提交成功。"
+                  },
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.acknowledge",
+                    "purpose": "delivering提交为delivered",
+                    "notes": [
+                      "只把仍在delivering的具体消息保存为delivered，不让已经丢弃记录复活。",
+                      "状态改变仍经团队commit写盘，不能仅从一个内存队列删除就宣布可靠送达。"
+                    ],
+                    "guide": "父交付流程已经掌握接收依据后，调用这里把仍在处理的具体消息保存为已送达。它不会复活已丢弃记录，也不只从内存列表删掉项目就返回。保存结果供后续重启核对，保证消息状态能解释为什么不再重送，而非依赖当次UI是否显示过。"
+                  },
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.release",
+                    "purpose": "失败预约回pending，清除旧delivery",
+                    "notes": [
+                      "只处理仍在delivering的记录，将其退回pending并清旧delivery信息。",
+                      "保留同一消息身份和原顺序，下次能重新尝试而不造一份重复通知，取消不会丢信。"
+                    ],
+                    "guide": "预约以后可能取消、接收失败或运行已结束，父流程在这里把尚在处理的消息退回待送并清掉旧接手信息。消息ID与原顺序保留，下一次还能按同一身份尝试交付。这个返回不是重新发送一份副本，所以既不丢消息，也不无限制造重复通知。"
+                  }
+                ],
+                "guide": "模型前需要接收团队说明时，这里先预约待送消息，再用稳定输入ID提交到当前运行。已经存在的接收记录不重复添加；只有真正保存成功才确认送达。运行刚结束或拒收时释放剩余预约，消息留待以后处理，而不是让一次失败交付变成永久已读。"
+              }
+            ],
+            "guide": "框架模型前处理器只知道当前成员，不应该操作整个团队内部表，所以通过这个窄接口进入收件箱。成员ID由组装固定，模型不能指定另一个收件人。它等待收件箱尝试把消息放进当前运行的持久输入队列，再把成功或失败交回模型前处理器。"
+          }
+        ],
+        "guide": "框架准备再请求模型时，才调用这个入口。它先更新可用工具和上下文，再经当前成员处理团队消息、恢复已保存补充输入，把即时说明加入本次模型消息。团队消息不是由前一个工具直接塞给模型；处理成功以后还会进入各自的保存确认流程。"
+      }
+    ]
+  },
+  "15-team:wait": {
+    "title": "主助手等测试发现，再继续修复",
+    "input_label": "模型调用wait_agents",
+    "request": "wait_agents → 正式ToolResult保存 → 确认消息 → 工具完成",
+    "intro": "等待工具取回消息只是预约；统一结算保存成功结果后才按具体消息ID确认。",
+    "why": "取消或结果保存失败不能吞消息，界面提示也不能代替接收记录。",
+    "result": [
+      "主会话保存正式成功结果并关联输出以后，才确认消息。",
+      "没有成功记录的预约释放回待送，不吞掉未收到的消息。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/team/adapters/team_tools.py",
+        "name": "TeamTool.execute",
+        "purpose": "wait_agents普通工具包装，保留正式回执IDs",
+        "notes": [
+          "当前成员身份来自组装的team/member，不接受模型参数冒充另一个发送者。",
+          "等待工具把具体消息ID放入结果，之后只按正式成功结果确认；此入口不能先行标已送达。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/adapters/team_tools.py",
+            "name": "TeamTool.dispatch",
+            "purpose": "dispatch在wait_agents分支等待当前Team收件箱",
+            "notes": [
+              "此分支调用收件箱 `wait` 并携operation_id，取回已预约但尚未确认的消息。",
+              "包装器把消息ID带回统一结算，等成功结果存盘后再确认；当前分支不创建子助手，也不合并代码。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/services/team_inbox.py",
+                "name": "TeamInbox.wait",
+                "purpose": "等状态变化后预约lead消息，工具入口不提前确认送达",
+                "notes": [
+                  "在锁下清事件并检查消息，避免先检查再等时漏掉刚到通知；存储出错会明确报告。",
+                  "模型工具带操作ID时只预约后返回；无操作ID的进程内便利调用才有立即确认路径，二者不能混讲。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.reserve",
+                    "purpose": "pending预约为delivering并记via/负责关闭的对象",
+                    "notes": [
+                      "在团队锁下选pending并保存为delivering，同时记交付方式和接手操作。",
+                      "这只是领取处理资格，不是目标已读；返回消息给父交付流程，后续失败仍要release。"
+                    ],
+                    "guide": "交付或等待入口先到这里挑选待送消息，在团队锁下将它们保存为正在处理，并记录由哪个操作接手。返回消息供父函数继续写入接收会话；此时没有证明模型或历史已接收，所以不能直接算已送达。取消或保存失败还必须能释放这次预约。"
+                  }
+                ],
+                "guide": "主助手通过等待工具取消息时，这里在锁内同时检查状态与事件，避免漏掉刚发生的变化。工具操作只预约并返回消息，不立即确认送达；还要等正式结果写进主会话。无操作ID的进程内便利调用有不同确认路径，不能套用到模型工具的持久化顺序。"
+              }
+            ],
+            "guide": "当前工具名是等待成员结果，因此这个分支把固定主成员、等待范围和操作ID交给收件箱。收件箱返回预约消息后，分派器把结果交回包装器保存，不先改已送达。其它派发与合并分支不参与本次等待；确认必须等后面的正式结果发布。"
+          }
+        ],
+        "guide": "模型调用团队工具时，这个入口使用组装好的当前成员身份，而不是相信参数自称谁。它把合法请求交给分派函数，并把等待消息的具体ID附在工具结果中。结果随后进入普通保存流程；尤其等待工具返回成功时，还不能在此提前宣布消息已送达。"
+      },
+      {
+        "file": "src/pycode/tools/adapters/settlement.py",
+        "name": "ToolSettlementMiddleware.settle_ready",
+        "purpose": "正式结果发布后才确认送达，再发工具完成通知",
+        "notes": [
+          "先 `publisher.publish` 保存正式结果及输出关联，扩展保存后处理完成才到团队确认。",
+          "最后才 `executor.completed`；被中断或错误的合成结果不能拿来确认等待消息。"
+        ],
+        "edge": "正式持久化→ACK→completed",
+        "helpers": [
+          {
+            "file": "src/pycode/agent/adapters/boundaries.py",
+            "name": "AgentMessagePublisher.publish",
+            "purpose": "注入的publisher把结算结果送到同一消息保存边界",
+            "notes": [
+              "构造时已绑定当前上下文，这里只把消息交 `save_message` 并等它完成。",
+              "结算层不另写一份不可靠日志，也不先发一个完成事件冒充真实保存，团队确认要等这个返回。"
+            ],
+            "edge": "通过注入MessagePublisher",
+            "helpers": [
+              {
+                "file": "src/pycode/agent/adapters/boundaries.py",
+                "name": "save_message",
+                "purpose": "正式消息→输出绑定→快照事实→message_end",
+                "notes": [
+                  "`journal.append_message` 保存正式消息后，再用 `outputs.bind` 关联完整输出，并追加文件快照记录。",
+                  "这些步骤完成才加入 `context.completed` 并发送 `message_end`；界面更新必须在可靠保存之后。"
+                ],
+                "guide": "模型或工具的正式消息都要经过同一个保存出口。它先追加历史，再把已有完整输出绑定到消息，并补文件快照记录，最后通知界面消息结束。调用者等它成功才继续后续确认，这样“用户看见成功”和“重开会话还能读到结果”才不会颠倒。"
+              }
+            ],
+            "guide": "结算处理器不直接依赖某个会话存储，它调用组装时绑定当前上下文的发布接口。这里把正式消息交给统一保存函数，等待历史、输出关联和结束通知完成后返回。团队确认因此发生在真实保存之后，而不是另写一条只供界面显示的成功记录。"
+          },
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "TeamMember.settle_tool",
+            "purpose": "成功结果中的IDs才有确认送达资格",
+            "notes": [
+              "先看结果是否成功，再从 `team_message_ids` 取本次允许确认的具体消息；字符串操作ID表示回滚。",
+              "交收件箱时仍携操作归属，不能顺手确认同一轮里其它没有出现在正式结果中的预约。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/services/team_inbox.py",
+                "name": "TeamInbox.settle_tool",
+                "purpose": "匹配via=wait与负责关闭的对象，确认送达已确认ID并释放其余",
+                "notes": [
+                  "只挑方式为wait且操作身份匹配的delivering消息，防止串入其它交付任务。",
+                  "成功并在结果ID集合里的确认，其余一律释放；这一步返回后，上层才发布工具完成通知。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.acknowledge",
+                    "purpose": "delivering提交为delivered",
+                    "notes": [
+                      "只把仍在delivering的具体消息保存为delivered，不让已经丢弃记录复活。",
+                      "状态改变仍经团队commit写盘，不能仅从一个内存队列删除就宣布可靠送达。"
+                    ],
+                    "guide": "父交付流程已经掌握接收依据后，调用这里把仍在处理的具体消息保存为已送达。它不会复活已丢弃记录，也不只从内存列表删掉项目就返回。保存结果供后续重启核对，保证消息状态能解释为什么不再重送，而非依赖当次UI是否显示过。"
+                  },
+                  {
+                    "file": "src/pycode/team/services/team_inbox.py",
+                    "name": "TeamInbox.release",
+                    "purpose": "失败预约回pending，清除旧delivery",
+                    "notes": [
+                      "只处理仍在delivering的记录，将其退回pending并清旧delivery信息。",
+                      "保留同一消息身份和原顺序，下次能重新尝试而不造一份重复通知，取消不会丢信。"
+                    ],
+                    "guide": "预约以后可能取消、接收失败或运行已结束，父流程在这里把尚在处理的消息退回待送并清掉旧接手信息。消息ID与原顺序保留，下一次还能按同一身份尝试交付。这个返回不是重新发送一份副本，所以既不丢消息，也不无限制造重复通知。"
+                  }
+                ],
+                "guide": "成员已给出操作身份、成功标志和消息ID后，这里只查属于这次等待预约的记录。成功且确实列出的才确认，剩下的全部释放回待送。结果返回父结算过程后才允许发布工具完成，因此被取消或未被正式结果覆盖的消息不会因为预约过就消失。"
+              }
+            ],
+            "guide": "工具结果保存以后，当前成员接口检查结果是否成功，并从结果详情中取出确切消息ID，交给收件箱结算。只传操作ID表示需要回滚预约，不表示收到全部消息。它把工具结果与团队消息状态接起来，但不会凭相同操作名确认不在成功结果里的其它消息。"
+          }
+        ],
+        "guide": "等待工具已经产生结果以后，框架结算先通过发布接口保存正式消息和完整输出。保存成功、扩展处理之后，才让团队按结果ID确认消息，最后通知工具完成。错误或中断结果不能确认预约；这样重启还能从主会话证明哪些通知确实交付过。"
+      }
+    ]
+  },
+  "15-team:merge": {
+    "title": "读完测试改动，再批准这次合并",
+    "input_label": "lead review / merge控制工具",
+    "request": "review_agent → merge_agent(id, action)",
+    "intro": "审查和合并是两次工具调用；合并先经强制审批，分派器只使用那次已批预览。",
+    "why": "源内容和目标提交固定后再执行，变化要重审，冲突留下材料，确认合入后再清理。",
+    "result": [
+      "每次合并和准备解冲突都分别请求用户批准。",
+      "冲突保留子目录，核实合入后才清理；测试仍要另做。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/team/services/team.py",
+        "name": "AgentTeam.review",
+        "purpose": "展示包括新文件的变更并记录审查内容校验值",
+        "notes": [
+          "只允许worker审查，先从工作区取得完整候选内容校验与差异，包含新文件。",
+          "回来还比较成员轮次和完成状态，再保存审查；重跑途中旧审查不能覆盖新一轮代码。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/adapters/worktrees.py",
+            "name": "WorktreeManager.changes_sync",
+            "purpose": "读取实际差异和候选内容，覆盖untracked",
+            "notes": [
+              "检查文件边界和特殊类型，把跟踪文件与新增文件一起纳入候选内容。",
+              "显示差异可受limit截断，审批校验仍绑定完整树；不能用一张统计表代替真实代码审查。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/adapters/worktrees.py",
+                "name": "WorktreeManager.candidate_tree",
+                "purpose": "独立临时index生成不可变source tree",
+                "notes": [
+                  "用独立临时index收集内容并生成Git树，worker自己的index不被改变。",
+                  "相同提交下文件改动也会产生不同树；审查与审批比较它，避免批准后偷偷替换文件内容。"
+                ],
+                "guide": "审查与审批需要固定当前全部文件内容，因此这里用独立临时索引生成Git树对象，不碰worker原暂存区。树对象返回上层用于比较内容是否变过，即使源提交没变也能发现文件变化。它不提交代码，更不因生成了候选树就表示测试通过或用户已批准。"
+              }
+            ],
+            "guide": "父审查入口需要看到真正将合并的内容，这里检查文件边界和类型，把已跟踪与新增文件都纳入候选树并计算校验值。显示文本可以截短，但校验绑定完整内容。返回后若任何文件变动，旧审查便不能继续作为批准依据，新增测试也不会漏掉。"
+          }
+        ],
+        "guide": "子助手结束以后，主助手通过这里请求查看worker改动。协调器让工作区管理器生成真实差异和完整内容校验，再确认成员仍是原来那轮完成状态才保存审查结果。返回给主助手用于阅读与后续审批，不能只凭任务标题或完成文字决定合入。"
+      },
+      {
+        "file": "src/pycode/tools/adapters/permissions.py",
+        "name": "TeamToolGate.authorize",
+        "purpose": "merge不受Auto Plan提前返回影响",
+        "notes": [
+          "只认真实team来源的合并工具，先执行拒绝约束与计划检查，再固定源目标预览。",
+          "`mandatory.authorize` 单独问用户；预览变动就拒绝，不能让auto Plan跳过或审批后换另一份内容。"
+        ],
+        "edge": "Team强制外层门",
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.merge_preview",
+            "purpose": "成功停机worker、任务依赖与review缺一不可",
+            "notes": [
+              "成员必须完成且已审查，任务前置集成也须满足，缺一项都不产生可批预览。",
+              "交worktree管理器固定审查内容和操作类型，批准绑定的是实际代码与目标，不是角色说明。"
+            ],
+            "guide": "外层门请求审批材料时，协调器先核成员已停止且完成、改动已审查、相关前置任务满足合入次序，再交工作区管理器固定源目标。返回预览给这一次审批，缺一项都不能请求用户盲批。角色说明或任务已完成本身都不等于允许合并代码。"
+          }
+        ],
+        "guide": "普通自动计划不能决定是否将子目录改动合回主目录，所以合并工具在这里走独立外层检查。先保留现有拒绝约束，再取得绑定源与目标的预览并强制询问用户。批准后保存本次操作的预览给分派函数，内容改变就拒绝，不能借旧批准临时生成新预览。"
+      },
+      {
+        "file": "src/pycode/team/adapters/team_tools.py",
+        "name": "TeamTool.dispatch",
+        "purpose": "按已注册工具名调用协调服务",
+        "notes": [
+          "按注册名称把请求送到实际团队服务，派发携当前模型与运行，任务操作携固定成员身份。",
+          "合并只取 `team.previews.pop` 中本次已批预览，没有预览不能临时补造一个绕过用户审查。"
+        ],
+        "guide": "同一个包装器处理多种团队工具，这里按注册名称选实际服务，固定调用者身份并传本轮信息。派发交协调器，认领交任务板，合并只取本次审批保存的预览。它不自己补造批准或直接运行子模型，结果仍返回统一工具结算保存。"
+      },
+      {
+        "file": "src/pycode/team/services/team.py",
+        "name": "AgentTeam.merge",
+        "purpose": "审批后重验状态，并等待Git真实结果结算",
+        "notes": [
+          "持合并锁重验任务依赖、审查内容与完成状态，再保存merging并启动真实Git操作。",
+          "操作由shield等待，外部取消也要先等真实结果并finalize，不能把“取消”当作“肯定没合入”。"
+        ],
+        "edge": "审批后的真实执行",
+        "helpers": [
+          {
+            "file": "src/pycode/team/adapters/worktrees.py",
+            "name": "WorktreeManager.merge_into_workspace_sync",
+            "purpose": "核对审批source/target后执行受控Git集成",
+            "notes": [
+              "执行前后核源树与提交、目标分支提交和工作区状态，必须与已批预览一致。",
+              "冲突或超时留恢复标记；准备解冲突仍保留worker，不默默选一侧覆盖，也不跳过后续重审。"
+            ],
+            "guide": "协调器将已批预览交到这里，执行前重新核源文件树、源提交、目标分支提交和工作区干净状态，执行后再验证真实Git结果。冲突或超时保留恢复标记，不静默选择一边。结果交回协调器结算；准备解冲突与正式合并都仍有各自审批。"
+          },
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.finalize_merge",
+            "purpose": "区分未合入、待解冲突与已确认合入",
+            "notes": [
+              "未合入保持完成但未集成，待解冲突清旧审查，要求重新阅读后审批。",
+              "确认合入才保存merged并关闭子会话，再请求受控清理；失败给保留原因，不抹去已经发生的Git结果。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/team/adapters/worktrees.py",
+                "name": "WorktreeManager.complete_team_merge_sync",
+                "purpose": "确认集成事实后才清理worktree与branch",
+                "notes": [
+                  "核实目标包含本次合入提交并检查工作树可清理，不能只信一个validated标记就删除材料。",
+                  "成功才清工作树与分支；这些Git核验不是pytest证据，测试结果要从独立工具记录报告。"
+                ],
+                "guide": "父函数只有确认合入后才调用清理入口，它还要核提交确在目标历史中、工作树状态可清理，再删除相应工作树和分支。一个布尔验证标记不足以授权删除。返回清理结果给协调器，异常则保留材料；这些Git检查不能当成独立pytest通过证据。"
+              }
+            ],
+            "guide": "Git操作结束后，协调器在这里把真实结果转成团队状态。未合入保持完成但未集成，待解冲突清掉旧审查；确认合入才记录提交、关闭子会话并请求受控清理。清理失败返回保留原因，不抹去已经发生的合并，也不冒称代码已通过测试。"
+          }
+        ],
+        "guide": "用户已经批准具体预览后，这里仍在合并锁内复查成员、依赖与审查内容，再保存合并中状态并启动真实Git操作。外部取消不会丢弃这个操作，而是等待结果并完成状态处理后再传播。返回值说明到底合入、冲突还是保留材料，不能把取消等同没改动。"
+      }
+    ]
+  },
+  "15-team:cancel": {
+    "title": "停掉子助手，或重开昨天的团队",
+    "input_label": "cancel_agent / 打开历史 / 会话关闭",
+    "request": "cancel / initialize / aclose",
+    "intro": "三个并列入口分别停止成员、读取旧团队和最终关闭，不将重启画成自动续跑。",
+    "why": "日志解释已发生的事，仍运行的任务必须被等待，旧审批不能复活旧命令。",
+    "result": [
+      "旧活动成员重开后标中断，不自动重发命令或回答旧问题。",
+      "没有真实接收依据就不确认消息，关闭仍等待全部后台任务。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/team/services/team.py",
+        "name": "AgentTeam.cancel",
+        "purpose": "撤销wake资格，取消并等待登记并等待结束的启动/驱动",
+        "notes": [
+          "先标取消中并清新消息唤醒资格，防止停止途中又开下一轮。",
+          "随后取消并等待启动和驱动，再保存终态与消息处理；单独调用task.cancel不代表资源已释放。"
+        ],
+        "guide": "取消指定成员时，协调器先标取消中并撤下新消息唤醒资格，再取消和等待启动及驱动任务。之后才保存终态并处理消息，避免取消刚到就又被调度。返回意味着已等待本次停止，但已经创建或修改的工作区仍需按记录检查，不能直接无条件删除。"
+      },
+      {
+        "file": "src/pycode/team/services/team.py",
+        "name": "AgentTeam.initialize",
+        "purpose": "重放持久transition，活动态改interrupted",
+        "notes": [
+          "先整条校验日志中的成员、任务和依赖，再应用；旧活动态统一转中断而不续跑。",
+          "交付中消息依据实际收件日志或成功wait结果ID处理；恢复提示不触发唤醒，旧任务不会自动再执行。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/team/services/team.py",
+            "name": "AgentTeam.commit",
+            "purpose": "单JSONL transition是团队状态权威",
+            "notes": [
+              "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
+              "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
+            ],
+            "guide": "成员、任务与消息可能需要一起改变，协调器因此用这一出口保存完整变化。它先追加一条团队日志，成功后再校验应用到内存并通知等待者。追加结果不确定时进入存储错误状态并查同一记录ID，不继续靠未经确认的内存数据派发新工作。"
+          }
+        ],
+        "guide": "重新打开团队时，这里逐条校验并重放保存的关联变化，再把原活动成员转为中断，不自动续跑旧命令。对正在交付消息核真实收件日志或成功等待结果，确定应确认还是释放。恢复通知不唤醒成员，结果供新会话解释现状而非恢复旧执行权限。"
+      },
+      {
+        "file": "src/pycode/team/services/team.py",
+        "name": "AgentTeam.aclose",
+        "purpose": "无论取消状态保存是否失败，都等待停止并回收任务和session",
+        "notes": [
+          "即使保存取消状态失败，最后也要取消并等待所有仍登记的任务。",
+          "再关闭子会话、清内部引用并释放账本，错误向外报告，不能让存储异常成为不等后台停止的借口。"
+        ],
+        "guide": "主会话最终关闭时，团队必须停止仍登记的所有任务并关闭每个子会话。这里即使保存取消状态出错，也在最后取消和等待剩余任务，再释放账本。返回后不应有子模型继续工作；关闭错误会向外报告，不能以账本失败为由放弃等待真实资源结束。"
+      }
+    ]
+  },
+  "16-ui:open": {
+    "title": "打开终端窗口和上次会话",
+    "input_label": "CLI启动Textual",
+    "request": "Application.tui(...).run()",
+    "intro": "应用先创建PyApp，Textual挂载之后才调用on_mount打开真实会话。",
+    "why": "界面借用正常应用接口，切换时先停止工作，失败也要关闭刚打开的对象。",
+    "result": [
+      "切换先停止旧任务，失败也关闭新开会话，避免遗留资源。",
+      "真实会话ID来自打开结果，界面不猜日志存放目录。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/app/bootstrap.py",
+        "name": "Application.tui",
+        "purpose": "统一应用入口连接所选UI与会话能力",
+        "notes": [
+          "委托界面组装时传入当前所选模块、配置和工具，不在窗口内部新建一套模型与存储。",
+          "返回Textual应用供CLI运行；构造应用本身不等于已经打开会话或开始请求模型。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/app/composition/ui.py",
+            "name": "build_tui",
+            "purpose": "把应用会话操作适配成InteractiveSessions端口",
+            "notes": [
+              "创建保存配置与所选模块的会话接口，再调用 `modules.ui.tui`，保持UI实现可明确替换。",
+              "界面以后经接口打开真实会话，不硬编码一个默认UI，也不在这里提前建立模型连接。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/ui/module.py",
+                "name": "UIModule.tui",
+                "purpose": "创建Textual App，借用应用会话端口",
+                "notes": [
+                  "返回 `PyApp` 并传入会话接口和初始ID，窗口挂载后才真正打开会话。",
+                  "同模块console是命令行事件消费者，不是TUI历史存储；文件与模型资源由后面应用会话负责。"
+                ],
+                "guide": "组装方已提供会话操作接口和初始会话ID，这个工厂据此创建Textual应用。窗口随后自己按生命周期调用接口，模块不同时创建数据库、模型或执行器。返回给CLI启动的只是UI对象；同模块的命令行输出消费者是另一产物，不承担历史存储。"
+              }
+            ],
+            "guide": "应用入口需要把会话能力交给UI，这里创建保存配置和所选模块的会话接口，再交给当前选中的UI模块。返回的界面以后通过该接口打开会话，不在此刻创建模型连接。替换UI实现仍使用这组明确依赖，不绕回一套默认组装或私有全局状态。"
+          }
+        ],
+        "guide": "用户选择终端界面时，从统一应用对象来到这里，应用把当前配置、工具和已选模块交给界面组装函数。返回的是可启动的Textual应用，不是已经请求模型的会话。真正打开由挂载后的界面发起，保证窗口与命令行复用同一套业务服务。"
+      },
+      {
+        "file": "src/pycode/ui/adapters/tui.py",
+        "name": "PyApp.on_mount",
+        "purpose": "Textual挂载后配置补全并打开会话",
+        "notes": [
+          "先连接输入补全与弹层，读取沙箱状态，再 `switch_session` 打开用户会话。",
+          "业务错误给界面提示；最后ready只表示挂载尝试结束，按钮仍需确认真实会话和视图已准备好。"
+        ],
+        "edge": "Textual生命周期回调",
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.switch_session",
+            "purpose": "停止旧操作，再打开并替换会话对象",
+            "notes": [
+              "先 `stop_active`，目标打开后才关闭旧会话；旧关闭失败还要关闭新opened对象。",
+              "成功后清理临时显示、工具控件和模型列表，再刷新新历史；迟到旧事件不能串到新会话。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/ui/adapters/tui.py",
+                "name": "PyApp.stop_active",
+                "purpose": "取消会话执行后等待UI任务等待停止并回收",
+                "notes": [
+                  "优先调用真实会话cancel，必要时再取消 `_operation` 并等空闲，避免直接丢任务引用。",
+                  "即使UI不忙也处理会话里的等待；返回后调用方才继续切换或关闭，图和资源不会被遗忘。"
+                ],
+                "guide": "切会话和退出都要先处理仍在执行或等待的任务。这里优先请真实会话取消，必要时再取消UI主任务并等待空闲；即使界面不忙，也检查会话是否保留活等待。返回后父操作才能安全换对象或关闭，不能以任务引用结束推断底层模型资源全关。"
+              },
+              {
+                "file": "src/pycode/app/composition/ui.py",
+                "name": "ConfiguredInteractiveSessions.open",
+                "purpose": "将当前PyApp作为消费者打开应用会话",
+                "notes": [
+                  "非创建模式先通过正常session服务resolve名字或ID，不让UI自己猜会话目录。",
+                  "`consumers=(consumer,)` 把窗口接到事件流，工具和所选模块沿原组装传入，返回普通真实会话。"
+                ],
+                "edge": "通过注入的InteractiveSessions端口",
+                "guide": "界面只提交会话名字或ID，这个适配器先用正常会话服务解析，再把当前窗口作为事件消费者交给应用打开入口。所选模块、工具和配置沿原路径传递，不让UI自己猜目录或另建模型。返回真实会话供窗口运行、读取历史及最终关闭。"
+              }
+            ],
+            "guide": "用户打开或切换会话时，这里先等待旧操作停下，再经应用接口打开目标，成功后关闭旧会话并替换引用。若旧关闭失败，还要关闭新对象，避免遗留两份资源。随后重置临时文本和工具控件，从真实会话重新读取历史，而不沿用旧页面状态。"
+          }
+        ],
+        "guide": "Textual把窗口组件挂好后才回调这里。它接好输入补全与弹层，读取沙箱状态，再打开初始会话；业务错误转为用户可见提示。最后的就绪事件只表示挂载尝试已结束，不保证会话已成功打开，后续按钮仍须通过真实会话和视图检查。"
+      }
+    ]
+  },
+  "16-ui:input": {
+    "title": "输入修复请求，再补充测试范围",
+    "input_label": "普通文本或斜杠命令",
+    "request": "send_text(text)；start_operation(function,args)",
+    "intro": "输入先决定命令、排队或新任务；主操作登记asyncio任务以后才真正等待业务函数。",
+    "why": "同一主操作不能被覆盖，排队反馈只表示已保存输入，不表示模型已照做。",
+    "result": [
+      "排队反馈只说明输入已保存，不代表模型已经处理。",
+      "主结果统一发布后刷新，团队继续也不能覆盖现有主操作。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/ui/adapters/tui.py",
+        "name": "PyApp.send_text",
+        "purpose": "斜杠命令、运行中入队、空闲新任务分流",
+        "notes": [
+          "斜杠输入交command；busy普通文字只按steer或follow_up提交，不另建并行运行。",
+          "空闲时才把用户消息交 `start_operation`；UI不会直接调用某个Bash工具执行函数。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.command",
+            "purpose": "命令表查找与shlex解析，不复制业务规则",
+            "notes": [
+              "技能原参数按原文保留，其它命令用 `shlex.split`，引号错误转清楚的命令错误。",
+              "处理器名来自注册说明再getattr调用；用户文本不被当代码eval，业务检查继续留在应用服务。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/ui/adapters/commands.py",
+                "name": "CommandRegistry.find",
+                "purpose": "静态命令与可信Skill补全共用入口",
+                "notes": [
+                  "先查静态命令和当前技能目录，未知技能名仍交可信加载入口检查。",
+                  "查到说明只是决定解析和补全方式，不授予执行权限；父函数随后才进入真实应用操作。"
+                ],
+                "guide": "命令解析器要先知道输入属于哪个处理器，因此在这里查固定命令和当前可信技能目录。未披露技能名仍交加载入口校验，并不因为能补全就获得运行资格。返回命令说明给父函数，后者按说明解析参数和分发，不动态执行任意用户代码。"
+              }
+            ],
+            "guide": "输入被认作斜杠命令后，这里按静态说明查处理器并解析参数，技能原始参数保留原文，其它使用命令行拆词。未知命令或引号错误显示明确提示，不把用户文字当Python执行。选中的处理器随后调用应用能力，权限和业务状态仍留在服务层。"
+          },
+          {
+            "file": "src/pycode/session/services/agent_session.py",
+            "name": "AgentSession.submit_input",
+            "purpose": "确认运行归属后接受steer/follow_up",
+            "notes": [
+              "先检查 `_submission` 保护的状态和待回退计划，再找到当前运行；无当前运行只允许识别旧同ID提交。",
+              "消息交给 `_durable_inputs.submit`，返回已排队时已经有日志，模型是否读到还要等交付边界。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/session/services/durable_inputs.py",
+                "name": "DurableInputs.submit_locked",
+                "purpose": "按ID/内容/分支/负责关闭的对象验证后写入日志入队",
+                "notes": [
+                  "核对旧输入的正文、类型、运行和活动分支，完全相同才表示已经接收，不重复追加。",
+                  "`closed_runs` 拒绝迟到输入；新输入先追加 `input_queued` 才返回成功，团队上层据此决定能否确认送达。"
+                ],
+                "guide": "接收团队说明或用户补充时，此处核对输入ID、正文、运行与当前分支，避免同一消息重复进入对话。新输入先保存为排队记录再返回；运行已经关闭则拒绝。上层只有拿到真实接收依据才能确认团队消息，不能把调用过提交函数当作提交成功。"
+              }
+            ],
+            "guide": "用户执行中补充“只跑解析器测试”时会来到这里，而不是再开一轮运行。服务检查回退预览和当前待运行身份，将消息交给持久队列。返回排队成功代表输入已经保存；模型何时读到要等框架边界，不能把按钮反馈当作模型已执行补充要求。"
+          }
+        ],
+        "guide": "用户回车时，这里先分清斜杠命令、运行中补充还是空闲新任务。命令交注册表，补充走持久输入队列，新任务才登记主操作。窗口自己不执行文件或Bash工具，因此再次输入不会覆盖正在跑的任务，反馈也能区分排队与已经完成。"
+      },
+      {
+        "file": "src/pycode/ui/adapters/tui.py",
+        "name": "PyApp.start_operation",
+        "purpose": "UI只拥有一个主操作task",
+        "notes": [
+          "busy时直接提示等待，不覆盖当前 `_operation` 引用，避免失去取消原任务的方法。",
+          "空闲才 `asyncio.create_task` 登记统一主任务；具体工作交 `execute_operation` 调应用函数。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.execute_operation",
+            "purpose": "主操作返回后发布RunResult并刷新状态",
+            "notes": [
+              "等待传入业务函数，只有真实 `RunResult` 才交会话统一发布，不靠屏幕文字猜完成。",
+              "最后刷新状态并安排检查团队唤醒，主操作结束后才可能开下一轮，避免与lead现有运行并发。"
+            ],
+            "edge": "受拥有的asyncio任务",
+            "helpers": [
+              {
+                "file": "src/pycode/ui/adapters/tui.py",
+                "name": "PyApp.maybe_wake_team",
+                "purpose": "仅空闲且无pending run时触发lead新一轮",
+                "notes": [
+                  "检查窗口未关、session存在、当前不忙且无待答运行，再看是否有团队继续请求。",
+                  "满足才经 `start_operation` 唤醒主助手，仍守同一排他入口，不直接重入图或抢走用户审批。"
+                ],
+                "guide": "团队消息到达不代表能立刻并行启动主助手，因此这里先检查窗口未关、当前不忙且无待答主运行。确实有团队继续请求时，仍通过同一个主操作入口启动。它安排的是下一轮会话动作，不直接修改图或抢占用户审批，状态变化后还会再次检查。"
+              }
+            ],
+            "guide": "主任务真正开始后，这里等待传入的会话函数，而不是自己解释模型协议。若得到运行结果，就调用统一发布入口，最终刷新界面状态并安排检查团队唤醒。即使失败也走刷新边界，让用户看到实际等待或错误，不用一段旧屏幕文字冒充业务完成。"
+          }
+        ],
+        "guide": "界面准备启动运行、恢复或团队继续时，先在这里检查是否已有主操作。空闲才创建执行任务并保存引用，忙时提示等待，不能悄悄替换正在运行的任务。这个引用随后用于取消与等待；具体模型和工具仍由传入的应用函数负责。"
+      }
+    ]
+  },
+  "16-ui:events": {
+    "title": "看见流式文字和正式测试结果",
+    "input_label": "运行事件 / 框架UI回调",
+    "request": "emit → consume/post_message；Textual回调",
+    "intro": "事件发布等待投递，不等待稍后的画面绘制；消息泵处理器才真正更改控件。",
+    "why": "临时文字及时显示，正式历史从会话读取，旧会话事件不能画到新页面。",
+    "result": [
+      "来自旧会话的迟到事件忽略，文字片段只留在临时显示。",
+      "正式历史通过会话重读，渲染失败不修改业务记录。"
+    ],
+    "nodes": [
+      {
+        "file": "src/pycode/kernel/services/events.py",
+        "name": "EventStream.emit",
+        "purpose": "有序发布事件，隔离失败消费者",
+        "notes": [
+          "在事件锁下取得顺序，再把事件副本交每个consume；消费者不能改原事件影响其它人。",
+          "普通显示错误停用该消费者，管道关闭请求受控停止；事件刷新不是会话持久消息，不能替代JSONL。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.consume",
+            "purpose": "只向Textual投递RuntimeEvent",
+            "notes": [
+              "只 `post_message` 一个Textual RuntimeEvent，不在模型或摘要任务中直接查控件修改显示。",
+              "投递之后返回，真正渲染由稍后消息泵回调完成；因此收到事件不等于页面此时已画完。"
+            ],
+            "edge": "注入EventConsumer",
+            "guide": "事件发布器可能从模型、摘要或其它任务调用这里，所以此处只把事件包装成Textual消息并投递。它随即返回，不直接查控件渲染。后续由框架消息泵在正确位置处理，既不会把后台任务上下文带进控件，也不能把投递成功说成画面已经更新。"
+          }
+        ],
+        "guide": "模型和工具想更新界面时，先在这个发布入口取得顺序号并把事件副本交给各消费者。普通显示失败可停用该消费者，输出管道关闭则触发受控停止。事件用于及时展示，不替代会话JSONL；调用方不能因为界面收到事件就认定结果已经可靠保存。"
+      },
+      {
+        "file": "src/pycode/ui/adapters/tui.py",
+        "name": "PyApp.on_py_app_runtime_event",
+        "purpose": "在消息泵回调里处理真正渲染",
+        "notes": [
+          "消息泵调用这个入口以后才等待真正渲染，已失败的渲染器不再继续画。",
+          "显示异常只处理显示错误并提示，不把原工具重新执行一遍，可靠历史仍由会话保存。"
+        ],
+        "edge": "Textual消息泵回调",
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.render_runtime_event",
+            "purpose": "按会话身份与事件类型更新画面",
+            "notes": [
+              "窗口关闭或事件session_id不匹配就忽略，防切换后把旧结果画进新页面。",
+              "delta只更新临时文字；message_end才重读历史，团队wake也只尝试正常唤醒路径，不直接开图。"
+            ],
+            "helpers": [
+              {
+                "file": "src/pycode/ui/adapters/tui.py",
+                "name": "PyApp.render_history",
+                "purpose": "从正式历史增量挂载消息与工具卡片",
+                "notes": [
+                  "`inspect(presentation=True)` 提供正式历史，控件按entry ID增量复用，不从token流生成新日志。",
+                  "工具卡片拿会话只读输出接口，展开保存结果不再调用原命令；模型上下文摘要也不覆盖原始对话。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/session/services/session_view.py",
+                    "name": "SessionView.inspect",
+                    "purpose": "将原始事实、上下文与等待组成只读视图",
+                    "notes": [
+                      "分别读取原历史和模型上下文，当前pending从本轮最后等待记录解释，避免混成一种状态。",
+                      "返回保留原消息与压缩标记，用量另算；视图不改日志、文件或执行图，所以展示失败不损坏事实。"
+                    ],
+                    "helpers": [
+                      {
+                        "file": "src/pycode/session/services/session_view.py",
+                        "name": "SessionView.presentation",
+                        "purpose": "按不可变对象缓存entry/message展示值",
+                        "notes": [
+                          "按不可变记录复用缓存，并用 `freeze_value` 冻结展示数据，防止控件回写原记录。",
+                          "历史与context分别返回，模型少读的旧内容仍能在用户历史显示；缓存只是减少重复转换。"
+                        ],
+                        "guide": "父视图反复刷新时，已经完成的消息通常没变，因此这里按不可变对象缓存展示数据，再冻结返回值防止界面写回。原历史和模型上下文分别提供，不把摘要替代原对话。结果交给渲染器复用控件，减少每个事件都重建长历史的工作。"
+                      }
+                    ],
+                    "guide": "界面需要同时看原对话、模型上下文和待答问题，这个只读接口分别取对应数据再组合返回。历史保留原消息，压缩只影响模型看到的部分；当前等待从运行记录解释。它不改变活动执行或文件，让显示错误和模型上下文变化都不能篡改原始记录。"
+                  }
+                ],
+                "guide": "正式结果结束或页面刷新时，这里从会话读取展示视图，按记录ID增量创建消息和工具卡片。它不把流式字符重新拼成一条磁盘消息，旧历史也不因模型压缩而丢失。工具卡片拿到只读输出接口，用户展开时读取已有结果而不是再次跑命令。"
+              }
+            ],
+            "guide": "事件到了界面还可能来自刚切走的旧会话，所以这里先检查窗口和会话身份。文字片段只更新临时区域，正式消息结束才重读历史，团队提示则尝试正常唤醒入口。函数返回只是处理完显示，不证明事件携带的任意文字已成为可恢复历史。"
+          }
+        ],
+        "guide": "Textual消息泵取出之前投递的事件后，才回调这个处理器实际渲染。已有渲染失败标记就停止继续画，新的显示异常也只进入显示错误处理。它不重试模型或工具来修复画面；真正业务状态仍可从会话重新读取，关闭过程也不因此跳过。"
+      }
+    ]
+  },
+  "16-ui:approval": {
+    "title": "一次批准、展开输出，最后退出",
+    "input_label": "独立的按钮/卡片/退出入口",
+    "request": "ApprovalPanel / ToolOutputCard / shutdown",
+    "intro": "三个并列入口：面板回答活运行，卡片读取已有结果，退出等待任务结束。",
+    "why": "主子答案带正确身份，输出展开不重跑命令，窗口离开前要关闭真正会话。",
+    "result": [
+      "子审批独立等待，不因主助手正在运行而被界面busy堵住。",
+      "展开输出只读已有对象；退出等待运行与答复任务全部停止。"
+    ],
+    "groups": true,
+    "nodes": [
+      {
+        "file": "src/pycode/ui/adapters/approval.py",
+        "name": "ApprovalPanel.action_select",
+        "purpose": "面板只发送operation绑定的一次明确决定",
+        "notes": [
+          "从当前选项取一次批准或拒绝，发送带operation_id及可选agent_id的Responded消息。",
+          "控件不执行命令、不授予永久许可；真实运行收到答案还要确认当前问题与内容。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.on_approval_panel_responded",
+            "purpose": "按agent_id将答案分到主运行或子运行",
+            "notes": [
+              "先停传播并禁用面板防重复点击，再按agent_id区分子问题和主问题。",
+              "子答复登记 `_team_tasks` 独立等待，主问题走正常resume；lead忙不会堵死所有子审批。"
+            ],
+            "edge": "Textual Responded消息回调",
+            "helpers": [
+              {
+                "file": "src/pycode/ui/adapters/tui.py",
+                "name": "PyApp.answer_child",
+                "purpose": "独立等待子Agent恢复并刷新审批状态",
+                "notes": [
+                  "调用会话的 `answer_agent` 等待指定成员恢复，不直接操作子图或内部pending数据。",
+                  "业务错误提示后仍刷新状态；此task登记在子答复集合，退出时一样取消并等待，不放任后台运行。"
+                ],
+                "helpers": [
+                  {
+                    "file": "src/pycode/team/services/team.py",
+                    "name": "AgentTeam.answer",
+                    "purpose": "子问题校验后commit running并恢复对应driver",
+                    "notes": [
+                      "成员必须是needs_approval，答案按单问题或中断集合逐项核对，不能把旧答案投给别的运行。",
+                      "保存恢复状态并登记对应drive，只继续这个child；原工具后面的权限和内容检查仍有效。"
+                    ],
+                    "guide": "团队收到指定成员答案后，先检查它确实在等审批，再逐个核对问题身份与答案契约。通过后保存该成员恢复运行的状态，并登记驱动任务继续原来的子会话。它不会恢复别的成员，也不把主助手的等待取消；后续工具仍执行各自强制检查。"
+                  }
+                ],
+                "guide": "子审批任务启动后，这里把成员ID和答案交给应用会话的子问题入口，等待团队恢复指定子运行。业务错误显示提示，最后重新读取审批状态；它不直接改子图或内部等待字典。任务登记在界面子答复集合中，退出时仍要取消和等待完成。"
+              },
+              {
+                "file": "src/pycode/ui/adapters/tui.py",
+                "name": "PyApp.respond",
+                "purpose": "主问题仍经过普通排他resume操作",
+                "notes": [
+                  "仅将 `active_session.resume` 与答案交给主操作登记，不在控件回调里运行Bash。",
+                  "后续runtime校验活图、问题身份和当前审批内容；界面按钮不是最终决定执行资格的地方。"
+                ],
+                "guide": "普通主审批答案已经从面板分派到这里，此处只把会话恢复函数登记为主操作。它不在Textual控件回调内直接执行命令，仍服从界面主任务排他规则。原运行收到答案后再次校验活图和操作内容，返回等待或完成结果再统一刷新页面。"
+              }
+            ],
+            "guide": "框架送来面板答案后，这里先停传播并禁用面板，防止重复点击。主问题走正常恢复操作；子问题则登记独立答复任务，避免主助手正等待时被界面忙状态挡住。结果仍来自会话服务，分派方式不同不会让子助手绕开真实审批。"
+          }
+        ],
+        "guide": "用户在普通审批面板选择一次批准或拒绝后，这里只发送带操作ID和可选子成员ID的答案消息。它不调用Bash、不改永久权限，回车只是结束当前控件选择。主App随后分派到相应运行，执行端还会核问题和具体内容是否仍与答案一致。"
+      },
+      {
+        "file": "src/pycode/ui/adapters/tool_output.py",
+        "name": "ToolOutputCard.read_next",
+        "purpose": "按已有output_id与两个游标读后续内容",
+        "notes": [
+          "有output_id才用reader和两个游标读取下一段，没有ID就只能显示现有预览。",
+          "返回后更新下一页位置与按钮；流程从不调用原Bash或Python工具，所以查看不会重复副作用。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/session/services/agent_session.py",
+            "name": "AgentSession.read_tool_result",
+            "purpose": "应用会话把只读输出请求交给view",
+            "notes": [
+              "先确认 `_view` 存在，再把输出ID和读取位置交给只读视图；缺失明确报错。",
+              "界面不能通过这个入口指定任意磁盘路径，也不会为了补输出而恢复图或再次运行工具。"
+            ],
+            "edge": "注入reader的会话实现",
+            "helpers": [
+              {
+                "file": "src/pycode/session/services/session_view.py",
+                "name": "SessionView.read_tool_result",
+                "purpose": "通过受限输出Store回读完整对象",
+                "notes": [
+                  "确认输出store存在后，带行和字节位置及读取上限调用受限read，再转换给UI。",
+                  "真实存储检查归属与内容；返回只是已有对象一段，不从模型回复猜文件位置，更不重做原动作。"
+                ],
+                "edge": "注入reader的实际读侧",
+                "guide": "会话把分页请求交到只读视图后，这里确认输出存储存在，再带读取上限、行和字节位置调用受限存储。存储检查输出是否属于当前会话及内容是否可读，结果转换后交界面。它读完整对象的一段，不依据模型文字猜文件名或重做工具。"
+              }
+            ],
+            "guide": "工具卡片不能自己拼磁盘路径，所以读取请求先经过当前会话接口。这里确认视图可用，将输出ID和分页位置交给只读视图，返回已有对象内容。没有视图就明确报错，不创建另一套存储；这一操作既不恢复活图，也不重新调用原命令。"
+          }
+        ],
+        "guide": "卡片只有一段预览时，用户点更多会从这里用输出ID和当前行、字节游标调用只读读取器。拿到下一段才更新游标与按钮，错误留在卡片展示。它没有原工具执行入口，因此展开一千行测试日志不会再跑一次pytest或重复文件副作用。"
+      },
+      {
+        "file": "src/pycode/ui/adapters/tui.py",
+        "name": "PyApp.shutdown",
+        "purpose": "停止主操作、等待停止并回收子答复，最后关闭会话",
+        "notes": [
+          "先设 `_closed` 阻止新渲染，再等待主操作停止，取消并等待所有子答复任务。",
+          "最后关闭真实会话；重复关闭保持一次效果，窗口退出不会留下模型和子审批任务继续执行。"
+        ],
+        "helpers": [
+          {
+            "file": "src/pycode/ui/adapters/tui.py",
+            "name": "PyApp.stop_active",
+            "purpose": "取消会话执行后等待UI任务等待停止并回收",
+            "notes": [
+              "优先调用真实会话cancel，必要时再取消 `_operation` 并等空闲，避免直接丢任务引用。",
+              "即使UI不忙也处理会话里的等待；返回后调用方才继续切换或关闭，图和资源不会被遗忘。"
+            ],
+            "guide": "切会话和退出都要先处理仍在执行或等待的任务。这里优先请真实会话取消，必要时再取消UI主任务并等待空闲；即使界面不忙，也检查会话是否保留活等待。返回后父操作才能安全换对象或关闭，不能以任务引用结束推断底层模型资源全关。"
+          }
+        ],
+        "guide": "用户退出窗口时，这里先标关闭以拒绝后续渲染，再停止并等待主操作，取消和等待所有子审批答复任务，最后关闭真实会话。重复退出不会再次启动关闭副作用。函数结束才允许界面离开，避免窗口消失后模型、子任务或连接仍在后台工作。"
+      }
+    ]
+  }
+}

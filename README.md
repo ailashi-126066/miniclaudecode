@@ -3,6 +3,12 @@
 本地终端编程 Agent：对话、读写代码、执行命令、保存会话，以及进程内多 Agent 协作。
 提供非交互 CLI 和 Textual TUI。模型/工具循环使用 Deep Agents，长期记忆使用 LangMem。
 
+## 源码与功能导读
+
+[功能与调用链手册](docs/interview/README.md)沿“修复文件并运行测试”带读各模块：为什么调用、传入什么、做完交给谁，再回看框架用法与统一组装入口。
+[离线网页](docs/interview/index.html)先显示每步导读，按需原地展开完整函数和辅助方法；另有[源码浏览器](docs/interview/source.html)。
+生成与核对方法见[文档工具说明](docs/interview/tools/README.md)。阅读网页不需要模型凭据或启动业务服务。
+
 ## 安装
 
 需要 Python 3.11+（开发验证使用 3.12），以及 PATH 中的 `rg`、`git`、`bash`。

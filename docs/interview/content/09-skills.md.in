@@ -1,0 +1,97 @@
+# 先读 review 指令，再按需要使用 Skill
+
+前面已经修了 `parser.py`、跑过测试，也知道怎样撤回误改。用户接着说：“按review指令再检查一遍。”这里不需要换一个Agent程序，也不该把机器上全部Skill正文和脚本都交给模型。先找到要用的指令，真的读过它，再决定是否需要附带工具，会更容易解释也更安全。
+
+Skill可以只有一份 `SKILL.md`，也可以带 `tool.json`和Python资源。下面先跟一份只有指令的review Skill走；等模型确实需要资源时，再进入后面的分支。
+
+## 第一步：用户选名字，程序找到可信的指令路径
+
+用户输入 `/skill:reviewer 检查 parser.py`，或者执行CLI的 `skill load reviewer`。CLI的 `execute_skill`把命令交给 `AgentSession.load_skill`；Session没有直接按名字拼一个物理路径，而是先调用 `SkillService.request`查询可信目录。
+
+目录由 `FileSkillCatalog`扫描：内置指令与用户目录默认可见，项目自己的 `.agents/skills` 和 `.pycode/skills`要在用户明确信任项目后才加入。扫描只读文档、验证格式和摘要，不导入Python。某份文档坏了会记录问题并跳过，不因此放松路径或链接检查。文档最多256KiB，资源文件每份最多1MiB，实现集合最多128份，tool.json最多声明32个工具；这些上限避免一次目录读取或资源解析吞进无界内容。
+
+找到reviewer以后，request返回名称、虚拟路径、参数、inline/fork模式等信息。`load_skill`据此构造一条真正的用户消息：“读取这份指令，任务参数是检查parser.py”，并把选择也放进消息的附加字段（metadata）。这样后续重开历史仍能看出用户选择了什么，而不是只剩一次按钮点击。
+
+正常run开始前，`SkillsSession.prepare_run`会重新扫描目录，创建只读 `/skills/...` 路由、供模型选择的目录和后面的加载处理函数。模型最初看到的是名称和描述，正文要通过 `read_file`实际取得。搜索到一份Skill，并不意味着已经读了它。
+
+{{chain:09-skills:load}}
+
+## 第二步：读完指令，下一次请求才真正按它工作
+
+模型调用 `read_file("/skills/user/reviewer/SKILL.md")`。请求由框架的文件工具进入 `SkillBackend`；这个后端只提供读取，所有write/edit/upload都拒绝。它还保存本次读到的文档版本，防止同一轮使用中途变化的文件。
+
+读取返回后，结算扩展先给成功的指令结果标上 `protected_content`，随后保存并绑定read_file结果，最后才调用 `SkillLoadRecorder.record`。record写入 `skill_load`，包含读到的正文版本、资源版本和那条工具消息的ID。先有内容来源，再记“已加载”，就不会把没读成功的文档当成生效规则。
+
+下一次模型调用时，原生 `SkillsMiddleware`从已读文档识别当前Skill，加入所需指令。我们包的一层 `PycodeSkillsMiddleware`负责目录选择变化，以及在这一步完成之后再调用统一的工具选择和容量校准。否则模型没看到的资源也可能被提前算成可执行工具，或者同一次请求重复做选择。
+
+假如指令只允许读代码，不允许Bash，它只能让权限更窄。多个已加载Skill的允许名单取交集；即使Skill允许某动作，原来的父权限检查仍在。重新读取 `/skills/` 指令本身有受限例外，方便更新和加载；这个例外不让模型任意读取工作区。
+
+有的review Skill还附一个Python检查函数。框架读到指令后，可以请求一个资源组；`SkillResources.resolve_group`这时才检查 `tool.json`并提供工具参数说明（schema）。声明指向 `references/<tool_name>.py`，对应脚本必须导出可调用的 `execute`函数。`SkillsToolExtension.lookup`还要求名字属于SDK本次真正给模型看的集合，通用结算再核对最终声明。
+
+模型真要调用该检查函数时，仍需先通过统一执行器的参数和权限检查。允许以后，`PythonSkillTool.execute`才复核资源目录、准备沙箱并启动独立worker；worker再检查文件集合和脚本摘要，确认没有换成新代码，才import并调用 `execute(**arguments)`。所以“发现脚本”“把schema给模型”“获准运行脚本”是三次不同动作。
+
+{{chain:09-skills:resource}}
+
+## 第三步：如果review要求另开一个只读任务
+
+有些Skill标为fork，意思是把这项检查放到独立子会话里，父对话只收最终结果。`ForkSkillDelegate.spec`先登记一个供框架稍后调用的方法（runnable），名字是 `skill-reviewer`；返回这个描述时并没有启动子任务。父模型通过task选择它以后，框架才调用 `ForkSkillDelegate.invoke`。
+
+invoke知道这份Skill的上下文设置，所以由它决定full、recent或none：带全部允许的父对话，只带本轮相关消息，或不带父对话。recent特别要保留当前 `run_start` 前已经写入的起始用户消息；如果选择集合为空，也要作为空集合传下去，不能误变成“没有限制，全部带上”。
+
+接下来，它通过应用传入的 `run_blocking` 请求一个只读Team子任务。Team负责创建会话、等待完成和收尾，Skill负责提醒子任务先读哪份指令、任务参数是什么。子任务读到指令后写自己的 `skill_load`，不会把父Agent也默默变成“已读这份Skill”。失败或中断则明确返回失败，不能当作review已完成。
+
+{{chain:09-skills:fork}}
+
+## 第四步：指令或脚本更新以后，为什么还要再读一次
+
+reviewer用了一段时间，用户可能想安装新版本，或者修改了附带Python函数。目录刷新 `reload`只能说明新版本已经可见，不能伪造模型已经读过新正文。下次仍要真正读指令，再写新的加载记录。
+
+指令正文和资源各有摘要：`content_hash`记录 `SKILL.md`，`resource_hash`记录 `tool.json`和Python文件集合，`loaded_hash`把两者连起来。这样正文不变、脚本变了也能识别。父进程执行前与worker导入前都检查资源，不能沿用旧版本的批准去运行刚被替换的脚本。
+
+从GitHub安装时，`SkillService.install`调用installer。installer先把ref解析成固定commit，在暂存目录下载并校验文档与资源，完成后才发布到用户目录；替换旧目录时会保留备份，finally清理暂存和锁。安装成功再刷新目录、追加安装记录，但不会替用户自动加载或执行。
+
+{{chain:09-skills:install}}
+
+## 读完这条线，再看框架是怎样被使用的
+
+`SkillsMiddleware`负责框架已有的文档发现、读指令识别和资源组机制。本项目没有再写一套Skill模型循环，而是用只读文件后端把可信内容交给它，再把选择、权限和保存结果补在明确位置。
+
+`SkillsFrameworkExtension.middleware`是在Agent构图时调用的工厂；它返回中间件。里面的 `tools=resolve`则是将来框架需要资源组时才调用的函数。`PycodeSkillsMiddleware.awrap_model_call`也不是构图时执行，它在真正模型请求时等框架处理好指令和schema，再选择本轮工具并检查输入容量。这两个时刻不能画成启动时就执行脚本。
+
+fork使用框架的 `RunnableLambda`接task接口；资源工具最终转成框架工具，但运行仍走 `ToolExecutor`。相同的消息保存、审批、完整输出和取消处理因此继续适用。
+
+## 应用怎样把Skill接进刚才的任务
+
+`SkillsModule`接收工具参数检查、文件后端工厂、启动进程的方法和沙箱只读授权函数，不自己读取整个AppConfig。打开会话时它返回供搜索和load命令使用的service；开始任务时返回文件路由、工具、框架扩展、结果保存后的处理函数，以及进一步限制权限的检查。
+
+组合根把路由交给文件工具，把框架扩展交给Agent，把权限检查放在父检查外，再把加载记录函数交给工具结算。只有资源进程需要运行期清理，它由共享runner启动并等待结束；Skill不会关闭别人交给它的会话历史。
+
+如果模块集合里 `skills=None`，应用不打开目录，也不注入运行工具。过去已经存下来的指令仍能根据保存的消息重新显示，不需要重新扫描或执行脚本。换一个实现也应返回同样明确的能力，不让Agent去猜目录和组名。
+
+| 故事里发生的动作 | 回查函数 | 保存或返回什么 |
+|---|---|---|
+| 找到reviewer | `SkillService.request` | 名称、虚拟路径、任务参数 |
+| 确实读到了指令 | `SkillLoadRecorder.record` | 指令版本及来源消息ID |
+| 模型需要资源工具 | `resolve_group/lookup` | 经过检查且本次已提供的工具 |
+| 授权后运行Python | `PythonSkillTool.execute`、worker `execute` | 同一工具结果和完整输出 |
+| 用独立子任务review | `ForkSkillDelegate.invoke` | 只读子会话最终结果 |
+
+{{inline:src/pycode/skills/domain/skills.py:SkillEntry}}
+
+## 这次review可能遇到的边界
+
+**搜索到名字就能调用附带工具吗？** 不能，还要读指令、让SDK真正提供schema，再通过最终声明和权限检查。
+
+**Skill能写“允许所有工具”扩大权限吗？** 不能。它只进一步限制，父检查、只读要求和worker隔离仍在。
+
+**只有资源脚本变了，正文没变呢？** 两份摘要能分辨；旧加载记录不能静默启用新实现，必须更新目录并重新读取。
+
+**为什么 `$ARGUMENTS`还在读到的正文里？** 程序保留实际文档字节；任务参数通过单独用户提示和metadata传递，不随意替换历史正文。
+
+**只读子Agent能跑Python资源吗？** 资源属于external动作，只读限制不会因为来源是Skill就放行。
+
+**压缩或重启以后指令会重新从磁盘取吗？** 程序优先依据已保存的加载来源恢复，避免把后来变化的文件冒充当时读过的内容。
+
+读到这里，可以沿“名字→路径→实际读取→加载记录→可选参数说明→授权后脚本”检查自己是否理解。每一步都给下一步提供新的依据，而不是用一句“加载了Skill”跳过所有动作。
+
+下一章仍是这次review，但信息不在项目或用户目录里。模型需要借外部服务查资料时，MCP怎样把服务工具接进来，又怎样继续使用刚才这套权限和结果保存流程？
