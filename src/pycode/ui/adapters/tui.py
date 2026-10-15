@@ -27,6 +27,7 @@ from pycode.ui.adapters.commands import CommandRegistry
 from pycode.ui.adapters.completion import CompletionPopup
 from pycode.ui.adapters.mcp import MCPElicitationPanel
 from pycode.ui.adapters.memory import MemoryPanel
+from pycode.ui.adapters.model_picker import ModelPicker
 from pycode.ui.adapters.plans import PlanPanel
 from pycode.ui.adapters.questions import QuestionPanel
 from pycode.ui.adapters.recovery import RevertPanel
@@ -198,6 +199,7 @@ class PyApp(App):
         yield Static("", id="notice", markup=False)
         with Vertical(id="entry"):
             yield CompletionPopup(id="command-completion")
+            yield ModelPicker(id="model-picker")
             yield ChatInput(id="chat-input", disabled=True)
         yield Static("模型：等待首轮请求 · 上下文：等待首轮请求", id="status", markup=False)
 
@@ -206,6 +208,8 @@ class PyApp(App):
             entry = self.query_one("#chat-input", ChatInput)
             entry.registry = self.commands
             entry.popup = self.query_one("#command-completion", CompletionPopup)
+            entry.model_picker = self.query_one("#model-picker", ModelPicker)
+            entry.model_selected = self.select_model_from_picker
             self._sandbox_status = (await self._sessions.sandbox_status()).reason
             await self.switch_session(self._initial_session_id)
         except DomainError as error:
@@ -551,6 +555,9 @@ class PyApp(App):
         except DomainError as error:
             self.notice(str(error), "error")
 
+    def select_model_from_picker(self, provider, model_id):
+        self.start_operation(self.active_session.select_model, provider, model_id)
+
     def refresh_commands(self):
         snapshot = self.view_state["snapshot"]
         entries = {entry["id"]: entry for entry in snapshot["entries"]}
@@ -573,6 +580,13 @@ class PyApp(App):
                 self.query_one("#chat-input", ChatInput).complete_command(
                     popup.commands[event.option_index]
                 )
+        elif isinstance(event.option_list, ModelPicker):
+            event.stop()
+            selected = event.option_list.selected
+            if selected is not None:
+                event.option_list.hide()
+                self.query_one("#chat-input", ChatInput).clear()
+                self.select_model_from_picker(selected.provider, selected.model_id)
 
     def on_approval_panel_responded(self, event):
         event.stop()
@@ -718,10 +732,9 @@ class PyApp(App):
     async def command_model(self, args):
         if not args:
             catalog = await self.active_session.model_list()
-            self.notice(
-                "可选模型："
-                + ", ".join(model.provider + "/" + model.model_id for model in catalog.models)
-            )
+            self.notice("")
+            self.query_one("#model-picker", ModelPicker).show_models(catalog.models)
+            self.query_one("#chat-input", ChatInput).focus()
         elif len(args) == 2:
             self.start_operation(self.active_session.select_model, *args)
         else:

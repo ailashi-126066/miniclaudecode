@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from textual.widgets import Static
 
@@ -8,6 +10,7 @@ from pycode.kernel.domain.values import json_dumps
 from pycode.ui.adapters.chat_input import ChatInput
 from pycode.ui.adapters.commands import COMMANDS
 from pycode.ui.adapters.completion import CompletionPopup
+from pycode.ui.adapters.model_picker import ModelPicker
 from pycode.ui.adapters.tui import PyApp
 from tests.skills.services.test_skills import write_skill
 from tests.support.execution import provider
@@ -65,6 +68,33 @@ async def test_registered_commands_and_live_skills_share_dispatch_and_completion
             with pytest.raises(StorageError, match="No closing quotation"):
                 await app.command('/session name "unfinished')
             assert not requests and app.last_error is None
+
+
+async def test_model_command_opens_a_scrollable_picker_and_enter_selects_the_row(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    first = replace(provider("http://127.0.0.1:1"), name="first")
+    second = replace(first, name="second", model_id="second-model")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    app = compose_application(config, (first, second)).tui()
+    async with app.run_test(size=(100, 25)) as pilot:
+        await app.ready.wait()
+        await app.command("/model")
+        picker = app.query_one(ModelPicker)
+        entry = app.query_one(ChatInput)
+        assert picker.display and len(picker.models) == 2
+        assert picker.models[1].provider == "second" and entry.model_selected is not None
+        assert not app.query_one("#notice", Static).display
+        await pilot.press("down")
+        assert picker.highlighted == 1
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._operation is not None
+        await settled(app)
+        assert not picker.display
+        assert app.last_error is None
+        assert app.state["context"]["selection"]["provider"] == "second"
 
 
 @pytest.mark.parametrize("name", ["/resume", "/compact", "/reload"])

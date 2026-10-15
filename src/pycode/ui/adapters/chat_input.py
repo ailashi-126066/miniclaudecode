@@ -7,12 +7,15 @@
 # 简历模版：jianli.xiaolinnote.com
 """Multiline prompt entry emits explicit submissions without touching history."""
 
+from typing import Callable
+
 from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import TextArea
 
 from pycode.ui.adapters.commands import CommandRegistry
 from pycode.ui.adapters.completion import CompletionPopup
+from pycode.ui.adapters.model_picker import ModelPicker
 
 
 class ChatInput(TextArea):
@@ -33,10 +36,15 @@ class ChatInput(TextArea):
         super().__init__(*args, **kwargs)
         self.registry: CommandRegistry | None = None
         self.popup: CompletionPopup | None = None
+        self.model_picker: ModelPicker | None = None
+        self.model_selected: Callable[[str, str], None] | None = None
         self._dismissed_text = None
 
     def update_completion(self):
         if self.popup is None or self.registry is None:
+            return
+        if self.model_picker is not None and self.model_picker.display:
+            self.popup.hide()
             return
         if self.text == self._dismissed_text or self.disabled:
             self.popup.hide()
@@ -50,7 +58,10 @@ class ChatInput(TextArea):
 
     def check_action(self, action, parameters):
         if action in {"complete", "dismiss_completion"}:
-            return bool(self.popup is not None and self.popup.selected is not None)
+            return bool(
+                (self.popup is not None and self.popup.selected is not None)
+                or (self.model_picker is not None and self.model_picker.selected is not None)
+            )
         return super().check_action(action, parameters)
 
     def complete_command(self, command):
@@ -69,20 +80,35 @@ class ChatInput(TextArea):
         self._dismissed_text = self.text
         if self.popup is not None:
             self.popup.hide()
+        if self.model_picker is not None:
+            self.model_picker.hide()
 
     def action_cursor_up(self, select=False):
+        if not select and self.model_picker is not None and self.model_picker.selected is not None:
+            self.model_picker.move(-1)
+            return
         if not select and self.popup is not None and self.popup.selected is not None:
             self.popup.action_cursor_up()
         else:
             super().action_cursor_up(select)
 
     def action_cursor_down(self, select=False):
+        if not select and self.model_picker is not None and self.model_picker.selected is not None:
+            self.model_picker.move(1)
+            return
         if not select and self.popup is not None and self.popup.selected is not None:
             self.popup.action_cursor_down()
         else:
             super().action_cursor_down(select)
 
     def action_submit(self):
+        if self.model_picker is not None and self.model_picker.selected is not None:
+            selected = self.model_picker.selected
+            self.clear()
+            self.model_picker.hide()
+            if self.model_selected is not None:
+                self.model_selected(selected.provider, selected.model_id)
+            return
         if self.popup is not None and self.popup.selected is not None:
             self.action_complete()
             return
