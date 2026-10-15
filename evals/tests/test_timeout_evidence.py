@@ -14,6 +14,7 @@ from tests.support.http_provider import chat_completion, protocol_server
 from evals.coding.assembly import build_evaluation_solver
 from evals.coding.runner import EvaluationRunner
 from evals.coding.workspaces import EvaluationWorkspaces
+from evals.tests.corpus import polyglot_cache
 from pycode.app.config import AppConfig
 
 
@@ -24,7 +25,7 @@ async def test_timeout_preserves_settled_request_usage_trace_and_independent_tes
     root = Path(__file__).parents[2]
     workspaces = EvaluationWorkspaces(
         root / "evals/data/manifest.json",
-        root / "evals/cache/polyglot",
+        polyglot_cache(),
         tmp_path / "work",
         tmp_path / "results",
     )
@@ -78,7 +79,7 @@ async def test_unavailable_baseline_preserves_failure_and_never_calls_model(tmp_
     root = Path(__file__).parents[2]
     workspaces = EvaluationWorkspaces(
         root / "evals/data/manifest.json",
-        root / "evals/cache/polyglot",
+        polyglot_cache(),
         tmp_path / "work",
         tmp_path / "results",
     )

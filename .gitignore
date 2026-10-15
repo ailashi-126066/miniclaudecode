@@ -20,6 +20,6 @@ tests/.fix-20261013/
 tests/audit-20261013/
 tests/.github-publish-20261013/
 tests/dependency-artifacts/
-evals/cache/
-evals/work/
-evals/results/
+evals/cache
+evals/work
+evals/results

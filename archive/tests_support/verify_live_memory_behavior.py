@@ -36,7 +36,7 @@ async def main():
         directory = ROOT / "tests/.runtime-tests/live" / run_id
     workspace = directory / "workspace"
     workspace.mkdir(parents=True, exist_ok=args.resume_directory is not None)
-    selected = load_providers(ROOT / "tests/evals/providers-final.json")[0]
+    selected = load_providers(ROOT / "evals/data/providers-final.json")[0]
     config = AppConfig(
         workspace, directory / "data", credential_workspace=ROOT, allow_delegation=False
     )

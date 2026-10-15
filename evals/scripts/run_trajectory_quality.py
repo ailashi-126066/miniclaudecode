@@ -12,8 +12,6 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from source_manifest import manifest
-
 from pycode.app.config import AppConfig, load_providers
 from pycode.app.container import build_background_model, build_memory_updater, open_agent_session
 from pycode.core.errors import ToolError
@@ -21,6 +19,11 @@ from pycode.core.messages import Message, ToolResult
 from pycode.core.requests import RetryPolicy
 from pycode.core.tools import ToolSpec
 from pycode.core.values import plain_data
+
+try:
+    from evals.scripts.source_manifest import manifest
+except ModuleNotFoundError:  # run as a file path, where evals/scripts is sys.path[0]
+    from source_manifest import manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))

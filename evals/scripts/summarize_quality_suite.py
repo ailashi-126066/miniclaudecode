@@ -5,7 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from source_manifest import manifest
+try:
+    from evals.scripts.source_manifest import manifest
+except ModuleNotFoundError:  # run as a file path, where evals/scripts is sys.path[0]
+    from source_manifest import manifest
 
 
 def load(path):

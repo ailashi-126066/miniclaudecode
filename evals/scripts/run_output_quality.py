@@ -11,8 +11,6 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from source_manifest import manifest
-
 from pycode.adapters.storage.layout import StorageLayout
 from pycode.adapters.storage.requests import SQLiteRequestStore
 from pycode.app.config import AppConfig, load_providers
@@ -27,6 +25,11 @@ from pycode.core.requests import RetryPolicy
 from pycode.core.summaries import SummarySource
 from pycode.core.values import plain_data
 from pycode.workflows.summary import SummaryWorkflow
+
+try:
+    from evals.scripts.source_manifest import manifest
+except ModuleNotFoundError:  # run as a file path, where evals/scripts is sys.path[0]
+    from source_manifest import manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 

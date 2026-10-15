@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -16,6 +15,7 @@ from evals.coding.assembly import build_evaluation_solver
 from evals.coding.runner import EvaluationRunner
 from evals.coding.workspaces import EvaluationWorkspaces
 from evals.quality.langfuse import LangfuseEvaluationSummary
+from evals.tests.corpus import polyglot_cache
 from pycode.app.config import AppConfig
 
 
@@ -26,7 +26,7 @@ async def test_fixed_model_three_task_smoke_is_real_local_protocol_control(
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     root = Path(__file__).parents[2]
     definition = root / "evals/data/manifest.json"
-    cache = Path(os.environ.get("PYCODE_EVAL_CACHE", root / "evals/cache/polyglot"))
+    cache = polyglot_cache()
     workspaces = EvaluationWorkspaces(definition, cache, tmp_path / "work", tmp_path / "results")
     replies = []
     for task in workspaces.tasks:
