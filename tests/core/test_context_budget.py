@@ -15,8 +15,8 @@ def test_source_background_trigger_vectors(case):
             InputBudget.create(case["window"], case["reserve"])
         return
     budget = InputBudget.create(case["window"], case["reserve"])
-    # Preserve the original source vector; pi计划.md changes only its 85% case
-    # to the final product's exact 80% threshold.
+    # Preserve the original source vector; the local product policy changes only
+    # its 85% case to the final product's exact 80% threshold.
     expected = case["expected_trigger"]
     if case["name"] == "85 percent cache trigger":
         expected = 160000

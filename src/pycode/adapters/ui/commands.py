@@ -1,0 +1,118 @@
+# Source: code-python/mewcode/commands/registry.py and parser.py.
+# Adaptation: pycode's existing commands and application entry points only.
+# 来源：公众号@小林coding
+# 后端八股网站：xiaolincoding.com
+# Agent网站：xiaolinnote.com
+# 简历模版：jianli.xiaolinnote.com
+"""One registry for existing terminal command dispatch, help and completion."""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Command:
+    name: str
+    description: str
+    handler: str
+    usage: str = ""
+    needs_arguments: bool = False
+    raw_arguments: bool = False
+
+    @property
+    def completion(self):
+        return self.name + (" " if self.needs_arguments else "")
+
+
+COMMANDS = (
+    Command(
+        "/session", "Manage sessions", "command_session", "new|list|open ID|name NAME|fork ID", True
+    ),
+    Command("/new", "Start a new session", "command_new"),
+    Command("/clear", "Start a new session", "command_new"),
+    Command("/resume", "Resume pending work", "command_resume"),
+    Command("/model", "Select provider and model", "command_model", "PROVIDER MODEL", True),
+    Command(
+        "/memory",
+        "View and manage memory",
+        "command_memory",
+        "[mode|edit|move|remove|clear|extract]",
+    ),
+    Command(
+        "/storage",
+        "Inspect or collect stored artifacts",
+        "command_storage",
+        "status|gc [--dry-run]",
+        True,
+    ),
+    Command("/plan", "Enter plan mode", "command_plan", "[TASK]", True),
+    Command("/usage", "Show token usage", "command_usage"),
+    Command(
+        "/team",
+        "Manage background tasks",
+        "command_team",
+        "[list|check ID|cancel ID|update ID TEXT]",
+    ),
+    Command("/compact", "Compact conversation context", "command_compact"),
+    Command("/reload", "Refresh the skill catalog", "command_reload"),
+    Command("/skills", "Search available skills", "command_skills", "[QUERY]", True),
+    Command(
+        "/hooks",
+        "Reconcile a pending hook",
+        "command_hooks",
+        "ID result|retry|abandon [TEXT]",
+        True,
+    ),
+    Command("/skill", "Install a skill", "command_skill", "install URL", True),
+    Command("/branch", "Branch from an entry", "command_branch", "ENTRY|root", True),
+    Command("/theme", "Switch color theme", "command_theme"),
+    Command(
+        "/revert",
+        "Preview a conversation or code revert",
+        "command_revert",
+        "ENTRY|root [dialogue|code|both]",
+        True,
+    ),
+    Command("/quit", "Close pycode", "command_quit"),
+    Command("/exit", "Close pycode", "command_quit"),
+)
+
+
+class CommandRegistry:
+    def __init__(self):
+        self._commands = {command.name: command for command in COMMANDS}
+        self._skills = {}
+
+    def set_skills(self, entries):
+        self._skills = {
+            "/skill:" + entry["name"]: Command(
+                "/skill:" + entry["name"],
+                " ".join(entry["description"].split())[:80],
+                "command_load_skill",
+                "[ARGUMENTS]",
+                True,
+                True,
+            )
+            for entry in entries
+        }
+
+    def find(self, name):
+        command = self._commands.get(name) or self._skills.get(name)
+        if command is None and name.startswith("/skill:"):
+            # Preserve the existing trusted-catalog validation and error path.
+            return Command(name, "Run a skill", "command_load_skill", raw_arguments=True)
+        return command
+
+    def matches(self, text):
+        if not text.startswith("/") or any(character.isspace() for character in text):
+            return ()
+        return tuple(
+            command
+            for name, command in sorted((self._commands | self._skills).items())
+            if name.startswith(text)
+        )
+
+    def help_text(self):
+        return "Commands: " + ", ".join(
+            command.name + (" " + command.usage if command.usage else "")
+            for command in (*self._commands.values(), *self._skills.values())
+        )

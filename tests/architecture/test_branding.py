@@ -18,3 +18,13 @@ def test_source_attribution_and_license_are_allowed(tmp_path):
     source = tmp_path / "source.py"
     source.write_text("# Source: " + "mew" + "code local SHA-256 baseline\n", encoding="utf-8")
     assert check_branding(tmp_path) == []
+
+
+def test_actual_source_paths_in_verification_evidence_are_preserved(tmp_path):
+    (tmp_path / "测试数据.md").write_text(
+        "- 实际命令：verify_sources --local-source /reference/" + "mew" + "code\n",
+        encoding="utf-8",
+    )
+    assert check_branding(tmp_path) == []
+    (tmp_path / "README.md").write_text("Product: " + "mew" + "code", encoding="utf-8")
+    assert len(check_branding(tmp_path)) == 1

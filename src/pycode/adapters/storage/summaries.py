@@ -2,13 +2,12 @@
 
 import asyncio
 import json
-import os
 import re
 from pathlib import Path
-from uuid import uuid4
 
 from pydantic import TypeAdapter
 
+from pycode.adapters.storage.path_io import atomic_write
 from pycode.core.errors import StorageError
 from pycode.core.summaries import SummaryObject, SummarySource
 from pycode.core.summary_source import data_hash
@@ -45,16 +44,7 @@ class FileSummaryStore:
             if path.read_text(encoding="utf-8") != encoded:
                 raise StorageError("summary_object_conflict", "Immutable summary object changed")
             return
-        self._directory.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f"{path.name}.{uuid4().hex}.partial")
-        try:
-            with temporary.open("x", encoding="utf-8") as output:
-                output.write(encoded)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        atomic_write(path, encoded.encode("utf-8"))
 
     def read(self, path: Path, expected_type):
         envelope = json.loads(path.read_bytes())

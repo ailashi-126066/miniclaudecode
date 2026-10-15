@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pycode.core.context_budget import InputBudget
 from pycode.core.messages import Message, UsageRecord
 from pycode.core.models import ModelSelection
+from pycode.core.session import ProjectedContext, SessionSnapshot
 from pycode.core.tools import ToolSpec
 
 
@@ -57,8 +58,19 @@ class SummarySettings:
     tools: tuple[ToolSpec, ...]
     budget: InputBudget
     keep_recent_tokens: int = 20000
-    enabled: bool = True
 
     def __post_init__(self):
         if self.keep_recent_tokens < 1:
             raise ValueError("Recent-message budget must be positive")
+
+
+@dataclass(frozen=True)
+class SummaryCheck:
+    snapshot: SessionSnapshot
+    projection: ProjectedContext
+    config_hash: str
+    tokens: int
+    start_generation: bool
+    apply_needed: bool
+    manual: bool
+    wait_for_capacity: bool

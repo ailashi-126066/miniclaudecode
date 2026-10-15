@@ -6,15 +6,26 @@ from dataclasses import replace
 
 from pycode.core.errors import SnapshotError, StorageError, ToolError
 from pycode.core.hooks import HookContext
-from pycode.core.messages import ToolResult
+from pycode.core.tool_failures import tool_failure
 from pycode.core.turn_policy import tool_calls_may_execute
 from pycode.core.values import clone_value, plain_data
+from pycode.ports.tools import ToolGate
 
 
 class ToolExecutor:
     def __init__(
-        self, registry, validator, gate, events, outputs=None, *, snapshots=None, hooks=None
+        self,
+        registry,
+        validator,
+        gate: ToolGate,
+        events,
+        outputs=None,
+        *,
+        error_boundary,
+        snapshots=None,
+        hooks=None,
     ):
+        self.error_boundary = error_boundary
         self.registry = registry
         self.validator = validator
         self.gate = gate
@@ -39,6 +50,7 @@ class ToolExecutor:
         )
         before = None
         result_name = call.name
+        result = None
         try:
             if not tool_calls_may_execute(stop_reason):
                 raise ToolError(
@@ -48,8 +60,9 @@ class ToolExecutor:
             if call.parse_error:
                 raise ToolError("invalid_arguments", call.parse_error)
             if spec is None:
-                tool = self.registry.get(call.name)
                 spec = self.registry.get_spec(call.name)
+            if invoke is None:
+                tool = self.registry.get(call.name)
             arguments = clone_value(call.arguments)
             self.validator.validate(spec.input_schema, arguments)
             dispatcher = self.registry.dispatcher(call.name)
@@ -78,26 +91,24 @@ class ToolExecutor:
             await self.gate.authorize(context, spec, replace(call, arguments=arguments))
             if self.hooks is not None and spec.category == "command":
                 await self.hooks.fire(replace(hook_context, event_name="command_execute"))
-            if self.snapshots is not None and spec.category in {"write", "command", "external"}:
+            if (
+                self.snapshots is not None
+                and spec.source != "memory"
+                and spec.category in {"write", "command", "external"}
+            ):
                 before = await self.snapshots.capture()
-            if invoke is None:
-                executed = await tool.execute(context, arguments)
-            else:
-                executed = await invoke(context, call, spec)
-            result = replace(executed, call_id=call.id, name=result_name)
-        except (ToolError, SnapshotError) as error:
-            result = ToolResult(
-                call.id,
-                result_name,
-                str(error),
-                is_error=True,
-                error_code=error.code,
-                details={"critical_hook_failure": True} if error.code == "hook_failed" else {},
-            )
-        except OSError as error:
-            result = ToolResult(
-                call.id, result_name, str(error), is_error=True, error_code="tool_io_error"
-            )
+        except ToolError as error:
+            # Validation, authorization and synchronous Hooks precede execution.
+            result = tool_failure(error, replace(call, name=result_name))
+        if result is None:
+
+            async def action():
+                if invoke is None:
+                    return await tool.execute(context, arguments)
+                return await invoke(context, call, spec)
+
+            result = await self.error_boundary(replace(call, name=result_name), spec, action)
+        result = replace(result, call_id=call.id, name=result_name)
         result = replace(
             result,
             session_id=context.session_id,

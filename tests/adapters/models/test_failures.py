@@ -77,3 +77,29 @@ def test_unknown_implementation_defects_are_not_classified_as_network_failures()
         ProviderFailureClassifier(TestTiming()).classify(ValueError("implementation defect"))
         is None
     )
+
+
+def test_native_structured_length_failure_preserves_usage_without_response_body():
+    from openai.types.chat import ChatCompletion
+
+    completion = ChatCompletion(
+        id="completion-1",
+        object="chat.completion",
+        created=1,
+        model="wire",
+        choices=[],
+        usage={"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
+    )
+    error = openai.LengthFinishReasonError(completion=completion)
+    failure = ProviderFailureClassifier(TestTiming()).classify(error)
+    assert failure.code == "provider_output_limit" and not failure.retryable
+    assert failure.metadata["usage"]["total_tokens"] == 25
+    assert failure.metadata["provider_request_id"] == "completion-1"
+    assert "choices" not in failure.metadata
+
+
+def test_native_structured_content_filter_is_terminal_not_a_network_retry():
+    failure = ProviderFailureClassifier(TestTiming()).classify(
+        openai.ContentFilterFinishReasonError()
+    )
+    assert failure.code == "provider_content_filter" and not failure.retryable

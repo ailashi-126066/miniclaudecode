@@ -78,8 +78,13 @@ class SQLiteRequestStore:
                 "started_at",
                 "agent_id",
                 "logical_id",
+                "candidate_index",
             )
-            if any(original.get(field) != getattr(record, field) for field in identity_fields):
+            if any(
+                original.get(field, 0 if field == "candidate_index" else None)
+                != getattr(record, field)
+                for field in identity_fields
+            ):
                 raise StorageError(
                     "request_id_conflict", "Request settlement changes attempt identity"
                 )

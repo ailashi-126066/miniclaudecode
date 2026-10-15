@@ -1,4 +1,4 @@
-"""Atomic user/project memory files and review records; no import-time resources."""
+"""Preserved old-format writer for migration fixtures only; never imported by runtime code."""
 
 import json
 import os
@@ -8,17 +8,26 @@ from pathlib import Path
 from uuid import uuid4
 
 from pycode.adapters.storage.file_lease import FileLease
-from pycode.adapters.tools.backend import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, owned_io
 from pycode.core.errors import StorageError
-from pycode.core.memory import MemoryCandidate, MemoryRecord, content_hash
+from pycode.core.memory import content_hash
 from pycode.core.values import json_dumps, plain_data
+from tests.support.legacy_memory_types import MemoryCandidate, MemoryRecord
 
 
 class FileMemoryStore:
     def __init__(self, user_root: Path, project_root: Path):
         self.roots = {"user": user_root.resolve(), "project": project_root.resolve()}
 
+    @staticmethod
+    def ensure_legacy(root):
+        if (root / "memory.json").exists() or (root / "memory.json").is_symlink():
+            raise StorageError(
+                "memory_store_migrated", "Memory uses the JSON Store; legacy access is retired"
+            )
+
     def recover_transactions(self, root):
+        self.ensure_legacy(root)
         directory = root / "transactions"
         if not directory.exists():
             return
@@ -104,6 +113,7 @@ class FileMemoryStore:
     def list_sync(self):
         records = []
         for scope, root in self.roots.items():
+            self.ensure_legacy(root)
             if not root.exists():
                 continue
             for path in sorted(root.glob("*.json")):
@@ -141,6 +151,7 @@ class FileMemoryStore:
                             raise
                         time.sleep(0.01)
                 leases.append(lease)
+                self.ensure_legacy(root)
                 self.recover_transactions(root)
             return action()
         finally:
@@ -198,21 +209,26 @@ class FileMemoryStore:
                     found.append(MemoryCandidate(**data))
             return tuple(found)
 
-        return await owned_io(read)
+        return await owned_io(self.read_consistent, read)
 
     async def save_candidate(self, candidate):
         self.check_id(candidate.candidate_id)
         scope = candidate.scope if candidate.scope in self.roots else "user"
         path = self.roots[scope] / "candidates" / (candidate.candidate_id + ".json")
         await owned_io(
-            atomic_write,
-            path,
-            json_dumps(plain_data(candidate), ensure_ascii=False, sort_keys=True).encode("utf-8"),
+            self.read_consistent,
+            lambda: atomic_write(
+                path,
+                json_dumps(plain_data(candidate), ensure_ascii=False, sort_keys=True).encode(
+                    "utf-8"
+                ),
+            ),
         )
 
     def locate(self, memory_id):
         self.check_id(memory_id)
         for root in self.roots.values():
+            self.ensure_legacy(root)
             path = root / (memory_id + ".json")
             if path.exists():
                 return root, json.loads(path.read_bytes())
@@ -349,7 +365,7 @@ class FileMemoryStore:
                 "memory_candidate_not_found", "Candidate is not available for review"
             )
 
-        await owned_io(review)
+        await owned_io(self.read_consistent, review)
 
     async def set_mode(self, mode):
         if mode not in {"auto", "review", "off"}:

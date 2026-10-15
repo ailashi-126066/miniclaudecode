@@ -6,16 +6,20 @@ import platform
 import time
 from datetime import datetime, timedelta, timezone
 
+from pycode.core.errors import StorageError
 from pycode.core.evaluation import evaluation_outcome
 
 
 class EvaluationRunner:
-    def __init__(self, workspaces, solver, python, *, model_id, telemetry=None):
+    def __init__(
+        self, workspaces, solver, python, *, model_id, telemetry=None, solver_handles_timeout=False
+    ):
         self.workspaces = workspaces
         self.solver = solver
         self.python = python
         self.model_id = model_id
         self.telemetry = telemetry
+        self.solver_handles_timeout = solver_handles_timeout
 
     async def run(self, *, smoke=True, cleanup=True):
         results = []
@@ -33,9 +37,21 @@ class EvaluationRunner:
             try:
                 workspace = await self.workspaces.prepare(task)
                 baseline = await self.workspaces.test(task, workspace, self.python)
+                if (
+                    baseline["exit_code"] not in (0, 1)
+                    or baseline.get("junit") is None
+                    or not baseline["junit"]["tests"]
+                ):
+                    raise StorageError(
+                        "eval_baseline_unavailable",
+                        "Baseline tests did not start normally; skip model execution",
+                    )
                 try:
-                    async with asyncio.timeout(task.timeout_seconds * 3):
+                    if self.solver_handles_timeout:
                         solved = await self.solver(task, workspace)
+                    else:
+                        async with asyncio.timeout(task.timeout_seconds * 3):
+                            solved = await self.solver(task, workspace)
                 except TimeoutError:
                     solved = {"outcome": "timeout"}
                 except Exception as error:

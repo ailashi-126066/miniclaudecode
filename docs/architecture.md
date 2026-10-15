@@ -3,7 +3,7 @@
 `app/container.py` is the sole composition root. It constructs concrete adapters and injects
 them into services/workflows. `app/runtime_launcher.py` owns the active run, live waits,
 summary and Hook lifetimes through explicit construction callbacks. `app/background_models.py`
-owns single-request summary/memory model lifetimes; neither implements another Agent loop.
+owns summary and per-job memory model lifetimes; neither implements another Agent loop.
 
 Dependency direction is app → adapters/services/workflows, workflows → services/ports/core,
 services → ports/core, adapters → ports/core. Core is pure data/policy. Framework message
@@ -16,15 +16,16 @@ orders durable result settlement, binds objects/snapshots and emits final events
 can return Command state updates; settlement retains todos/async-task updates.
 
 FilesystemMiddleware uses PycodeBackend and explicit routes: `/workspace/`, `/plans/`,
-`/skills/<source>/`, `/memories/user|project/`, `/large_tool_results/`, `/conversation_history/`.
+`/skills/<source>/`, `/large_tool_results/`, `/conversation_history/`.
 Workspace paths, hashes and locks are enforced by the Backend. rg supplies real regex/glob
 search, ignoring internal state and default hidden paths; complete large results are preserved
 before native display truncation. SkillsMiddleware owns loading/disclosure, including budgeted
 catalogue reload through its public methods. LangChain MCPAdapter owns MCP connections/protocol.
 
 Main-chat InMemorySaver exists only for the live run. JSONL is the sole restart authority.
-Lost calls get one interrupted result; no old approval, operation ledger or disk Graph state is
-reused. EventStream is process-local and isolates failed consumers; closed CLI output requests
+Lost calls get one interrupted result unless a verified memory commit receipt can restore
+their exact confirmed result; no old approval or disk Graph state is reused. Recovery never
+reexecutes old business tools. EventStream isolates failed consumers; closed CLI output requests
 controlled cancellation. JSONL contains one original result; large bytes live in one scoped
 object. Memory/summary/Plan metadata reference original facts rather than another conversation.
 
@@ -47,8 +48,15 @@ and has no worker mailbox/cursor. TeamManager adds dependency policy and concurr
 second tool/model scheduler. Usage retains purpose/agent/session identity and known team totals.
 
 Plan is an exact writable document with run-bound approved hash; restart expires approvals.
-Memory extraction is one metered no-tool request after settlement, with grounded candidates,
-review, bounded selection and recoverable file publication. GC marks all durable references and
+Memory uses official LangMem manage/search tools and Store Manager over JsonMemoryStore.
+Each namespace owns one active memory.json; related changes, processed source ranges and
+commit receipts publish atomically per scope. Jobs own immutable sources, staging, model
+observers and per-request accounting. Rule feedback selects single/multi prompt_memory;
+inferred rules require a fixed, tool-free comparison and exact version-bound runtime permit.
+Scope moves use ordered leases, copy-first publication and persistent receipts, without a
+cross-file transaction claim. LegacyMemoryRecovery only finishes existing old transactions
+before one-way migration; no runtime Markdown reader, writer or candidate approval remains.
+GC marks all durable references and
 live/uncertain writers before 30-day quarantine/purge. Worktree integration/cleanup stays separate.
 Evaluation runs the same harness in isolated declared-file workspaces and tests independently.
 

@@ -1,6 +1,9 @@
 """Observe SDK-decoded objects, preserving usage without parsing HTTP or SSE."""
 
 import inspect
+from types import SimpleNamespace
+
+from openai import LengthFinishReasonError
 
 from pycode.core.models import ProviderKind
 from pycode.core.values import clone_value
@@ -46,6 +49,9 @@ class ProviderObservation:
         else:
             return
         event_type = data.get("type")
+        if event_type == "chunk" and isinstance(data.get("chunk"), dict):
+            self.capture(data["chunk"])
+            return
         delta = data.get("delta")
         delta_stop = delta.get("stop_reason") if isinstance(delta, dict) else None
         source = data
@@ -107,11 +113,17 @@ class ObservedAsyncStream:
         self._stream = stream
         self._observation = observation
 
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
     async def __aiter__(self):
         try:
             async for item in self._stream:
                 self._observation.capture(item)
                 yield item
+        except LengthFinishReasonError as error:
+            self._observation.capture(error.completion)
+            raise
         finally:
             await self.close()
 
@@ -131,11 +143,17 @@ class ObservedStream:
         self._stream = stream
         self._observation = observation
 
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
     def __iter__(self):
         try:
             for item in self._stream:
                 self._observation.capture(item)
                 yield item
+        except LengthFinishReasonError as error:
+            self._observation.capture(error.completion)
+            raise
         finally:
             self._stream.close()
 
@@ -145,6 +163,30 @@ class ObservedStream:
 
     def __exit__(self, exc_type, exc, traceback):
         return self._stream.__exit__(exc_type, exc, traceback)
+
+
+class ObservedAsyncStreamManager:
+    def __init__(self, manager, observation):
+        self.manager = manager
+        self.observation = observation
+
+    async def __aenter__(self):
+        return self.observation.wrap(await self.manager.__aenter__())
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return await self.manager.__aexit__(exc_type, exc, traceback)
+
+
+class ObservedStreamManager:
+    def __init__(self, manager, observation):
+        self.manager = manager
+        self.observation = observation
+
+    def __enter__(self):
+        return self.observation.wrap(self.manager.__enter__())
+
+    def __exit__(self, exc_type, exc, traceback):
+        return self.manager.__exit__(exc_type, exc, traceback)
 
 
 class ObservedRawResponse:
@@ -180,6 +222,19 @@ class ObservedAsyncResource:
     def with_raw_response(self):
         return ObservedAsyncResource(self._resource.with_raw_response, self._observation, raw=True)
 
+    def stream(self, **kwargs):
+        return ObservedAsyncStreamManager(
+            self._resource.stream(**self._observation.request_options(kwargs)), self._observation
+        )
+
+    async def parse(self, **kwargs):
+        result = await self._resource.parse(**self._observation.request_options(kwargs))
+        return (
+            ObservedRawResponse(result, self._observation)
+            if self._raw
+            else self._observation.wrap(result)
+        )
+
     async def create(self, **kwargs):
         result = await self._resource.create(**self._observation.request_options(kwargs))
         if self._raw:
@@ -197,6 +252,19 @@ class ObservedResource:
     def with_raw_response(self):
         return ObservedResource(self._resource.with_raw_response, self._observation, raw=True)
 
+    def stream(self, **kwargs):
+        return ObservedStreamManager(
+            self._resource.stream(**self._observation.request_options(kwargs)), self._observation
+        )
+
+    def parse(self, **kwargs):
+        result = self._resource.parse(**self._observation.request_options(kwargs))
+        return (
+            ObservedRawResponse(result, self._observation)
+            if self._raw
+            else self._observation.wrap(result)
+        )
+
     def create(self, **kwargs):
         result = self._resource.create(**self._observation.request_options(kwargs))
         if self._raw:
@@ -206,8 +274,11 @@ class ObservedResource:
 
 class ObservedOpenAIRoot:
     def __init__(self, root, observation: ProviderObservation, *, asynchronous: bool) -> None:
-        self.chat = root.chat
-        self.beta = root.beta
+        resource = ObservedAsyncResource if asynchronous else ObservedResource
+        self.chat = SimpleNamespace(completions=resource(root.chat.completions, observation))
+        self.beta = SimpleNamespace(
+            chat=SimpleNamespace(completions=resource(root.beta.chat.completions, observation))
+        )
         self.responses = (
             ObservedAsyncResource(root.responses, observation)
             if asynchronous

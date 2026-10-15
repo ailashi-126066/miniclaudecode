@@ -9,6 +9,7 @@
 import asyncio
 import logging
 import shlex
+from functools import partial
 from uuid import uuid4
 
 from textual.app import App, ComposeResult
@@ -19,6 +20,8 @@ from textual.widgets import Button, Footer, Input, Markdown, Select, Static, Tre
 
 from pycode.adapters.ui.approval import ApprovalPanel
 from pycode.adapters.ui.chat_input import ChatInput
+from pycode.adapters.ui.commands import CommandRegistry
+from pycode.adapters.ui.completion import CompletionPopup
 from pycode.adapters.ui.mcp import MCPElicitationPanel
 from pycode.adapters.ui.memory import MemoryPanel
 from pycode.adapters.ui.plans import PlanPanel
@@ -75,8 +78,8 @@ class PyApp(App):
     #live-thinking {height: auto; color: $text-muted;}
     #live-text {height: auto;}
     #pending {height: auto; max-height: 22; overflow-y: auto;}
-    #entry {height: 7; border-top: solid $primary-muted;}
-    #chat-input {height: 1fr; border: solid $primary-muted;}
+    #entry {height: auto; border-top: solid $primary-muted;}
+    #chat-input {height: 4; border: solid $primary-muted;}
     #chat-input:focus {border: solid $primary;}
     #actions {height: 3;}
     #actions Button {width: auto;}
@@ -132,6 +135,7 @@ class PyApp(App):
         self._displayed_entries = []
         self._displayed_session = None
         self._running_tools = {}
+        self.commands = CommandRegistry()
         for theme in themes():
             self.register_theme(theme)
         self.theme = "pycode-dark"
@@ -166,6 +170,7 @@ class PyApp(App):
                 yield Static("", id="live-text", markup=False)
                 yield Vertical(id="pending")
         with Vertical(id="entry"):
+            yield CompletionPopup(id="command-completion")
             yield ChatInput(id="chat-input", disabled=True)
             with Horizontal(id="actions"):
                 yield Button("Send", id="send", variant="primary")
@@ -185,6 +190,9 @@ class PyApp(App):
 
     async def on_mount(self):
         try:
+            entry = self.query_one("#chat-input", ChatInput)
+            entry.registry = self.commands
+            entry.popup = self.query_one("#command-completion", CompletionPopup)
             self._sandbox_status = (await self._sessions.sandbox_status()).reason
             await self.switch_session(self._initial_session_id)
         except DomainError as error:
@@ -223,7 +231,11 @@ class PyApp(App):
         event = message.event
         if self._closed or event.session_id != self.session_id:
             return
-        if event.kind == "message_delta":
+        if event.kind == "message_start" and event.data.get("role") == "assistant":
+            self._live_text = self._live_thinking = ""
+            self.query_one("#live-text", Static).update("")
+            self.query_one("#live-thinking", Static).update("")
+        elif event.kind == "message_delta":
             self._live_text += event.data["text"]
             self.query_one("#live-text", Static).update(self._live_text)
         elif event.kind == "thinking_delta":
@@ -369,6 +381,7 @@ class PyApp(App):
             self.render_failed(error)
 
     async def refresh_widgets(self):
+        self.refresh_commands()
         await self.render_history()
         tree = self.query_one("#session-tree", Tree)
         if self._tree_session != self.session_id:
@@ -436,6 +449,7 @@ class PyApp(App):
         self.query_one("#chat-input", ChatInput).disabled = bool(
             self.state["pending_run_id"] or self.state["pending_revert_id"]
         )
+        self.query_one("#chat-input", ChatInput).update_completion()
         self.query_one("#resume", Button).disabled = not bool(self.state["pending_run_id"])
         sessions = await self._sessions.list_sessions()
         self.query_one("#saved-sessions", Select).set_options(
@@ -504,6 +518,29 @@ class PyApp(App):
             await self.send_text(event.text)
         except DomainError as error:
             self.notice(str(error), "error")
+
+    def refresh_commands(self):
+        snapshot = self.state["snapshot"]
+        entries = {entry["id"]: entry for entry in snapshot["entries"]}
+        current = snapshot["leaf_id"]
+        catalog = ()
+        while current is not None:
+            entry = entries[current]
+            if entry["type"] == "skill_catalog":
+                catalog = entry["data"]["entries"]
+                break
+            current = entry["parent_id"]
+        self.commands.set_skills(catalog)
+        self.query_one("#chat-input", ChatInput).update_completion()
+
+    def on_option_list_option_selected(self, event):
+        if isinstance(event.option_list, CompletionPopup):
+            event.stop()
+            popup = event.option_list
+            if popup.display and event.option_index < len(popup.commands):
+                self.query_one("#chat-input", ChatInput).complete_command(
+                    popup.commands[event.option_index]
+                )
 
     def on_approval_panel_responded(self, event):
         event.stop()
@@ -624,91 +661,149 @@ class PyApp(App):
             self.notice(str(error), "error")
 
     async def command(self, text):
-        if text.startswith("/skill:"):
-            command, _, arguments = text.partition(" ")
-            self.start_operation(self.load_skill, command[len("/skill:") :], arguments)
+        first, _, raw = text.partition(" ")
+        spec = self.commands.find(first)
+        if spec is not None and spec.raw_arguments:
+            await getattr(self, spec.handler)(first[len("/skill:") :], raw)
             return
         try:
             parts = shlex.split(text)
         except ValueError as error:
             raise StorageError("invalid_command", str(error)) from error
-        name, args = parts[0], parts[1:]
-        if name in {"/clear", "/new"} or (name == "/session" and args == ["new"]):
+        spec = self.commands.find(parts[0]) if parts else None
+        if (
+            spec is None
+            or spec.raw_arguments
+            or await getattr(self, spec.handler)(parts[1:]) is False
+        ):
+            self.notice(self.commands.help_text(), "warning")
+
+    async def command_new(self, args):
+        await self.switch_session()
+
+    async def command_session(self, args):
+        if args == ["new"]:
             await self.switch_session()
-        elif name == "/session" and len(args) == 2 and args[0] == "open":
+        elif len(args) == 2 and args[0] == "open":
             await self.switch_session(args[1])
-        elif name == "/session" and args == ["list"]:
+        elif args == ["list"]:
             self.notice(json_dumps(await self._sessions.list_sessions(), ensure_ascii=False))
-        elif name == "/session" and len(args) >= 2 and args[0] == "name":
+        elif len(args) >= 2 and args[0] == "name":
             self.start_operation(self.session.name, " ".join(args[1:]))
-        elif name == "/session" and len(args) == 2 and args[0] == "fork":
+        elif len(args) == 2 and args[0] == "fork":
             await self._sessions.fork(self.session_id, self.state["snapshot"]["leaf_id"], args[1])
             await self.switch_session(args[1])
-        elif name == "/resume" and not args:
-            self.start_operation(self.session.resume)
-        elif name == "/model" and len(args) == 2:
-            self.start_operation(self.session.select_model, *args)
-        elif name == "/memory" and not args:
+        else:
+            return False
+
+    async def command_resume(self, args):
+        if args:
+            return False
+        self.start_operation(self.session.resume)
+
+    async def command_model(self, args):
+        if len(args) != 2:
+            return False
+        self.start_operation(self.session.select_model, *args)
+
+    async def command_memory(self, args):
+        if not args:
             self.start_operation(self.show_memory)
-        elif name == "/memory" and len(args) == 2 and args[0] == "mode":
+        elif len(args) == 2 and args[0] == "mode":
             self.start_operation(self.session.memory_mode, args[1])
-        elif name == "/memory" and len(args) == 3 and args[0] == "review":
-            self.start_operation(self.session.memory_review, args[1], args[2])
-        elif name == "/memory" and len(args) >= 3 and args[0] == "edit":
+        elif len(args) >= 3 and args[0] == "edit":
             self.start_operation(self.session.memory_edit, args[1], " ".join(args[2:]))
-        elif name == "/memory" and len(args) == 2 and args[0] == "remove":
+        elif (
+            args
+            and args[0] == "move"
+            and (len(args) == 3 or len(args) == 5 and args[3] == "--from-scope")
+        ):
+            operation = self.session.memory_move
+            if len(args) == 5:
+                operation = partial(operation, from_scope=args[4])
+            self.start_operation(operation, args[1], args[2])
+        elif len(args) == 2 and args[0] == "remove":
             self.start_operation(self.session.memory_remove, args[1])
-        elif name == "/memory" and args == ["clear"]:
+        elif args == ["clear"]:
             self.start_operation(self.session.memory_clear)
-        elif name == "/memory" and args == ["extract"]:
+        elif args == ["extract"]:
             self.start_operation(self.session.memory_extract)
-        elif name == "/storage" and args == ["status"]:
+        else:
+            return False
+
+    async def command_storage(self, args):
+        if args == ["status"]:
             self.start_operation(self.show_storage)
-        elif name == "/storage" and args in (["gc"], ["gc", "--dry-run"]):
+        elif args in (["gc"], ["gc", "--dry-run"]):
             self.start_operation(self.collect_storage, "--dry-run" in args)
-        elif name == "/plan":
-            self.start_operation(self.enter_plan, " ".join(args))
-        elif name == "/usage":
-            self.push_screen(UsageScreen(await self.session.usage()))
-        elif name == "/team" and args in ([], ["list"]):
+        else:
+            return False
+
+    async def command_plan(self, args):
+        self.start_operation(self.enter_plan, " ".join(args))
+
+    async def command_usage(self, args):
+        self.push_screen(UsageScreen(await self.session.usage()))
+
+    async def command_team(self, args):
+        if args in ([], ["list"]):
             self.start_operation(self.team_list)
-        elif name == "/team" and len(args) == 2 and args[0] in {"check", "cancel"}:
+        elif len(args) == 2 and args[0] in {"check", "cancel"}:
             self.start_operation(self.team_action, args[0] + "_async_task", {"task_id": args[1]})
-        elif name == "/team" and len(args) >= 3 and args[0] == "update":
+        elif len(args) >= 3 and args[0] == "update":
             self.start_operation(
                 self.team_action,
                 "update_async_task",
                 {"task_id": args[1], "message": " ".join(args[2:])},
             )
-        elif name == "/compact" and not args:
-            self.start_operation(self.session.compact)
-        elif name == "/reload" and not args:
-            self.start_operation(self.reload_skills)
-        elif name == "/skills":
-            self.start_operation(self.search_skills, " ".join(args))
-        elif name == "/hooks" and len(args) >= 2 and args[1] in {"result", "retry", "abandon"}:
-            self.start_operation(self.session.reconcile_hook, args[0], args[1], " ".join(args[2:]))
-        elif name == "/skill" and len(args) == 2 and args[0] == "install":
-            self.start_operation(self.install_skill, args[1])
-        elif name == "/branch" and len(args) == 1:
-            self.start_operation(self.session.branch, None if args[0] == "root" else args[0])
-        elif name == "/theme":
-            self.action_toggle_theme()
-        elif name == "/revert" and 1 <= len(args) <= 2:
-            self.start_operation(
-                self.preview_revert,
-                None if args[0] == "root" else args[0],
-                args[1] if len(args) == 2 else "dialogue",
-            )
-        elif name in {"/quit", "/exit"}:
-            await self.action_close()
         else:
-            self.notice(
-                "Commands: /session new|list|open ID|fork ID, /resume, "
-                "/model PROVIDER MODEL, /usage, /compact, /branch ENTRY, /theme, "
-                "/skills QUERY, /skill:NAME ARGUMENTS, /skill install URL, /reload",
-                "warning",
-            )
+            return False
+
+    async def command_compact(self, args):
+        if args:
+            return False
+        self.start_operation(self.session.compact)
+
+    async def command_reload(self, args):
+        if args:
+            return False
+        self.start_operation(self.reload_skills)
+
+    async def command_skills(self, args):
+        self.start_operation(self.search_skills, " ".join(args))
+
+    async def command_hooks(self, args):
+        if len(args) < 2 or args[1] not in {"result", "retry", "abandon"}:
+            return False
+        self.start_operation(self.session.reconcile_hook, args[0], args[1], " ".join(args[2:]))
+
+    async def command_skill(self, args):
+        if len(args) != 2 or args[0] != "install":
+            return False
+        self.start_operation(self.install_skill, args[1])
+
+    async def command_load_skill(self, name, arguments):
+        self.start_operation(self.load_skill, name, arguments)
+
+    async def command_branch(self, args):
+        if len(args) != 1:
+            return False
+        self.start_operation(self.session.branch, None if args[0] == "root" else args[0])
+
+    async def command_theme(self, args):
+        self.action_toggle_theme()
+
+    async def command_revert(self, args):
+        if not 1 <= len(args) <= 2:
+            return False
+        self.start_operation(
+            self.preview_revert,
+            None if args[0] == "root" else args[0],
+            args[1] if len(args) == 2 else "dialogue",
+        )
+
+    async def command_quit(self, args):
+        await self.action_close()
 
     async def show_memory(self):
         self._memory_report = await self.session.memory_list()
@@ -719,17 +814,6 @@ class PyApp(App):
 
     async def team_action(self, name, arguments):
         self.notice(await self.session.team_control(name, arguments))
-
-    def on_memory_panel_reviewed(self, event):
-        event.stop()
-        self.start_operation(
-            self.review_memory, event.candidate_id, event.decision, event.content, event.scope
-        )
-
-    async def review_memory(self, candidate_id, decision, content, scope):
-        await self.session.memory_review(candidate_id, decision, content=content, scope=scope)
-        self._memory_report = await self.session.memory_list()
-        self.notice("Memory review saved")
 
     async def show_storage(self):
         report = await self.session.storage_status()

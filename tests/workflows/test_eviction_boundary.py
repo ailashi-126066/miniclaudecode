@@ -53,7 +53,7 @@ async def test_next_framework_request_uses_persistent_evictions_not_original_gra
     model = ScriptedChatModel(
         responses=[AIMessage(id="a1", content="first complete"), AIMessage(id="a2", content="done")]
     )
-    runtime = AgentRuntime(model, ())
+    runtime = AgentRuntime(model)
     history = context.projector.project(await store.snapshot()).messages
     await runtime.run((Message("current", "user", "current"),), context, history=history)
     first = [message.content for message in model.requests[0] if isinstance(message, ToolMessage)]

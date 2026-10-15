@@ -19,6 +19,19 @@ class ProviderFailureClassifier:
         self._timing = timing
 
     def classify(self, error: Exception) -> ModelFailure | None:
+        if isinstance(error, openai.LengthFinishReasonError):
+            completion = error.completion
+            metadata = {"provider_request_id": completion.id}
+            if completion.usage is not None:
+                metadata["usage"] = completion.usage.model_dump(mode="json")
+            return ModelFailure(
+                "provider_output_limit",
+                "Provider output reached its limit",
+                False,
+                metadata=metadata,
+            )
+        if isinstance(error, openai.ContentFilterFinishReasonError):
+            return ModelFailure("provider_content_filter", "Provider output was filtered", False)
         if isinstance(error, (openai.APIStatusError, anthropic.APIStatusError)):
             status = error.status_code
             retryable = status == 429 or status in {500, 502, 503, 504, 529}

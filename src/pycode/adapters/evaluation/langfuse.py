@@ -2,7 +2,7 @@
 
 import hashlib
 
-from pycode.adapters.tools.backend import owned_io
+from pycode.adapters.storage.path_io import owned_io
 from pycode.core.errors import StorageError
 from pycode.core.values import json_dumps
 

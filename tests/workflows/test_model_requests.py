@@ -48,7 +48,7 @@ def assemble_attempts(attempts, policy=None, timing=None):
         context.run_id,
     )
     model = FlakyModel(responses=[], attempts=attempts)
-    runtime = AgentRuntime(model, context.registry.list_specs())
+    runtime = AgentRuntime(model)
     return runtime, context, model, tool, journal, recorder, store, timing
 
 

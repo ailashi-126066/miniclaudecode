@@ -10,6 +10,7 @@ from pycode.services.mcp import MCPService
 from pycode.services.permission import ReadOnlyToolGate
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 class Connections:
@@ -68,7 +69,11 @@ async def test_dispatch_checks_target_schema_and_parent_permission_before_call(
         assert "mcp__srv__search" not in {spec.name for spec in registry.model_specs()}
         context = ToolContext("s1", "r1", "op", str(tmp_path))
         result = await ToolExecutor(
-            registry, validator, ReadOnlyToolGate(), EventStream("s1", "r1", ())
+            registry,
+            validator,
+            ReadOnlyToolGate(),
+            EventStream("s1", "r1", ()),
+            error_boundary=execute_tool_errors,
         ).execute(
             context,
             ToolCall(

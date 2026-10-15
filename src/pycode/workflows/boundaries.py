@@ -1,6 +1,7 @@
 """Deep Agents boundary extracted for sequential, readable ownership."""
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import StructuredTool
 
 from pycode.core.errors import ToolError
@@ -13,6 +14,7 @@ from pycode.core.token_estimate import estimate_text
 from pycode.core.tools import ToolContext, ToolSpec
 from pycode.core.values import plain_data
 from pycode.workflows.messages import to_framework
+from pycode.workflows.tool_selection import select_model_tools
 
 
 async def run_hook(context, event, boundary, *, message="", error=""):
@@ -63,6 +65,15 @@ def model_tool_specs(tools, context):
 
 
 async def prepare_model_boundary(request):
+    chain = (
+        RunnableLambda(filter_model_tools)
+        | RunnableLambda(select_model_tools)
+        | RunnableLambda(calibrate_model_request)
+    )
+    return await chain.ainvoke(request)
+
+
+async def filter_model_tools(request):
     context = request.runtime.context
     if context.history_store is not None:
         snapshot = await context.history_store.snapshot()
@@ -88,6 +99,53 @@ async def prepare_model_boundary(request):
                 if name in allowed:
                     filtered.append(tool)
             request = request.override(tools=filtered)
+    selector = context.tool_selector
+    if selector is not None and selector.settings.enabled:
+        planning = (
+            context.plans is not None
+            and context.plans.state is not None
+            and (
+                context.plans.state.mode == "planning"
+                or context.plans.state.approved_run_id != context.run_id
+                and context.plans.state.mode != "completed"
+            )
+        )
+        if context.read_only or planning:
+            readonly_native = {
+                "ls",
+                "read_file",
+                "glob",
+                "grep",
+                "write_todos",
+                "task",
+                "check_async_task",
+                "list_async_tasks",
+            }
+            permitted = []
+            for tool in request.tools:
+                if isinstance(tool, dict):
+                    continue
+                try:
+                    category = context.registry.get_spec(tool.name).category
+                except ToolError:
+                    category = "read" if tool.name in readonly_native else "external"
+                if (
+                    category == "read"
+                    or planning
+                    and not context.read_only
+                    and tool.name
+                    in {
+                        "write_file",
+                        "edit_file",
+                    }
+                ):
+                    permitted.append(tool)
+            request = request.override(tools=permitted)
+    return request
+
+
+async def calibrate_model_request(request):
+    context = request.runtime.context
     actual_tools = model_tool_specs(request.tools, context)
     system = request.system_message.content if request.system_message is not None else ""
     system_hash = data_hash(system)
@@ -139,34 +197,52 @@ async def prepare_model_boundary(request):
 
 
 class ModelEventCallbacks(AsyncCallbackHandler):
-    def __init__(self, events, requests):
+    def __init__(self, events, requests, request_source=None):
         self.events = events
         self.requests = requests
+        self.request_source = request_source
+
+    def current_request(self):
+        return self.request_source() if self.request_source is not None else self.requests
 
     async def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        if "pycode:internal" in kwargs.get("tags", ()):
+            return
         await self.events.emit(
             "message_start",
             {
                 "role": "assistant",
-                "request_id": self.requests.active_request_id,
+                "request_id": self.current_request().active_request_id,
+                "model_selection": plain_data(self.current_request().selection),
                 "provider_run_id": str(run_id),
             },
         )
 
     async def on_llm_new_token(self, token, *, chunk=None, **kwargs):
+        if "pycode:internal" in kwargs.get("tags", ()):
+            return
         if token:
-            await self.events.emit("message_delta", {"text": token})
+            await self.events.emit(
+                "message_delta",
+                {"text": token, "request_id": self.current_request().active_request_id},
+            )
         if chunk is None:
             return
         reasoning = chunk.message.additional_kwargs.get("reasoning_content")
         if reasoning:
-            await self.events.emit("thinking_delta", {"text": reasoning})
+            await self.events.emit(
+                "thinking_delta",
+                {"text": reasoning, "request_id": self.current_request().active_request_id},
+            )
         if isinstance(chunk.message.content, list):
             for block in chunk.message.content:
                 if isinstance(block, dict) and block.get("type") in {"thinking", "reasoning"}:
                     text = block.get("thinking") or block.get("reasoning")
                     if text:
-                        await self.events.emit("thinking_delta", {"text": text})
+                        await self.events.emit(
+                            "thinking_delta",
+                            {"text": text, "request_id": self.current_request().active_request_id},
+                        )
 
 
 async def save_message(context, message, *, emit_start=False):

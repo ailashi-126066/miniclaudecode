@@ -1,7 +1,6 @@
 """Deep Agents boundary extracted for sequential, readable ownership."""
 
 import asyncio
-import hashlib
 import json
 import re
 from dataclasses import replace
@@ -105,7 +104,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
         )
         result = None
         framework_updates = {}
-        blocked = False
         for message in context.completed:
             if (
                 message.tool_result is not None
@@ -113,11 +111,7 @@ class ToolSettlementMiddleware(AgentMiddleware):
             ):
                 result = message.tool_result
                 break
-        digest = hashlib.sha256(
-            json_dumps(
-                call.arguments, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-            ).encode()
-        ).hexdigest()
+        digest = data_hash(call.arguments)
         if context.serial_failure_signature == call.name + ":" + digest:
             async with context.duplicate_calls:
                 preceding = set()
@@ -136,13 +130,25 @@ class ToolSettlementMiddleware(AgentMiddleware):
             and guard.get("failure_tool") == call.name
             and guard.get("failure_arguments") == digest
         ):
-            blocked = True
             result = ToolResult(
                 call.id,
                 call.name,
                 "repeated_tool_failure: read the current state or choose another approach",
                 is_error=True,
                 error_code="repeated_tool_failure",
+                details={"executed": False},
+            )
+        if (
+            result is None
+            and context.selected_tool_names is not None
+            and (call.name not in context.selected_tool_names)
+        ):
+            result = ToolResult(
+                call.id,
+                call.name,
+                "Tool was not declared for this model request",
+                is_error=True,
+                error_code="tool_not_declared",
                 details={"executed": False},
             )
         if result is None:
@@ -347,6 +353,25 @@ class ToolSettlementMiddleware(AgentMiddleware):
                     structured_content=response.artifact,
                 )
 
+            if result is None and context.selected_tool_names is not None:
+                for declared in context.model_tools:
+                    if declared.name != call.name or declared.source == "deepagents":
+                        continue
+                    if (
+                        data_hash(declared.input_schema) != data_hash(spec.input_schema)
+                        or declared.implementation_hash != spec.implementation_hash
+                        or declared.policy_hash != spec.policy_hash
+                    ):
+                        result = ToolResult(
+                            call.id,
+                            call.name,
+                            "Tool declaration changed after model input",
+                            is_error=True,
+                            error_code="tool_declaration_changed",
+                            details={"executed": False},
+                        )
+                    break
+
             if result is None:
                 try:
                     result = await context.executor.execute(
@@ -392,18 +417,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 await run_hook(
                     context, "turn_end", context.assistant.id, message=context.assistant.text
                 )
-        count = 0
-        if result.is_error:
-            same = (
-                request.state.get("failure_tool") == call.name
-                and request.state.get("failure_arguments") == digest
-                and request.state.get("failure_code") == result.error_code
-            )
-            count = request.state.get("failure_count", 0) + 1 if same else 1
-        failure_code = result.error_code or ""
-        if blocked:
-            count = guard["failure_count"]
-            failure_code = guard["failure_code"]
         message = to_framework(
             Message("result:" + result.operation_id, "tool", tool_result=result),
             context.selection,
@@ -412,10 +425,6 @@ class ToolSettlementMiddleware(AgentMiddleware):
             update={
                 **framework_updates,
                 "messages": [message],
-                "failure_tool": call.name if result.is_error else "",
-                "failure_arguments": digest if result.is_error else "",
-                "failure_code": failure_code,
-                "failure_count": count,
                 **context.failure_guard,
             }
         )
@@ -428,14 +437,7 @@ class ToolSettlementMiddleware(AgentMiddleware):
             if ready is None:
                 break
             saved_call, saved_result, saved_updates = ready
-            saved_digest = hashlib.sha256(
-                json_dumps(
-                    saved_call.arguments,
-                    sort_keys=True,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ).encode()
-            ).hexdigest()
+            saved_digest = data_hash(saved_call.arguments)
             previous = context.failure_guard
             count = 0
             if saved_result.is_error:

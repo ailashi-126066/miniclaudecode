@@ -6,10 +6,18 @@ from pycode.core.session_tree import SessionTree
 from pycode.core.skills import active_skills
 from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
+from pycode.ports.skills import SkillCatalog, SkillResourceToolFactory
 
 
 class SkillResources:
-    def __init__(self, catalog, factory, entries, reserved_tools=(), history=None):
+    def __init__(
+        self,
+        catalog: SkillCatalog,
+        factory: SkillResourceToolFactory,
+        entries,
+        reserved_tools=(),
+        history=None,
+    ):
         self.catalog = catalog
         self.factory = factory
         self.entries = entries

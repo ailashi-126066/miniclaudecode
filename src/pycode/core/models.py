@@ -39,6 +39,48 @@ class CapabilityOverride:
 
 
 @dataclass(frozen=True)
+class ModelReference:
+    provider: str
+    model_id: str
+
+    def __post_init__(self):
+        if not self.provider or not self.model_id:
+            raise ValueError("Model references require provider and model ID")
+
+
+@dataclass(frozen=True)
+class ToolSelectorSettings:
+    enabled: bool = True
+    model: ModelReference | None = None
+    max_tools: int = 8
+    candidate_threshold: int = 24
+    schema_token_threshold: int = 12000
+    input_limit: int = 16000
+    output_limit: int = 1024
+    always_include: tuple[str, ...] = ()
+    on_failure: Literal["all", "error"] = "all"
+
+    def __post_init__(self):
+        if not isinstance(self.enabled, bool):
+            raise ValueError("Tool selection enabled must be boolean")
+        for value in (
+            self.max_tools,
+            self.candidate_threshold,
+            self.schema_token_threshold,
+            self.input_limit,
+            self.output_limit,
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError("Tool selection limits must be positive integers")
+        if self.on_failure not in {"all", "error"}:
+            raise ValueError("Tool selection failure policy must be all or error")
+        if any(not isinstance(name, str) or not name for name in self.always_include):
+            raise ValueError("Always included tools require names")
+        if len(set(self.always_include)) != len(self.always_include):
+            raise ValueError("Always included tools must be unique")
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     name: str
     implementation: ProviderKind
@@ -55,6 +97,8 @@ class ProviderConfig:
     timeout_seconds: float = 60
     model_overrides: dict[str, CapabilityOverride] = field(default_factory=dict)
     reasoning_effort: str | None = None
+    tool_selector: ToolSelectorSettings = field(default_factory=ToolSelectorSettings)
+    fallback_models: tuple[ModelReference, ...] = ()
 
 
 @dataclass(frozen=True)

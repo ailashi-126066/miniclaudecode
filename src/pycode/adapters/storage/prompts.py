@@ -1,10 +1,10 @@
 """Bounded project instruction loading; no ancestor or repository-wide scan."""
 
-import asyncio
 import hashlib
 import platform
 from pathlib import Path
 
+from pycode.adapters.storage.path_io import owned_io
 from pycode.core.errors import StorageError
 
 
@@ -59,9 +59,4 @@ class ProjectPromptSource:
                 "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             }
 
-        task = asyncio.create_task(asyncio.to_thread(read))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            await task
-            raise
+        return await owned_io(read)

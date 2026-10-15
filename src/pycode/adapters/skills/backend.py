@@ -5,6 +5,7 @@ import hashlib
 import yaml
 from deepagents.backends.protocol import FileDownloadResponse, ReadResult
 
+from pycode.adapters.storage.path_io import file_sha256
 from pycode.adapters.tools.backend import PycodeBackend
 from pycode.core.errors import ToolError
 
@@ -30,7 +31,7 @@ class SkillBackend(PycodeBackend):
     def verify_version(self, value):
         path = self.resolve(value)
         expected = self.receipts.get(str(path))
-        if expected is not None and self.digest(path) != expected:
+        if expected is not None and file_sha256(path) != expected:
             raise ToolError(
                 "skill_changed",
                 "Skill changed during this run; start a new run to use the new version",

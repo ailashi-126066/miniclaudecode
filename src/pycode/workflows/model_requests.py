@@ -5,7 +5,8 @@ from dataclasses import dataclass, replace
 from uuid import uuid4
 
 from langchain.agents.middleware import ExtendedModelResponse, ModelResponse, ModelRetryMiddleware
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.runnables import RunnableLambda
 
 from pycode.core.errors import ModelError
 from pycode.core.messages import Purpose
@@ -18,6 +19,11 @@ from pycode.ports.timing import Timing
 from pycode.workflows.messages import normalize_usage
 
 
+@dataclass(frozen=True)
+class ModelMessages:
+    messages: list[BaseMessage]
+
+
 @dataclass
 class AttemptCounter:
     value: int = 0
@@ -27,7 +33,22 @@ def retryable_model_error(error):
     return isinstance(error, ModelError) and error.retryable
 
 
+def model_request_step(requests, handler, *, logical_id):
+    """Expose the existing retry/accounting boundary as one LCEL step."""
+
+    async def invoke(request):
+        return await requests.invoke(request, handler, logical_id=logical_id)
+
+    return RunnableLambda(invoke, name="pycode_model_request")
+
+
 class ModelRequestRunner:
+    @property
+    def model_signature(self):
+        from pycode.core.summary_source import data_hash
+
+        return data_hash(plain_data(self._selection))
+
     def __init__(
         self,
         store: RequestStore,
@@ -42,6 +63,7 @@ class ModelRequestRunner:
         agent_id: str = "lead",
         purpose: Purpose = "agent",
         observation: ModelObservation | None = None,
+        candidate_index: int = 0,
     ) -> None:
         self._store = store
         self._classifier = classifier
@@ -54,15 +76,31 @@ class ModelRequestRunner:
         self._agent_id = agent_id
         self._purpose = purpose
         self._observation = observation
+        self.candidate_index = candidate_index
         self.active_request_id: str | None = None
+        self._invocation_lock = asyncio.Lock()
+
+    @property
+    def selection(self):
+        return self._selection
 
     async def invoke(self, request, handler, *, logical_id: str | None = None):
+        # A Runner and its SDK observation belong to one request at a time.
+        # Native components may issue concurrent queries within the same job.
+        async with self._invocation_lock:
+            return await self._invoke(request, handler, logical_id=logical_id)
+
+    async def _invoke(self, request, handler, *, logical_id: str | None = None):
         offset = 0
         if logical_id is not None:
             previous = [
                 record
                 for record in await self._store.list_requests(self._session_id)
-                if record.logical_id == logical_id and record.run_id == self._run_id
+                if record.logical_id == logical_id
+                and record.run_id == self._run_id
+                and record.candidate_index == self.candidate_index
+                and record.provider == self._selection.provider
+                and record.model_id == self._selection.model_id
             ]
             if previous:
                 offset = max(record.attempt for record in previous) + 1
@@ -113,6 +151,7 @@ class ModelRequestRunner:
             started_at=self._timing.now(),
             agent_id=self._agent_id,
             logical_id=logical_id,
+            candidate_index=self.candidate_index,
         )
         await self._store.start(record)
         if self._observation is not None:
@@ -168,6 +207,7 @@ class ModelRequestRunner:
                 "pycode_request_purpose": record.purpose,
                 "pycode_agent_id": record.agent_id,
                 "pycode_origin_purpose": self._purpose,
+                "pycode_candidate_index": self.candidate_index,
             }
             if self._observation is not None:
                 metadata.update(self._observation.snapshot())
@@ -207,6 +247,7 @@ class ModelRequestRunner:
             "pycode_request_purpose": record.purpose,
             "pycode_agent_id": record.agent_id,
             "pycode_origin_purpose": self._purpose,
+            "pycode_candidate_index": self.candidate_index,
         }
         if self._observation is not None:
             observed = self._observation.snapshot()

@@ -20,7 +20,7 @@ class HTTPResponse:
 
 @contextmanager
 def protocol_server(responses):
-    pending = deque(responses)
+    pending = None if callable(responses) else deque(responses)
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -29,18 +29,23 @@ def protocol_server(responses):
 
         def do_POST(self):
             data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            requests.append({"method": "POST", "path": self.path, "body": json.loads(data)})
-            self.reply()
+            request = {"method": "POST", "path": self.path, "body": json.loads(data)}
+            requests.append(request)
+            self.reply(request)
 
         def do_GET(self):
-            requests.append({"method": "GET", "path": self.path, "body": None})
-            self.reply()
+            request = {"method": "GET", "path": self.path, "body": None}
+            requests.append(request)
+            self.reply(request)
 
-        def reply(self):
-            if not pending:
-                self.send_error(500, "No response fixture remains")
-                return
-            response = pending.popleft()
+        def reply(self, request):
+            if callable(responses):
+                response = responses(request)
+            else:
+                if not pending:
+                    self.send_error(500, "No response fixture remains")
+                    return
+                response = pending.popleft()
             if response.started is not None:
                 response.started.set()
             if response.release is not None:

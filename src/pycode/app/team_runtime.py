@@ -119,15 +119,21 @@ class ConfiguredWorkers:
             parent_id, leaf_id = fork_from
             created = await self.session_forker(parent_id, leaf_id, "worker-" + thread_id)
             await created.aclose()
-        session = await self.session_opener(
-            config,
-            self.providers,
-            "worker-" + thread_id,
-            create=True,
-            consumers=self.consumers,
-            refresh_models=False,
-            startup_hooks=False,
-        )
+        try:
+            session = await self.session_opener(
+                config,
+                self.providers,
+                "worker-" + thread_id,
+                create=True,
+                consumers=self.consumers,
+                refresh_models=False,
+                startup_hooks=False,
+            )
+        except BaseException:
+            if worktree is not None:
+                worktree.update(status="worker_start_failed", worker_stopped=True)
+                await self.worktrees.update(worktree)
+            raise
         return SessionWorker(session, self.worktrees, worktree["id"] if worktree else None)
 
 
@@ -155,18 +161,17 @@ class SynchronousDelegate:
                     skill_arguments = selected.get("arguments", "")
                     break
         if self.skill is not None and self.skill.context != "none":
-            snapshot = await self.parent_history.snapshot()
-            source_leaf = snapshot.leaf_id
+            source_leaf = parent_snapshot.leaf_id
             for entry in reversed(parent_path):
                 if entry.message is not None and any(
                     call.name == "task" for call in entry.message.tool_calls
                 ):
                     source_leaf = entry.parent_id
                     break
-            inherited = (snapshot.header.session_id, source_leaf)
+            inherited = (parent_snapshot.header.session_id, source_leaf)
             if self.skill.context == "recent":
                 recent = []
-                for entry in SessionTree(snapshot.index).path(source_leaf):
+                for entry in SessionTree(parent_snapshot.index).path(source_leaf):
                     if entry.data.get("kind") == "run_start":
                         recent = []
                     if entry.type == "message" and entry.message.role != "system":

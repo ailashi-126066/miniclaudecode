@@ -441,7 +441,6 @@ async def test_all_fifteen_events_fire_through_real_lifecycle_tools_error_and_co
     config = AppConfig(
         tmp_path,
         tmp_path / "data",
-        summary_enabled=False,
         summary_keep_recent_tokens=1500,
         memory_mode="off",
     )

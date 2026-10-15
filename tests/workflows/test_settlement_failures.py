@@ -15,6 +15,7 @@ from pycode.app.container import open_agent_session
 from pycode.core.errors import StorageError
 from pycode.core.messages import Message, ToolResult
 from pycode.services.tool_executor import ToolExecutor
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 async def test_result_write_failure_collects_other_parallel_tool_before_return():
@@ -47,7 +48,11 @@ async def test_result_write_failure_collects_other_parallel_tool_before_return()
     journal.append_message = fail_result
     context.registry.replace_source("builtin", (Reader(),))
     context.executor = ToolExecutor(
-        context.registry, context.executor.validator, context.executor.gate, context.events
+        context.registry,
+        context.executor.validator,
+        context.executor.gate,
+        context.events,
+        error_boundary=execute_tool_errors,
     )
     with pytest.raises(StorageError, match="persistence failed"):
         await asyncio.wait_for(runtime.run((Message("u", "user", "read both"),), context), 5)

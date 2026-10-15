@@ -26,9 +26,9 @@ async def test_summary_can_publish_ready_while_main_runtime_is_closed_and_user_i
 
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(
-        tmp_path, tmp_path / "data", summary_keep_recent_tokens=1500, memory_mode="off"
+        tmp_path, tmp_path / "data", summary_keep_recent_tokens=20, memory_mode="off"
     )
-    await seed(config)
+    await seed(config, characters=100)
     initial = chat_completion()
     initial.body = (
         initial.body.replace(b'"prompt_tokens": 20', b'"prompt_tokens": 17000')

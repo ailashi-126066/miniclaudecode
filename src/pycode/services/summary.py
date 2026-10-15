@@ -6,6 +6,7 @@
 
 import asyncio
 import contextvars
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from uuid import uuid4
 
@@ -13,7 +14,7 @@ from pycode.core.context_meter import ContextMeter
 from pycode.core.errors import DomainError, ModelError, StorageError
 from pycode.core.session import EntryDraft, SessionEntry
 from pycode.core.session_tree import SessionTree
-from pycode.core.summaries import SummaryObject, SummaryReport, SummarySettings
+from pycode.core.summaries import SummaryCheck, SummaryObject, SummaryReport, SummarySettings
 from pycode.core.summary_source import capture_source, data_hash, valid_source
 from pycode.core.values import clone_value, plain_data
 from pycode.ports.events import EventSink
@@ -31,7 +32,10 @@ class SummaryService:
         generator: SummaryGenerator,
         settings: SummarySettings,
         events: EventSink,
+        *,
+        preparation: Callable[["SummaryService", SummaryCheck], Awaitable[SummaryReport]],
     ):
+        self._preparation = preparation
         self._history = history
         self._projector = projector
         self._objects = objects
@@ -148,96 +152,110 @@ class SummaryService:
 
     async def prepare(self, *, manual=False, force=False, wait_for_capacity=True, allow_apply=True):
         async with self._lock:
-            if self._closed:
-                raise RuntimeError("Summary service is closed")
-            snapshot = await self._history.snapshot()
-            projection = self._projector.project(snapshot)
-            fingerprint = self.config_hash(projection)
-            tokens = self.estimate(snapshot, projection)
-            full = tokens >= self._settings.budget.input_limit or force
-            if self._source is not None and not valid_source(
-                self._source, snapshot, projection, fingerprint
-            ):
-                await self._objects.invalidate(
-                    self._source.job_id, "source_or_configuration_changed"
+            check = await self.inspect_preparation(manual, force, wait_for_capacity, allow_apply)
+            return await self._preparation(self, check)
+
+    async def inspect_preparation(self, manual, force, wait_for_capacity, allow_apply):
+        if self._closed:
+            raise RuntimeError("Summary service is closed")
+        snapshot = await self._history.snapshot()
+        projection = self._projector.project(snapshot)
+        fingerprint = self.config_hash(projection)
+        tokens = self.estimate(snapshot, projection)
+        full = tokens >= self._settings.budget.input_limit or force
+        if self._source is not None and not valid_source(
+            self._source, snapshot, projection, fingerprint
+        ):
+            await self._objects.invalidate(self._source.job_id, "source_or_configuration_changed")
+            await self.collect(cancel=True)
+            self._source = self._result = self._task = None
+        await self.restore(snapshot, projection, fingerprint)
+        if manual and self._result is not None and self._result.status == "failed":
+            await self._objects.invalidate(self._source.job_id, "manual_retry")
+            self._source = self._result = self._task = None
+        trigger = manual or force or tokens >= self._settings.budget.cache_trigger
+        return SummaryCheck(
+            snapshot,
+            projection,
+            fingerprint,
+            tokens,
+            self._source is None and trigger,
+            allow_apply and (manual or full),
+            manual,
+            wait_for_capacity,
+        )
+
+    async def start_generation(self, check):
+        snapshot = check.snapshot
+        projection = check.projection
+        fingerprint = check.config_hash
+        source = capture_source(
+            snapshot,
+            projection,
+            job_id=uuid4().hex,
+            selection=self._settings.selection,
+            config_hash=fingerprint,
+            checkpoint=self.checkpoint(projection),
+            keep_recent_tokens=self._settings.keep_recent_tokens,
+        )
+        if source is not None:
+            await self._objects.save_source(source)
+            await self._history.append_entry(
+                EntryDraft(
+                    "custom",
+                    data={
+                        "kind": "summary_job",
+                        "job_id": source.job_id,
+                        "prefix_hash": source.prefix_hash,
+                        "config_hash": source.config_hash,
+                    },
                 )
-                await self.collect(cancel=True)
-                self._source = self._result = self._task = None
-            await self.restore(snapshot, projection, fingerprint)
-            if manual and self._result is not None and self._result.status == "failed":
-                await self._objects.invalidate(self._source.job_id, "manual_retry")
-                self._source = self._result = self._task = None
-            trigger = manual or force or tokens >= self._settings.budget.cache_trigger
-            if self._source is None and trigger and (self._settings.enabled or manual):
-                source = capture_source(
-                    snapshot,
-                    projection,
-                    job_id=uuid4().hex,
-                    selection=self._settings.selection,
-                    config_hash=fingerprint,
-                    checkpoint=self.checkpoint(projection),
-                    keep_recent_tokens=self._settings.keep_recent_tokens,
-                )
-                if source is not None:
-                    await self._objects.save_source(source)
-                    await self._history.append_entry(
-                        EntryDraft(
-                            "custom",
-                            data={
-                                "kind": "summary_job",
-                                "job_id": source.job_id,
-                                "prefix_hash": source.prefix_hash,
-                                "config_hash": source.config_hash,
-                            },
-                        )
-                    )
-                    self._source = source
-                    self._task = asyncio.create_task(
-                        self.produce(source, self._generator),
-                        name="pycode-summary-" + source.job_id,
-                        context=contextvars.Context(),
-                    )
-                    await self._events.emit(
-                        "summary", {"job_id": source.job_id, "status": "generating"}
-                    )
-            if allow_apply and (manual or full):
-                if self._task is not None and (manual or wait_for_capacity):
-                    await asyncio.shield(self._task)
-                if (
-                    self._result is None
-                    and self._source is not None
-                    and self._task is not None
-                    and self._task.done()
-                ):
-                    loaded = await self._objects.load(self._source.job_id)
-                    if loaded is not None:
-                        self._result = loaded[1]
-                if self._result is not None and self._result.status == "ready":
-                    return await self.adopt()
-                if manual or wait_for_capacity:
-                    code = (
-                        self._result.error_code
-                        if self._result is not None
-                        else "no_summary_boundary"
-                    )
-                    raise ModelError(
-                        code or "summary_failed", "Context capacity insufficient; history preserved"
-                    )
-            if self._task is not None and self._task.done() and not self._task.cancelled():
-                self._task.result()
-            status = (
-                self._result.status
-                if self._result is not None
-                else "generating"
-                if self._task is not None
-                else "idle"
             )
-            protected = (
-                self._source.source_entry_ids
-                if self._source is not None and status in {"ready", "generating"}
-                else ()
+            self._source = source
+            self._task = asyncio.create_task(
+                self.produce(source, self._generator),
+                name="pycode-summary-" + source.job_id,
+                context=contextvars.Context(),
             )
-            return SummaryReport(tokens, protected_entry_ids=protected, status=status)
+            await self._events.emit("summary", {"job_id": source.job_id, "status": "generating"})
+
+    async def apply_prepared(self, check):
+        if self._task is not None and (check.manual or check.wait_for_capacity):
+            await asyncio.shield(self._task)
+        if (
+            self._result is None
+            and self._source is not None
+            and self._task is not None
+            and self._task.done()
+        ):
+            loaded = await self._objects.load(self._source.job_id)
+            if loaded is not None:
+                self._result = loaded[1]
+        if self._result is not None and self._result.status == "ready":
+            return await self.adopt()
+        if check.manual or check.wait_for_capacity:
+            code = self._result.error_code if self._result is not None else "no_summary_boundary"
+            raise ModelError(
+                code or "summary_failed", "Context capacity insufficient; history preserved"
+            )
+        return None
+
+    def preparation_report(self, check):
+        if self._task is not None and self._task.done() and not self._task.cancelled():
+            self._task.result()
+        status = (
+            self._result.status
+            if self._result is not None
+            else "generating"
+            if self._task is not None
+            else "idle"
+        )
+        protected = (
+            self._source.source_entry_ids
+            if self._source is not None and status in {"ready", "generating"}
+            else ()
+        )
+        return SummaryReport(check.tokens, protected_entry_ids=protected, status=status)
 
     async def adopt(self):
         snapshot = await self._history.snapshot()

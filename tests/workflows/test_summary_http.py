@@ -12,6 +12,7 @@ from pycode.app.config import AppConfig
 from pycode.app.container import build_session_repository, open_agent_session
 from pycode.core.messages import Message
 from pycode.services.context_projector import ContextProjector
+from pycode.workflows.summary import SUMMARY_SYSTEM
 
 
 async def seed(config, *, characters=4000):
@@ -169,3 +170,144 @@ async def test_native_context_overflow_forces_safe_compaction_and_meters_retry(
         assert attempts[0].status == "failed" and attempts[0].error_code == "context_overflow"
         assert attempts[0].usage.total_tokens is None
         await records.aclose()
+
+
+async def test_next_turn_continues_while_summary_runs_then_reuses_it_without_new_request(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(
+        tmp_path, tmp_path / "data", summary_keep_recent_tokens=20, memory_mode="off"
+    )
+    await seed(config, characters=100)
+    initial = chat_completion()
+    initial.body = (
+        initial.body.decode()
+        .replace('"prompt_tokens": 20', '"prompt_tokens": 17000')
+        .replace('"completion_tokens": 5', '"completion_tokens": 300')
+        .replace('"total_tokens": 25', '"total_tokens": 17300')
+        .encode()
+    )
+    summary = chat_completion()
+    started, release = threading.Event(), threading.Event()
+    summary.started, summary.release = started, release
+    with protocol_server([initial, summary, chat_completion(), chat_completion()]) as (
+        url,
+        requests,
+    ):
+        selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
+        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        try:
+            assert (
+                await session.run(Message("trigger", "user", "continue"))
+            ).outcome == "completed"
+            assert await asyncio.to_thread(started.wait, 5)
+            assert not release.is_set()
+            assert (
+                await asyncio.wait_for(
+                    session.run(Message("during", "user", "this arrived during compression")), 5
+                )
+            ).outcome == "completed"
+            assert not release.is_set() and len(requests) == 3
+            release.set()
+            report = await asyncio.wait_for(session.compact(), 5)
+            assert report.applied_job_id is not None
+            assert len(requests) == 3
+            assert (
+                await session.run(Message("after", "user", "continue after compression"))
+            ).outcome == "completed"
+            assert len(requests) == 4
+            latest = str(requests[-1]["body"]["messages"])
+            assert "this arrived during compression" in latest
+            assert "continue after compression" in latest
+            assert "old task 0" not in latest
+            attempts = await session.usage()
+            assert attempts["by_purpose"]["summary"]["request_count"] == 1
+            assert attempts["by_purpose"]["agent"]["request_count"] == 3
+        finally:
+            release.set()
+            await session.aclose()
+
+
+async def test_default_auto_memory_does_not_hide_capacity_or_interrupt_background_compaction(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    config = AppConfig(tmp_path, tmp_path / "data", summary_keep_recent_tokens=20)
+    await seed(config, characters=100)
+    summary = chat_completion()
+    started, release = threading.Event(), threading.Event()
+    summary.started, summary.release = started, release
+    main_requests = []
+    memory_requests = []
+
+    def respond(request):
+        system = request["body"]["messages"][0]["content"]
+        if system == SUMMARY_SYSTEM:
+            return summary
+        response = chat_completion()
+        names = {tool["function"]["name"] for tool in request["body"].get("tools", [])}
+        if (
+            "SemanticMemory" in names
+            or "MemoryDirectoryChoices" in names
+            or "MemoryEvidenceVerdict" in names
+        ):
+            memory_requests.append(request)
+            return response
+        main_requests.append(request)
+        if len(main_requests) <= 2:
+            response.body = (
+                response.body.decode()
+                .replace('"prompt_tokens": 20', '"prompt_tokens": 17000')
+                .replace('"completion_tokens": 5', '"completion_tokens": 300')
+                .replace('"total_tokens": 25', '"total_tokens": 17300')
+                .encode()
+            )
+        return response
+
+    with protocol_server(respond) as (url, requests):
+        selected = replace(provider(url), context_window=20000, max_output_tokens=1000)
+        session = await open_agent_session(config, (selected,), "s1", refresh_models=False)
+        pending = None
+        try:
+            assert (await session.memory_list())["mode"] == "auto"
+            assert (
+                await session.run(Message("trigger", "user", "continue"))
+            ).outcome == "completed"
+            assert await asyncio.to_thread(started.wait, 5)
+            await session.collect_memory()
+            assert (
+                await asyncio.wait_for(
+                    session.run(
+                        Message("during", "user", "small input during background compression")
+                    ),
+                    5,
+                )
+            ).outcome == "completed"
+            assert not release.is_set() and len(main_requests) == 2
+            await session.collect_memory()
+            pending = asyncio.create_task(
+                session.run(Message("capacity", "user", "preserve this new input " + "y" * 8500))
+            )
+            await asyncio.sleep(0.1)
+            assert not pending.done() and len(main_requests) == 2
+            release.set()
+            assert (await asyncio.wait_for(pending, 5)).outcome == "completed"
+            await session.collect_memory()
+            assert len(main_requests) == 3
+            latest = str(main_requests[-1]["body"]["messages"])
+            assert "small input during background compression" in latest
+            assert "preserve this new input" in latest
+            assert "old task 0" not in latest
+            usage = await session.usage()
+            assert usage["by_purpose"]["summary"]["request_count"] == 1
+            assert usage["by_purpose"]["memory_extract"]["request_count"] == len(memory_requests)
+            assert len(memory_requests) > 0
+            assert usage["by_purpose"]["agent"]["request_count"] == 3
+            assert len(requests) == len(memory_requests) + 4
+        finally:
+            release.set()
+            if pending is not None and not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+            await session.aclose()

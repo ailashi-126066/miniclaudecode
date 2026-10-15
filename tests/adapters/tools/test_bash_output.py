@@ -17,6 +17,7 @@ from pycode.core.truncation import MAX_BYTES
 from pycode.services.events import EventStream
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 class ApprovedGate:
@@ -34,7 +35,12 @@ async def assemble(tmp_path):
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (Bash(find_bash(), outputs),))
     executor = ToolExecutor(
-        registry, validator, ApprovedGate(), EventStream("s1", "r1", (Recorder(),)), outputs
+        registry,
+        validator,
+        ApprovedGate(),
+        EventStream("s1", "r1", (Recorder(),)),
+        outputs,
+        error_boundary=execute_tool_errors,
     )
     context = ToolContext("s1", "r1", "op1", str(tmp_path))
     return executor, context, journal, outputs

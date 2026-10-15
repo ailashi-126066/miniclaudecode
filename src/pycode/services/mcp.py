@@ -8,10 +8,11 @@ from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
 from pycode.core.summary_source import data_hash
 from pycode.core.values import clone_value
+from pycode.ports.mcp import MCPConnections
 
 
 class MCPService:
-    def __init__(self, history, connections):
+    def __init__(self, history, connections: MCPConnections):
         self._history = history
         self._connections = connections
         self._lock = asyncio.Lock()

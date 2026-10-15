@@ -37,9 +37,13 @@ class ModelControl:
             return None
         snapshot = await self._store.snapshot()
         projection = self._projector.project(snapshot)
+        path = SessionTree(snapshot.index).path(projection.leaf_id)
         selection = projection.selection
+        for entry in reversed(path):
+            if entry.type == "model_change":
+                selection = entry.selection
+                break
         if selection is not None:
-            path = SessionTree(snapshot.index).path(projection.leaf_id)
             if any(entry.type == "thinking_level_change" for entry in path):
                 selection = replace(selection, thinking=projection.thinking)
         return selection

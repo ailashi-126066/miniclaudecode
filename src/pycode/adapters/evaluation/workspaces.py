@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.adapters.tools.backend import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
 from pycode.adapters.tools.process_runner import run_process
 from pycode.core.errors import StorageError
 from pycode.core.evaluation import EvaluationTask
@@ -106,10 +106,6 @@ class EvaluationWorkspaces:
         self.results.mkdir(parents=True, exist_ok=True)
         return path
 
-    def digest(self, path):
-        with path.open("rb") as source:
-            return hashlib.file_digest(source, "sha256").hexdigest()
-
     def remove_owned(self, container):
         target = self.owned(container)
         if target.parent != self.directory or Path(container).absolute() != target:
@@ -155,7 +151,7 @@ class EvaluationWorkspaces:
             if (
                 not original.is_relative_to(source)
                 or original.stat().st_size > MAX_FILE_BYTES
-                or self.digest(original) != digest
+                or file_sha256(original) != digest
             ):
                 raise StorageError("eval_source_changed", "Pinned task file changed: " + filename)
             for name in ("baseline", "workspace"):
@@ -252,7 +248,7 @@ class EvaluationWorkspaces:
                 if filename in task.solution_files:
                     continue
                 path = self.owned(workspace / filename)
-                if not path.is_file() or self.digest(path) != digest:
+                if not path.is_file() or file_sha256(path) != digest:
                     problems.append(filename)
             allowed = set(task.files_sha256) | {"independent-tests.xml"}
             for directory, folders, files in os.walk(workspace, followlinks=False):
@@ -284,7 +280,7 @@ class EvaluationWorkspaces:
             for filename in task.solution_files:
                 original = self.owned(baseline / filename)
                 current = self.owned(workspace / filename)
-                after_digest = self.digest(current) if current.is_file() else None
+                after_digest = file_sha256(current) if current.is_file() else None
                 if after_digest == task.files_sha256[filename]:
                     continue
                 before = original.read_text(encoding="utf-8")

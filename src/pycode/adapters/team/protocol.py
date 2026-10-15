@@ -105,6 +105,7 @@ class LocalAgentProtocol:
             if not isinstance(instruction, str) or not instruction.strip():
                 raise HTTPException(422, "Worker instruction must be nonempty text")
         async with self.start_lock, thread.lock:
+            # Keep an existing thread's role and workspace fixed before interrupting its run.
             if thread.worker is not None and (graph_id != thread.graph_id or options):
                 raise HTTPException(409, "An existing Worker keeps its role and workspace")
             active = self.running.get(thread.thread_id)
@@ -122,8 +123,6 @@ class LocalAgentProtocol:
             if thread.worker is None:
                 thread.worker = await self.worker_factory(thread.thread_id, graph_id, **options)
                 thread.graph_id = graph_id
-            elif graph_id != thread.graph_id:
-                raise HTTPException(409, "A Worker thread cannot change its Agent role")
             run = {
                 "run_id": str(uuid4()),
                 "thread_id": thread.thread_id,

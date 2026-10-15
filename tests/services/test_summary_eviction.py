@@ -15,6 +15,7 @@ from pycode.services.context_projector import ContextProjector
 from pycode.services.events import EventStream
 from pycode.services.summary import SummaryService
 from pycode.services.tool_eviction import ToolEvictionService
+from pycode.workflows.summary import prepare_summary
 
 
 async def test_eviction_protects_generating_prefix_and_all_original_outputs_survive_adoption(
@@ -50,6 +51,7 @@ async def test_eviction_protects_generating_prefix_and_all_original_outputs_surv
             ModelSelection("test", "model", "openai"), (), InputBudget.create(20000, 1000), 4000
         ),
         EventStream("s1", "r1", ()),
+        preparation=prepare_summary,
     )
     try:
         report = await summary.prepare(wait_for_capacity=False)

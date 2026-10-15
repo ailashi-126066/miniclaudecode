@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--local-source", type=Path, required=True)
+    parser.add_argument(
+        "--archive-dir", type=Path, default=ROOT / "tests/.runtime-tests/source-cache"
+    )
     args = parser.parse_args()
     source_map = (ROOT / "docs" / "source-map.md").read_text(encoding="utf-8")
     pattern = re.compile(r"^\| `([^`]+)` \| (\d+) \| `([a-f0-9]{64})` \|$", re.MULTILINE)
@@ -30,7 +33,10 @@ def main() -> int:
     upstream = ROOT / "docs" / "baselines" / "upstream.json"
     for record in json.loads(upstream.read_text(encoding="utf-8")):
         name = record["repository"].split("/")[-1]
-        archive = ROOT / ".source-cache" / f"{name}-{record['commit']}.zip"
+        archive = args.archive_dir / f"{name}-{record['commit']}.zip"
+        if not archive.is_file():
+            errors.append(f"Missing upstream archive: {name}")
+            continue
         with archive.open("rb") as stream:
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
         if actual != record["archive_sha256"]:

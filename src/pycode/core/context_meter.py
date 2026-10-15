@@ -54,7 +54,6 @@ class ContextMeter:
                     "prompt_change",
                     "tool_set_change",
                     "skill_load",
-                    "memory_load",
                 }
             ),
             default=-1,
@@ -73,6 +72,8 @@ class ContextMeter:
                 or message.stop_reason in {"error", "aborted", "content_filter"}
             ):
                 continue
+            # The fingerprint covers the actual memory snapshot. Repeating an
+            # unchanged recall must not discard authoritative provider usage.
             if message.provider_metadata.get("pycode_summary_config_hash") != fingerprint:
                 continue
             if positions.get(by_message.get(message.id), -1) <= invalidating:

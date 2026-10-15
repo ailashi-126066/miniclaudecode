@@ -2,12 +2,11 @@
 
 import asyncio
 import json
-import os
 from pathlib import Path
-from uuid import uuid4
 
 from pydantic import TypeAdapter
 
+from pycode.adapters.storage.path_io import atomic_write
 from pycode.core.errors import StorageError
 from pycode.core.models import CatalogSnapshot
 from pycode.core.values import json_dumps, plain_data
@@ -45,16 +44,8 @@ class FileCatalogStore:
 
     async def save(self, snapshot: CatalogSnapshot) -> None:
         def write():
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self._path.with_name(f"{self._path.name}.{uuid4().hex}.partial")
             payload = {"schema_version": 1, **plain_data(snapshot)}
-            try:
-                with temporary.open("w", encoding="utf-8") as output:
-                    json.dump(payload, output, ensure_ascii=False, sort_keys=True)
-                    output.flush()
-                    os.fsync(output.fileno())
-                os.replace(temporary, self._path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            encoded = json_dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            atomic_write(self._path, encoded)
 
         await self.run_io(write)

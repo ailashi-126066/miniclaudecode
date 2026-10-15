@@ -41,8 +41,7 @@ from pycode.adapters.snapshot.git_tree import GitSnapshotStore
 from pycode.adapters.storage.catalog import FileCatalogStore
 from pycode.adapters.storage.history_backend import ConversationHistoryBackend
 from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.storage.memory import FileMemoryStore
-from pycode.adapters.storage.memory_backend import MemoryBackend
+from pycode.adapters.storage.legacy_memory import LegacyMemoryRecovery
 from pycode.adapters.storage.migration import migrate_runtime_database
 from pycode.adapters.storage.objects import FileStorageObjects
 from pycode.adapters.storage.plans import FilePlanStore
@@ -65,7 +64,7 @@ from pycode.adapters.tools.skills import InstallSkill, SkillSearch
 from pycode.adapters.tools.team import TeamTask
 from pycode.adapters.ui.console import ConsoleOutput
 from pycode.adapters.ui.tui import PyApp
-from pycode.app.background_models import ConfiguredMemoryExtractor, ConfiguredSummaryGenerator
+from pycode.app.background_models import ConfiguredSummaryGenerator
 from pycode.app.config import (
     AppConfig,
     credential_environment,
@@ -76,11 +75,11 @@ from pycode.app.evaluation_solver import ConfiguredEvaluationSolver
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
 from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
 from pycode.core.context_budget import InputBudget
-from pycode.core.errors import StorageError
+from pycode.core.errors import ModelError, StorageError
 from pycode.core.execution_recovery import pending_run_entry
 from pycode.core.mcp import choose_tools
 from pycode.core.messages import Purpose
-from pycode.core.models import ProviderConfig
+from pycode.core.models import ProviderConfig, model_selection
 from pycode.core.requests import RetryPolicy
 from pycode.core.revert_state import pending_revert
 from pycode.core.sandbox import SandboxSettings
@@ -107,7 +106,6 @@ from pycode.services.hooks import HookEngine
 from pycode.services.input_queue import PendingInputs
 from pycode.services.mcp import MCPService
 from pycode.services.mcp_bindings import MCPRuntimeBindings
-from pycode.services.memory import MemoryService
 from pycode.services.model_catalog import ModelCatalog
 from pycode.services.model_control import ModelControl
 from pycode.services.permission import IsolatedWorkerToolGate, ReadOnlyToolGate
@@ -127,11 +125,16 @@ from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
 from pycode.services.usage import UsageService
 from pycode.workflows.agent import AgentRuntime, RunContext
+from pycode.workflows.metered_model import MeteredChatModel
+from pycode.workflows.model_fallback import ModelCandidate, ModelFallback
 from pycode.workflows.model_requests import ModelRequestRunner
 from pycode.workflows.permissions import InterruptToolGate
 from pycode.workflows.plans import InterruptPlanPrompt
 from pycode.workflows.questions import InterruptQuestionPrompt
+from pycode.workflows.summary import prepare_summary
 from pycode.workflows.team import NativeTeamCommands
+from pycode.workflows.tool_errors import execute_tool_errors
+from pycode.workflows.tool_selection import ToolSelector
 
 
 @dataclass
@@ -197,8 +200,12 @@ class RuntimeContainer:
                 if self.owns_hooks and self.context.hooks is not None:
                     await self.context.hooks.aclose()
             finally:
-                if self.owns_summary and self.context.summary is not None:
-                    await self.context.summary.aclose()
+                try:
+                    if self.owns_summary and self.context.summary is not None:
+                        await self.context.summary.aclose()
+                finally:
+                    if self.context.model_fallback is not None:
+                        await self.context.model_fallback.aclose()
         finally:
             try:
                 await self.model_factory.aclose()
@@ -214,7 +221,7 @@ def skill_catalog(config):
     return FileSkillCatalog(tuple(skill_roots(config)))
 
 
-def build_skills(config, store, tools=()):
+def build_skills(config, store):
     return SkillService(
         store,
         skill_catalog(config),
@@ -223,8 +230,8 @@ def build_skills(config, store, tools=()):
     )
 
 
-def skill_tools(config, store, tools=()):
-    skills = build_skills(config, store, tools)
+def skill_tools(config, store):
+    skills = build_skills(config, store)
     return (SkillSearch(skills), InstallSkill(skills))
 
 
@@ -277,18 +284,24 @@ def build_runtime(
     effective_tools=(),
     team_manager=None,
     skill_selection=None,
+    model_resolver=None,
+    memory=None,
 ) -> RuntimeContainer:
     checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
     observation = ProviderObservation(provider.implementation)
     factory = ModelFactory(credential_environment(config, (provider,)), observation)
     model = factory.create(provider)
     validator = JsonSchemaValidator()
+    from pycode.workflows.memory_tools import memory_tools
+
+    scoped_memory_tools = memory_tools(memory, read_only=config.read_only)
+    tools = (*tools, *scoped_memory_tools)
     layout = StorageLayout(config.workspace, config.user_data)
     outputs = FileToolOutputStore(layout.sessions, session_id, history_store)
     enabled_tools = (
         (
             *tools,
-            *(skill_tools(config, history_store, tools) if history_store is not None else ()),
+            *(skill_tools(config, history_store) if history_store is not None else ()),
             *default_tools(
                 config,
                 outputs,
@@ -335,6 +348,10 @@ def build_runtime(
         if checkpointer is not None and not config.read_only
         else ReadOnlyToolGate()
     )
+    if scoped_memory_tools:
+        from pycode.services.permission import MemoryToolGate
+
+        gate = MemoryToolGate(gate, tuple(tool.spec for tool in scoped_memory_tools))
     if plans is not None:
         if config.isolated_worker:
             gate = IsolatedWorkerToolGate(gate)
@@ -343,6 +360,9 @@ def build_runtime(
         gate = EvaluationToolGate(config.evaluation_files, config.evaluation_tests)
     if history_store is not None:
         gate = SkillToolGate(history_store, gate)
+    snapshots = GitSnapshotStore(
+        config.workspace, layout.project / "snapshots", excluded_roots=(config.user_data,)
+    )
     hooks = None
     if configured_hooks and history_store is not None:
         hooks = HookEngine(
@@ -363,12 +383,11 @@ def build_runtime(
             validator,
             outputs,
             events,
-            snapshots=GitSnapshotStore(
-                config.workspace, layout.project / "snapshots", excluded_roots=(config.user_data,)
-            ),
+            snapshots=snapshots,
             owned_tasks=owned_hook_tasks,
             plans=plans,
             read_only=config.read_only,
+            error_boundary=execute_tool_errors,
         )
     executor = ToolExecutor(
         registry,
@@ -376,10 +395,9 @@ def build_runtime(
         gate,
         events,
         outputs,
-        snapshots=GitSnapshotStore(
-            config.workspace, layout.project / "snapshots", excluded_roots=(config.user_data,)
-        ),
+        snapshots=snapshots,
         hooks=hooks,
+        error_boundary=execute_tool_errors,
     )
     budget = InputBudget.create(provider.context_window, provider.max_output_tokens)
     window = budget.input_limit
@@ -420,7 +438,46 @@ def build_runtime(
         model_tools=effective_tools,
         team=team,
         skill_selection=skill_selection,
+        read_only=config.read_only,
     )
+    if provider.supports_tools:
+
+        def selection_model(current, boundary, validate_response):
+            selected = provider
+            reference = provider.tool_selector.model
+            if reference is not None:
+                if model_resolver is None:
+                    raise ModelError("selector_model_unavailable", "No configured model resolver")
+                selected = model_resolver(reference.provider, reference.model_id)
+            if not selected.supports_tools:
+                raise ModelError(
+                    "selector_model_incompatible", "Selection model must support schema tools"
+                )
+            selected = replace(
+                selected,
+                thinking={},
+                reasoning_effort=None,
+                max_output_tokens=min(
+                    selected.max_output_tokens, provider.tool_selector.output_limit
+                ),
+            )
+            limit = min(
+                provider.tool_selector.input_limit,
+                InputBudget.create(selected.context_window, selected.max_output_tokens).input_limit,
+            )
+            owner = build_background_model(
+                config, selected, consumers, current.session_id, current.run_id, "tool_selection"
+            )
+            owner.model = MeteredChatModel(
+                model=owner.model,
+                requests=owner.requests,
+                logical_prefix=boundary + ":tool_selection",
+                input_limit=limit,
+                response_validator=validate_response,
+            )
+            return owner
+
+        context.tool_selector = ToolSelector(provider.tool_selector, selection_model)
     if history_store is not None and provider.supports_tools:
         catalog = skill_catalog(config)
         context.skill_recorder = SkillLoadRecorder(history_store, catalog)
@@ -431,7 +488,6 @@ def build_runtime(
             effective_tools or specs,
             budget,
             config.summary_keep_recent_tokens,
-            config.summary_enabled,
         )
         generator = build_summary_generator(config, provider, consumers)
         if summary_service is None:
@@ -442,13 +498,50 @@ def build_runtime(
                 generator,
                 settings,
                 events,
+                preparation=prepare_summary,
             )
         else:
             summary_service.configure(settings, generator, events)
         context.summary = summary_service
+    if provider.fallback_models and config.agent_id == "lead" and purpose == "agent":
+
+        def fallback_owner(selected, current, index):
+            return build_background_model(
+                config,
+                selected,
+                consumers,
+                current.session_id,
+                current.run_id,
+                purpose,
+                retry_policy=retry_policy,
+                candidate_index=index,
+            )
+
+        def configure_candidate(current, selected):
+            changed = current.selection != model_selection(selected)
+            current.selection = model_selection(selected)
+            if current.summary is not None:
+                settings = SummarySettings(
+                    current.selection,
+                    current.model_tools or current.registry.model_specs(),
+                    InputBudget.create(selected.context_window, selected.max_output_tokens),
+                    config.summary_keep_recent_tokens,
+                )
+                current.summary.configure(
+                    settings, build_summary_generator(config, selected, consumers), current.events
+                )
+            if changed:
+                current.system_hash = ""
+
+        context.model_fallback = ModelFallback(
+            ModelCandidate(model, provider, requests, 0),
+            provider.fallback_models,
+            model_resolver,
+            fallback_owner,
+            configure_candidate,
+        )
     runtime = AgentRuntime(
         model,
-        specs,
         checkpointer=checkpointer,
         backend=build_backend(
             config,
@@ -549,10 +642,14 @@ def build_worktree_manager(config):
 
 def build_evaluation_runner(config, providers, manifest, cache, work, results, *, langfuse=False):
     evaluation_root = (config.workspace / "tests" / "evals").resolve()
+    runtime_root = (config.workspace / "tests" / ".runtime-tests").resolve()
     for path in (manifest, cache, work, results):
-        if not Path(path).resolve().is_relative_to(evaluation_root):
+        allowed = (evaluation_root,) if path == manifest else (evaluation_root, runtime_root)
+        if not any(Path(path).resolve().is_relative_to(root) for root in allowed):
             raise StorageError(
-                "evaluation_path_escape", "Evaluation paths must stay under tests/evals"
+                "evaluation_path_escape",
+                "Manifest must stay under tests/evals; "
+                "artifacts under tests/evals or tests/.runtime-tests",
             )
     settings = SandboxSettings("on" if sys.platform == "darwin" else "off", False)
     config = replace(config, sandbox=settings)
@@ -574,6 +671,7 @@ def build_evaluation_runner(config, providers, manifest, cache, work, results, *
         Path(sys.executable),
         model_id=providers[0].model_id,
         telemetry=telemetry,
+        solver_handles_timeout=True,
     )
 
 
@@ -614,46 +712,47 @@ def async_agent_specs(agents):
 
 
 def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime):
-    layout = StorageLayout(launcher._config.workspace, launcher._config.user_data)
+    layout = StorageLayout(launcher.config.workspace, launcher.config.user_data)
     events = EventStream(
-        snapshot.header.session_id, lifetime, launcher._consumers, journal=launcher._event_journal
+        snapshot.header.session_id, lifetime, launcher.consumers, journal=launcher.event_journal
     )
     outputs = FileToolOutputStore(layout.sessions, snapshot.header.session_id, store)
     engine = HookEngine(
-        launcher._configured_hooks,
+        launcher.configured_hooks,
         store,
         ConfiguredHookActions(
             outputs,
             find_bash(),
             build_sandbox(),
-            launcher._config.sandbox,
+            launcher.config.sandbox,
             dict(os.environ),
             delegate=build_synchronous_delegate(
-                launcher._config, launcher._lifecycle_provider, store, launcher._consumers, lifetime
+                launcher.config, launcher.lifecycle_provider, store, launcher.consumers, lifetime
             )
-            if launcher._config.allow_delegation
+            if launcher.config.allow_delegation
             else None,
         ),
         JsonSchemaValidator(),
         outputs,
         events,
         snapshots=GitSnapshotStore(
-            launcher._config.workspace,
+            launcher.config.workspace,
             layout.project / "snapshots",
-            excluded_roots=(launcher._config.user_data,),
+            excluded_roots=(launcher.config.user_data,),
         ),
-        owned_tasks=launcher._hook_tasks,
-        plans=launcher._plans,
-        read_only=launcher._config.read_only,
+        owned_tasks=launcher.hook_tasks,
+        plans=launcher.plans,
+        read_only=launcher.config.read_only,
+        error_boundary=execute_tool_errors,
     )
     return engine
 
 
 async def build_configured_run(launcher, provider, store, run_id):
     snapshot = await store.snapshot()
-    catalog = skill_catalog(launcher._config)
+    catalog = skill_catalog(launcher.config)
     index = await catalog.scan()
-    indexed = await build_skills(launcher._config, store).refresh(index)
+    indexed = await build_skills(launcher.config, store).refresh(index)
     paths = []
     for entry in index.entries:
         paths.append(catalog.virtual_path(entry))
@@ -669,38 +768,40 @@ async def build_configured_run(launcher, provider, store, run_id):
     for declaration in projected.checkpoint.get("model_tools", ()):
         inherited_tools.append(ToolSpec(**plain_data(declaration)))
     container = build_runtime(
-        launcher._config,
+        launcher.config,
         provider,
         session_id=snapshot.header.session_id,
         run_id=run_id,
         journal=store,
-        tools=launcher._tools,
-        consumers=launcher._consumers,
+        tools=launcher.tools,
+        memory=launcher.memory,
+        consumers=launcher.consumers,
         history_store=store,
         checkpointer=InMemorySaver(),
-        summary_service=launcher._summary,
-        event_journal=launcher._event_journal,
-        configured_hooks=launcher._configured_hooks,
-        owned_hook_tasks=launcher._hook_tasks,
-        mcp_bindings=build_mcp_bindings(store, launcher._mcp_connections, provider)
-        if launcher._mcp_connections is not None and provider.supports_tools
+        summary_service=launcher.summary,
+        model_resolver=launcher.model_resolver,
+        event_journal=launcher.event_journal,
+        configured_hooks=launcher.configured_hooks,
+        owned_hook_tasks=launcher.hook_tasks,
+        mcp_bindings=build_mcp_bindings(store, launcher.mcp_connections, provider)
+        if launcher.mcp_connections is not None and provider.supports_tools
         else None,
-        mcp_config_hash=launcher._mcp_config_hash,
-        plans=launcher._plans,
-        plan_backend=launcher._plan_backend,
-        durable_inputs=launcher._durable_inputs,
+        mcp_config_hash=launcher.mcp_config_hash,
+        plans=launcher.plans,
+        plan_backend=launcher.plan_backend,
+        durable_inputs=launcher.durable_inputs,
         effective_tools=tuple(inherited_tools),
         team_manager=launcher.team,
         skill_selection=selection,
     )
-    if launcher._config.allow_delegation:
+    if launcher.config.allow_delegation:
         container.runtime.subagents = (
             *container.runtime.subagents,
             *fork_skill_specs(
-                launcher._config,
+                launcher.config,
                 provider,
                 store,
-                launcher._consumers,
+                launcher.consumers,
                 run_id,
                 index.entries,
                 catalog,
@@ -709,7 +810,7 @@ async def build_configured_run(launcher, provider, store, run_id):
     container.context.skill_resources = SkillResources(
         catalog,
         PythonSkillToolFactory(
-            catalog, container.context.outputs, build_sandbox(), launcher._config.sandbox
+            catalog, container.context.outputs, build_sandbox(), launcher.config.sandbox
         ),
         index.entries,
         reserved_tools=(
@@ -766,7 +867,12 @@ async def open_agent_session(
         await store.claim_writer()
         layout = StorageLayout(config.workspace, config.user_data)
         await asyncio.to_thread(migrate_runtime_database, layout.runtime_database)
-        await recover_conversation(store, FileToolOutputStore(layout.sessions, session_id, store))
+        receipt_reader = build_memory_service(config, store)
+        await recover_conversation(
+            store,
+            FileToolOutputStore(layout.sessions, session_id, store),
+            recover_tool=receipt_reader.recover_active_operation,
+        )
         if config.agent_id == "lead" and (layout.project / "worktrees").exists():
             await WorktreeManager(config.workspace, layout.project / "worktrees").scan()
     except BaseException:
@@ -774,8 +880,12 @@ async def open_agent_session(
         raise
     plan_files = FilePlanStore(config.workspace / ".pycode" / "plans" / session_id)
     plans = PlanService(store, plan_files, InterruptPlanPrompt())
-    await plans.initialize()
-    skills = build_skills(config, store, tools)
+    try:
+        await plans.initialize()
+    except BaseException:
+        await store.aclose()
+        raise
+    skills = build_skills(config, store)
     try:
         snapshot = await store.snapshot()
         if pending_run_entry(snapshot) is None and pending_revert(snapshot) is None:
@@ -837,75 +947,88 @@ async def open_agent_session(
         raise StorageError(
             "execution_configuration_changed", "MCP configuration changed during execution"
         )
-    connections = (
-        MCPAdapterConnections(servers, credential_environment(config, providers))
-        if connect_mcp and any(server.enabled for server in servers)
-        else None
-    )
-    if connections is not None:
-        connections.start()
-    durable_inputs = DurableInputs(store)
-    launcher = ConfiguredRuntimeLauncher(
-        config,
-        tools,
-        consumers,
-        event_journal,
-        configured_hooks,
-        mcp_connections=connections,
-        mcp_config_hash=mcp_hash,
-        plans=plans,
-        plan_backend=plan_files.backend,
-        durable_inputs=durable_inputs,
-        runtime_factory=build_configured_run,
-        hook_factory=build_lifecycle_hook_engine,
-        lifecycle_provider=providers[0],
-        team=build_team_manager(config, store, plans=plans),
-        prompt_factory=lambda history: PromptService(
-            history,
-            ProjectPromptSource(
-                config.workspace, Path(__file__).parents[1] / "resources" / "system-prompt.txt"
-            ),
-        ),
-    )
-    snapshots = GitSnapshotStore(
-        config.workspace,
-        StorageLayout(config.workspace, config.user_data).project / "snapshots",
-        excluded_roots=(config.user_data,),
-    )
-    session = AgentSession(
-        store,
-        ContextProjector(),
-        models,
-        launcher,
-        providers[0],
-        durable_inputs,
-        RevertService(store, snapshots),
-        build_session_view(
+    connections = None
+    try:
+        connections = (
+            MCPAdapterConnections(servers, credential_environment(config, providers))
+            if connect_mcp and any(server.enabled for server in servers)
+            else None
+        )
+        if connections is not None:
+            connections.start()
+        durable_inputs = DurableInputs(store)
+        memory = build_memory_service(config, store, providers[0], consumers)
+        launcher = ConfiguredRuntimeLauncher(
             config,
+            tools,
+            consumers,
+            event_journal,
+            configured_hooks,
+            mcp_connections=connections,
+            mcp_config_hash=mcp_hash,
+            plans=plans,
+            plan_backend=plan_files.backend,
+            durable_inputs=durable_inputs,
+            runtime_factory=build_configured_run,
+            model_resolver=catalog.resolve,
+            hook_factory=build_lifecycle_hook_engine,
+            lifecycle_provider=providers[0],
+            team=build_team_manager(config, store, plans=plans),
+            memory=memory,
+            prompt_factory=lambda history: PromptService(
+                history,
+                ProjectPromptSource(
+                    config.workspace, Path(__file__).parents[1] / "resources" / "system-prompt.txt"
+                ),
+            ),
+        )
+        snapshots = GitSnapshotStore(
+            config.workspace,
+            StorageLayout(config.workspace, config.user_data).project / "snapshots",
+            excluded_roots=(config.user_data,),
+        )
+        session = AgentSession(
             store,
-            session_id=session_id,
-            consumers=consumers,
-            event_journal=event_journal,
-            tools=tools,
-        ),
-        skills=skills,
-        hook_config_hash=hook_hash,
-        mcp_config_hash=mcp_hash,
-        plans=plans,
-        storage=build_storage_gc(config, owned_session_id=session_id),
-        memory=build_memory_service(config, store, providers[0], consumers),
-        team=launcher.team,
-    )
-    await session.initialize_memory()
-    if session.team is not None:
-        await session.team.reconcile()
-    if startup_hooks:
-        try:
+            ContextProjector(),
+            models,
+            launcher,
+            providers[0],
+            durable_inputs,
+            RevertService(store, snapshots),
+            build_session_view(
+                config,
+                store,
+                session_id=session_id,
+                consumers=consumers,
+                event_journal=event_journal,
+                tools=tools,
+            ),
+            skills=skills,
+            hook_config_hash=hook_hash,
+            mcp_config_hash=mcp_hash,
+            plans=plans,
+            storage=build_storage_gc(config, owned_session_id=session_id),
+            memory=memory,
+            team=launcher.team,
+            recover_tool=memory.recover_active_operation,
+            recovery_outputs=FileToolOutputStore(layout.sessions, session_id, store),
+        )
+    except BaseException:
+        if connections is not None:
+            await connections.aclose()
+        await event_journal.aclose()
+        await store.aclose()
+        raise
+    try:
+        await session.initialize_memory()
+        if session.team is not None:
+            await session.team.reconcile()
+        if startup_hooks:
             await launcher.startup(store)
-        except BaseException:
-            launcher.abort_startup()
-            await session.aclose()
-            raise
+    except BaseException:
+        launcher.abort_startup()
+        await session.aclose()
+        raise
     return session
 
 
@@ -953,7 +1076,6 @@ def build_session_view(
                 selection.capabilities.context_window, selection.capabilities.max_output_tokens
             ),
             config.summary_keep_recent_tokens,
-            config.summary_enabled,
         )
 
     return SessionView(
@@ -1078,8 +1200,6 @@ def build_backend(
     }
     if plan_backend is not None:
         routes["/plans/"] = plan_backend
-    routes["/memories/user/"] = MemoryBackend(config.user_data / "memory")
-    routes["/memories/project/"] = MemoryBackend(config.workspace / ".pycode" / "memory")
     if outputs is not None and history is not None:
         routes["/large_tool_results/"] = ToolArtifactsBackend(outputs, history)
         routes["/conversation_history/"] = ConversationHistoryBackend(history)
@@ -1116,7 +1236,17 @@ class MeteredModelOwner:
                 await self.events.aclose()
 
 
-def build_background_model(config, provider, consumers, session_id, run_id, purpose):
+def build_background_model(
+    config,
+    provider,
+    consumers,
+    session_id,
+    run_id,
+    purpose,
+    *,
+    retry_policy=None,
+    candidate_index=0,
+):
     timing = SystemTiming()
     observation = ProviderObservation(provider.implementation)
     factory = ModelFactory(credential_environment(config, (provider,)), observation)
@@ -1128,13 +1258,14 @@ def build_background_model(config, provider, consumers, session_id, run_id, purp
         records,
         ProviderFailureClassifier(timing),
         timing,
-        RetryPolicy(),
+        retry_policy or RetryPolicy(),
         events,
         factory.selection(provider),
         session_id,
         run_id,
         purpose=purpose,
         observation=observation,
+        candidate_index=candidate_index,
     )
     return MeteredModelOwner(model, requests, factory, records, journal)
 
@@ -1151,18 +1282,105 @@ def build_summary_generator(config, provider, consumers):
     return ConfiguredSummaryGenerator(provider, model_factory, records_factory)
 
 
-def build_memory_extractor(config, provider, consumers):
+def build_memory_service(config, history, provider=None, consumers=()):
+    from pycode.adapters.storage.json_memory import JsonMemoryStore
+    from pycode.adapters.storage.memory_jobs import FileMemoryJobs
+    from pycode.adapters.storage.memory_migration import MemoryMigration
+    from pycode.adapters.storage.memory_moves import FileMemoryMoves
+    from pycode.core.errors import ToolError
+    from pycode.core.memory_evidence import MemoryWritePermit
+    from pycode.core.memory_schema import validate_memory_value
+    from pycode.services.json_memory import JsonMemoryService
+    from pycode.services.memory_sources import MemorySourcePlanner
+
+    user_id = hashlib.sha256(str(config.user_data.resolve()).encode()).hexdigest()[:24]
+    project_id = StorageLayout(config.workspace, config.user_data).project.name
+    user_namespace = ("memories", "user", user_id)
+    project_namespace = ("memories", "project", project_id)
+    roots = {
+        user_namespace: config.user_data / "memory",
+        project_namespace: config.workspace / ".pycode" / "memory",
+    }
+    scopes = {user_namespace: "user", project_namespace: "project"}
+
+    async def model_selection_required(query, directory):
+        raise ModelError("memory_model_required", "Memory directory selection needs a provider")
+
+    store = JsonMemoryStore(
+        roots,
+        selector=model_selection_required,
+        validate_change=MemoryWritePermit(),
+    )
+
+    def validate_migration(namespace, key, value, previous):
+        if namespace not in scopes or previous is not None:
+            raise ToolError("memory_scope_denied", "Migration owns a fresh configured scope")
+        checked = validate_memory_value(value)
+        if checked["kind"] != "SemanticMemory":
+            raise ToolError("memory_legacy_corrupt", "Legacy records map only to semantic memory")
+
+    legacy = LegacyMemoryRecovery()
+    migration_store = JsonMemoryStore(
+        roots,
+        selector=model_selection_required,
+        validate_change=validate_migration,
+    )
+    migration = MemoryMigration(migration_store, scopes, recover=legacy.recover_transactions)
+    layout = StorageLayout(config.workspace, config.user_data)
+
+    # Session IDs are read only after the repository has established their trusted identity.
+    class SessionOutputReader:
+        def __init__(self):
+            self.outputs = None
+
+        async def read(
+            self, output_id, offset, limit, max_bytes, byte_offset=0, *, absolute_byte_offset=None
+        ):
+            if self.outputs is None:
+                snapshot = await history.snapshot()
+                self.outputs = FileToolOutputStore(
+                    layout.sessions, snapshot.header.session_id, history
+                )
+            return await self.outputs.read(
+                output_id,
+                offset,
+                limit,
+                max_bytes,
+                byte_offset,
+                absolute_byte_offset=absolute_byte_offset,
+            )
+
+    return JsonMemoryService(
+        history,
+        store,
+        scopes,
+        SystemTiming(),
+        FileMemoryJobs(roots),
+        MemorySourcePlanner(output_reader=SessionOutputReader()),
+        migration,
+        updater=build_memory_updater(config, provider, consumers) if provider is not None else None,
+        mode=config.memory_mode,
+        moves=FileMemoryMoves(store, scopes, user_namespace),
+    )
+
+
+def build_memory_update_store(roots, model, permit):
+    from pycode.adapters.storage.json_memory import JsonMemoryStore
+    from pycode.workflows.memory_query import MemoryDirectorySelector
+
+    return JsonMemoryStore(
+        roots,
+        selector=MemoryDirectorySelector(model),
+        validate_change=permit,
+        directory_tokens=min(12000, max(128, model.input_limit - 1000)),
+        max_queries=8,
+    )
+
+
+def build_memory_updater(config, provider, consumers=()):
+    from pycode.app.background_models import ConfiguredMemoryUpdater
+
     def model_factory(selected, session_id, run_id, purpose):
         return build_background_model(config, selected, consumers, session_id, run_id, purpose)
 
-    return ConfiguredMemoryExtractor(provider, model_factory)
-
-
-def build_memory_service(config, history, provider=None, consumers=()):
-    return MemoryService(
-        history,
-        FileMemoryStore(config.user_data / "memory", config.workspace / ".pycode" / "memory"),
-        SystemTiming(),
-        extractor=build_memory_extractor(config, provider, consumers) if provider else None,
-        mode=config.memory_mode,
-    )
+    return ConfiguredMemoryUpdater(provider, model_factory, build_memory_update_store)

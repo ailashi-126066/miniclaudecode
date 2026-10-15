@@ -1,6 +1,7 @@
 import ast
 import json
 
+import pytest
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
 
@@ -9,7 +10,7 @@ from pycode.app.container import build_session_repository, open_agent_session
 from pycode.core.messages import Message
 
 
-def search_response():
+def search_response(root=False):
     response = chat_completion(tool=True)
     rows = []
     for line in response.body.decode().splitlines():
@@ -24,7 +25,11 @@ def search_response():
                             "type": "function",
                             "function": {
                                 "name": "glob",
-                                "arguments": json.dumps({"pattern": "/workspace/**/*.py"}),
+                                "arguments": json.dumps(
+                                    {"pattern": "**/*.py", "path": "/"}
+                                    if root
+                                    else {"pattern": "/workspace/**/*.py"}
+                                ),
                             },
                         },
                         {
@@ -37,7 +42,7 @@ def search_response():
                                     {
                                         "pattern": "needle",
                                         "glob": "*.py",
-                                        "path": "/workspace/",
+                                        "path": "/" if root else "/workspace/",
                                         "output_mode": "content",
                                     }
                                 ),
@@ -51,15 +56,16 @@ def search_response():
     return response
 
 
+@pytest.mark.parametrize("root", [False, True])
 async def test_public_agent_executes_parallel_read_searches_without_approval_and_pairs_outputs(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, root
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     (tmp_path / "one.py").write_text("needle one\n", encoding="utf-8")
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested/你好.py").write_text("needle two\n", encoding="utf-8")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    with protocol_server([search_response(), chat_completion()]) as (url, requests):
+    with protocol_server([search_response(root), chat_completion()]) as (url, requests):
         session = await open_agent_session(
             config, (provider(url),), "s1", create=True, refresh_models=False
         )
@@ -74,7 +80,8 @@ async def test_public_agent_executes_parallel_read_searches_without_approval_and
                 if message.tool_result
             }
             assert set(outputs) == {"glob-first", "grep-second"}
-            assert ast.literal_eval(outputs["glob-first"].text) == [
+            found = ast.literal_eval(outputs["glob-first"].text)
+            assert [path for path in found if path.startswith("/workspace/")] == [
                 "/workspace/nested/你好.py",
                 "/workspace/one.py",
             ]

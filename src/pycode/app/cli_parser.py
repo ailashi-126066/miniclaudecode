@@ -28,7 +28,7 @@ def build_parser():
     parser.add_argument("--version", action="version", version=f"pycode {__version__}")
     parser.add_argument("--workspace", help="Project directory")
     parser.add_argument("--data-dir", help="User configuration and storage directory")
-    parser.add_argument("--memory-mode", choices=("auto", "review", "off"))
+    parser.add_argument("--memory-mode", choices=("auto", "off"))
     parser.add_argument(
         "--trust-project", action="store_true", help="Enable this project's Skill sources"
     )
@@ -136,7 +136,7 @@ def build_parser():
     install.add_argument("--ref")
     install.add_argument("--path", dest="subpath")
     memory = commands.add_parser(
-        "memory", aliases=["/memory"], help="Inspect and review durable memory"
+        "memory", aliases=["/memory"], help="Inspect and edit durable JSON memory"
     )
     execution_options(memory, suppress=True)
     memory_actions = memory.add_subparsers(dest="memory_command", required=True)
@@ -147,15 +147,15 @@ def build_parser():
     edit_memory.add_argument("memory_id")
     edit_memory.add_argument("content")
     edit_memory.add_argument("--scope", choices=["user", "project"])
+    edit_memory.add_argument("--from-scope", choices=["user", "project"])
+    move_memory = memory_actions.add_parser("move")
+    move_memory.add_argument("memory_id")
+    move_memory.add_argument("scope", choices=["user", "project"])
+    move_memory.add_argument("--from-scope", choices=["user", "project"])
     mode = memory_actions.add_parser("mode")
-    mode.add_argument("mode", choices=("auto", "review", "off"))
+    mode.add_argument("mode", choices=("auto", "off"))
     remove = memory_actions.add_parser("remove")
     remove.add_argument("memory_id")
-    review = memory_actions.add_parser("review")
-    review.add_argument("candidate_id")
-    review.add_argument("decision", choices=("approve", "reject"))
-    review.add_argument("--content")
-    review.add_argument("--scope", choices=("user", "project"))
     hooks = commands.add_parser("hooks", help="Review an uncertain background Hook operation")
     execution_options(hooks, suppress=True)
     hooks.add_argument("operation_id")

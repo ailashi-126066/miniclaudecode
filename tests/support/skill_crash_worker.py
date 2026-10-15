@@ -6,9 +6,12 @@ import os
 import sys
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from pycode.app.config import AppConfig
 from pycode.app.container import open_agent_session
 from pycode.core.messages import Message
+from pycode.core.models import ProviderConfig
 
 
 class CrashConsumer:
@@ -24,9 +27,9 @@ class CrashConsumer:
 async def main():
     request = json.load(sys.stdin)
     config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
-    from pycode.core.models import ProviderConfig
-
-    configured = ProviderConfig(**request["provider"])
+    configured = TypeAdapter(ProviderConfig).validate_json(
+        json.dumps(request["provider"]), strict=True
+    )
     session = await open_agent_session(
         config,
         (configured,),

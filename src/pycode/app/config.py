@@ -10,7 +10,12 @@ from urllib.parse import urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from pycode.core.errors import DomainError
-from pycode.core.models import CapabilityOverride, ProviderConfig
+from pycode.core.models import (
+    CapabilityOverride,
+    ModelReference,
+    ProviderConfig,
+    ToolSelectorSettings,
+)
 from pycode.core.sandbox import SandboxSettings
 from pycode.core.team import TeamAgent
 
@@ -19,7 +24,6 @@ from pycode.core.team import TeamAgent
 class AppConfig:
     workspace: Path
     user_data: Path
-    summary_enabled: bool = True
     summary_keep_recent_tokens: int = 20000
     sandbox: SandboxSettings = field(default_factory=SandboxSettings)
     project_trusted: bool = False
@@ -43,8 +47,8 @@ class AppConfig:
             or self.team_concurrency < 1
         ):
             raise ValueError("Team concurrency must be a positive integer")
-        if self.memory_mode not in {None, "auto", "review", "off"}:
-            raise ValueError("Memory mode must be auto, review or off")
+        if self.memory_mode not in {None, "auto", "off"}:
+            raise ValueError("Memory mode must be auto or off")
         if (
             not isinstance(self.project_trusted, bool)
             or not isinstance(self.skill_index_budget, int)
@@ -57,8 +61,7 @@ class AppConfig:
         if not self.workspace.is_absolute() or not self.user_data.is_absolute():
             raise ValueError("Application paths must be absolute")
         if (
-            not isinstance(self.summary_enabled, bool)
-            or not isinstance(self.summary_keep_recent_tokens, int)
+            not isinstance(self.summary_keep_recent_tokens, int)
             or isinstance(self.summary_keep_recent_tokens, bool)
             or self.summary_keep_recent_tokens < 1
         ):
@@ -144,6 +147,22 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
         for item in objects:
             if not isinstance(item, dict) or not set(item) <= allowed_fields:
                 raise ValueError("Unexpected Provider field")
+            selector = item.get("tool_selector", {})
+            selector_fields = {field.name for field in fields(ToolSelectorSettings)}
+            if not isinstance(selector, dict) or not set(selector) <= selector_fields:
+                raise ValueError("Unexpected tool selector field")
+            fallbacks = item.get("fallback_models", [])
+            if not isinstance(fallbacks, list) or len(fallbacks) > 4:
+                raise ValueError("Use at most four fallback model references")
+            for fallback in fallbacks:
+                if not isinstance(fallback, dict) or set(fallback) != {"provider", "model_id"}:
+                    raise ValueError("Invalid fallback model reference")
+            reference = selector.get("model")
+            reference_fields = {field.name for field in fields(ModelReference)}
+            if reference is not None and (
+                not isinstance(reference, dict) or set(reference) != reference_fields
+            ):
+                raise ValueError("Invalid tool selector model reference")
             overrides = item.get("model_overrides", {})
             override_fields = {field.name for field in fields(CapabilityOverride)}
             if not isinstance(overrides, dict):
@@ -239,6 +258,23 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
                 raise DomainError(
                     "invalid_provider_config", "Model override leaves no input capacity"
                 )
+    for provider in providers:
+        references = [
+            (reference.provider, reference.model_id) for reference in provider.fallback_models
+        ]
+        if (
+            len(references) != len(set(references))
+            or (provider.name, provider.model_id) in references
+        ):
+            raise DomainError(
+                "invalid_provider_config",
+                "Fallback references must be unique and exclude the primary model",
+            )
+        if any(reference.provider not in names for reference in provider.fallback_models):
+            raise DomainError("invalid_provider_config", "Fallback Provider is not configured")
+        reference = provider.tool_selector.model
+        if reference is not None and reference.provider not in names:
+            raise DomainError("invalid_provider_config", "Tool selector Provider is not configured")
     return tuple(providers)
 
 

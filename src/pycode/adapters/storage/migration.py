@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from pycode.adapters.storage.file_lease import FileLease
-from pycode.adapters.tools.backend import atomic_write
+from pycode.adapters.storage.path_io import atomic_write
 
 OBSOLETE_TABLES = frozenset(
     {

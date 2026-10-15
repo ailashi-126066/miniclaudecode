@@ -57,7 +57,6 @@ class AgentRuntime:
     def __init__(
         self,
         model: BaseChatModel,
-        tools=(),
         *,
         checkpointer=None,
         backend=None,
@@ -66,7 +65,6 @@ class AgentRuntime:
         read_only=False,
     ):
         self.model = model
-        self.tools = tools
         self.backend = backend
         self.skills = skills
         self.subagents = subagents
@@ -153,7 +151,9 @@ class AgentRuntime:
     def config(self, context):
         return {
             "configurable": {"thread_id": f"{context.session_id}:{context.run_id}"},
-            "callbacks": [ModelEventCallbacks(context.events, context.requests)],
+            "callbacks": [
+                ModelEventCallbacks(context.events, context.requests, lambda: context.requests)
+            ],
         }
 
     async def run(self, inputs, context, *, history=()):

@@ -28,5 +28,12 @@ class ToolOutputStore(Protocol):
     async def begin(self, context: ToolContext, mode: PreviewMode) -> OutputWriter: ...
 
     async def read(
-        self, output_id: str, offset: int, limit: int, max_bytes: int, byte_offset: int = 0
+        self,
+        output_id: str,
+        offset: int,
+        limit: int,
+        max_bytes: int,
+        byte_offset: int = 0,
+        *,
+        absolute_byte_offset: int | None = None,
     ) -> OutputSlice: ...

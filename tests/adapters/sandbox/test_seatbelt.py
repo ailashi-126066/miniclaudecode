@@ -1,4 +1,6 @@
+import asyncio
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,32 @@ def test_profile_preserves_source_read_network_and_quoted_path_rules(tmp_path):
     assert "(deny network*)" in profile and ".git" in profile and ".pycode" in profile
     assert "(deny file-write-unlink" in profile
     assert "(allow network*)" in build_profile(root, True)
+    assert '(allow file-write-data (literal "/dev/null"))' in profile
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Physical Seatbelt requires macOS")
+async def test_physical_seatbelt_allows_standard_pytest_logging_without_outside_file_writes(
+    tmp_path,
+):
+    sandbox = SeatbeltSandbox()
+    assert (await sandbox.status(SandboxSettings("on"))).available
+    test = tmp_path / "test_probe.py"
+    test.write_text("def test_standard_logging():\n    assert 2 + 2 == 4\n")
+    argv = await sandbox.launch(
+        (sys.executable, "-m", "pytest", "-q", str(test), "--rootdir", str(tmp_path)),
+        str(tmp_path),
+        SandboxSettings("on"),
+    )
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(tmp_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    async with asyncio.timeout(15):
+        stdout, stderr = await process.communicate()
+    assert process.returncode == 0, (stdout + stderr).decode(errors="replace")
+    assert b"1 passed" in stdout
 
 
 async def test_unavailable_backend_preserves_ordinary_launch_and_never_claims_auto_approval():

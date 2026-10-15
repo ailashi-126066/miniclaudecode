@@ -48,6 +48,8 @@ class AgentSession:
         storage=None,
         memory=None,
         team=None,
+        recover_tool=None,
+        recovery_outputs=None,
     ) -> None:
         self._store = store
         self._projector = projector
@@ -66,6 +68,8 @@ class AgentSession:
         self._plans = plans
         self._storage = storage
         self._memory = memory
+        self._recover_tool = recover_tool
+        self._recovery_outputs = recovery_outputs
         self.team = team
 
     async def submit_input(self, message: Message, kind: InputKind) -> bool:
@@ -113,7 +117,11 @@ class AgentSession:
                     return False
                 outputs = await self._launcher.cancel_wait(start.run_id)
                 await recover_conversation(
-                    self._store, outputs, reason="user_cancel", outcome="cancelled"
+                    self._store,
+                    outputs or self._recovery_outputs,
+                    reason="user_cancel",
+                    outcome="cancelled",
+                    recover_tool=self._recover_tool,
                 )
                 if self._plans is not None:
                     await self._plans.finish(start.run_id)
@@ -330,11 +338,19 @@ class AgentSession:
             try:
                 result = await self._launcher.run(provider, self._store, (message,), history)
             except asyncio.CancelledError:
-                await recover_conversation(self._store)
+                await recover_conversation(
+                    self._store, self._recovery_outputs, recover_tool=self._recover_tool
+                )
                 raise
             except DomainError:
                 try:
-                    await recover_conversation(self._store, reason="run_error", outcome="error")
+                    await recover_conversation(
+                        self._store,
+                        self._recovery_outputs,
+                        reason="run_error",
+                        outcome="error",
+                        recover_tool=self._recover_tool,
+                    )
                 except StorageError:
                     logging.getLogger("pycode.session").exception(
                         "Could not persist failed-run recovery; "
@@ -368,7 +384,9 @@ class AgentSession:
         try:
             result = await self._launcher.resume(provider, self._store, start.run_id, answers)
         except asyncio.CancelledError:
-            await recover_conversation(self._store)
+            await recover_conversation(
+                self._store, self._recovery_outputs, recover_tool=self._recover_tool
+            )
             raise
         return await self.settle_run(start, result)
 
@@ -486,23 +504,23 @@ class AgentSession:
             raise StorageError("memory_unavailable", "This session has no memory service")
         await self._memory.set_mode(mode)
 
-    async def memory_review(self, candidate_id, decision, *, content=None, scope=None):
-        async with self.execution():
-            if self._memory is None:
-                raise StorageError("memory_unavailable", "This session has no memory service")
-            return await self._memory.review(candidate_id, decision, content=content, scope=scope)
-
     async def memory_remove(self, memory_id):
         async with self.execution():
             if self._memory is None:
                 raise StorageError("memory_unavailable", "This session has no memory service")
             await self._memory.remove(memory_id)
 
-    async def memory_edit(self, memory_id, content, *, scope=None):
+    async def memory_edit(self, memory_id, content, *, scope=None, from_scope=None):
         async with self.execution():
             if self._memory is None:
                 raise StorageError("memory_unavailable", "This session has no memory service")
-            return await self._memory.edit(memory_id, content, scope=scope)
+            return await self._memory.edit(memory_id, content, scope=scope, from_scope=from_scope)
+
+    async def memory_move(self, memory_id, scope, *, from_scope=None):
+        async with self.execution():
+            if self._memory is None:
+                raise StorageError("memory_unavailable", "This session has no memory service")
+            return await self._memory.move(memory_id, scope, from_scope=from_scope)
 
     async def team_control(self, command, arguments, *, dependencies=()):
         async with self.execution():
@@ -540,12 +558,9 @@ class AgentSession:
     async def memory_extract(self):
         async with self.execution():
             self.require_settled(await self._store.snapshot())
-            if self._memory is None or self._memory.extractor is None:
-                raise StorageError("memory_unavailable", "No memory extractor is configured")
-            snapshot = await self._store.snapshot()
-            return await self._memory.extract_snapshot(
-                snapshot, "manual-memory-" + uuid4().hex, full=True
-            )
+            if self._memory is None or self._memory.updater is None:
+                raise StorageError("memory_unavailable", "No memory updater is configured")
+            return await self._memory.extract_snapshot("manual-memory-" + uuid4().hex)
 
     async def publish_result(self, result, *, collect_background=False):
         if self._view is None or result.run_id is None:

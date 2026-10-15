@@ -10,10 +10,12 @@ from pycode.core.plans import PlanState
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
 from pycode.core.values import plain_data
+from pycode.ports.plans import PlanFiles
+from pycode.ports.questions import QuestionPrompt
 
 
 class PlanService:
-    def __init__(self, history, files, prompt):
+    def __init__(self, history, files: PlanFiles, prompt: QuestionPrompt):
         self.history = history
         self.files = files
         self.prompt = prompt

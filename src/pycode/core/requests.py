@@ -35,6 +35,7 @@ class RequestRecord:
     usage: UsageRecord | None = None
     error_code: str | None = None
     logical_id: str | None = None
+    candidate_index: int = 0
 
 
 @dataclass(frozen=True)

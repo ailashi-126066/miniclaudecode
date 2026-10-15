@@ -2,8 +2,10 @@
 
 import asyncio
 
+import pytest
 from deepagents.backends.protocol import BackendProtocol
 
+from pycode.adapters.storage.plans import PlanBackend
 from pycode.adapters.tools.backend import PycodeBackend
 
 
@@ -72,6 +74,29 @@ async def test_rg_limits_are_explicit_and_missing_rg_is_an_error(tmp_path):
     assert "rg_unavailable" in (await backend.agrep("hit")).error
 
 
+async def test_uncreated_plan_namespace_is_empty_without_masking_missing_workspace(tmp_path):
+    root = tmp_path / "plans"
+    backend = PlanBackend(root)
+    assert not root.exists()
+    assert backend.ls("/").entries == [] and backend.ls("/").error is None
+    for result in (
+        backend.glob("*.md"),
+        backend.grep("needle"),
+        await backend.aglob("*.md"),
+        await backend.agrep("needle"),
+    ):
+        assert result.matches == [] and result.error is None and not result.truncated
+    assert not root.exists()
+    assert "invalid_plan_path" in backend.read("/other.md").error
+    assert "file_not_found" in PycodeBackend(root).ls("/").error
+    assert "file_not_found" in (await PycodeBackend(root).aglob("*.md")).error
+    backend.configure("a" * 32)
+    assert backend.write("/" + "a" * 32 + ".md", "needle").error is None
+    assert [item["path"] for item in (await backend.aglob("*.md")).matches] == [
+        "/" + "a" * 32 + ".md"
+    ]
+
+
 async def test_concurrent_edits_preserve_path_lock_and_version(tmp_path):
     backend = PycodeBackend(tmp_path)
     await backend.awrite("/main.txt", "old")
@@ -81,3 +106,15 @@ async def test_concurrent_edits_preserve_path_lock_and_version(tmp_path):
     )
     assert sum(result.error is None for result in results) == 1
     assert (tmp_path / "main.txt").read_text() in {"first", "second"}
+
+
+@pytest.mark.parametrize("reserved", [".PYCODE", ".PyCoDe", ".GIT", ".GiT"])
+def test_reserved_state_aliases_are_blocked_on_all_platforms(tmp_path, reserved):
+    from pycode.adapters.tools.workspace_path import resolve_workspace_path
+    from pycode.core.errors import ToolError
+
+    backend = PycodeBackend(tmp_path)
+    assert backend.write(f"/{reserved}/protected.txt", "forbidden").error is not None
+    assert not (tmp_path / reserved).exists()
+    with pytest.raises(ToolError):
+        resolve_workspace_path(tmp_path, f"{reserved}/protected.txt")

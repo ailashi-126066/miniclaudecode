@@ -5,8 +5,11 @@ import os
 from dataclasses import replace
 from uuid import uuid4
 
-from pycode.adapters.storage.memory import FileMemoryStore
-from pycode.core.memory import MemoryRecord, content_hash
+from tests.support.legacy_memory_store import FileMemoryStore
+from tests.support.legacy_memory_types import MemoryRecord
+
+from pycode.adapters.storage.legacy_memory import LegacyMemoryRecovery
+from pycode.core.memory import content_hash
 from pycode.core.values import plain_data
 
 
@@ -41,6 +44,7 @@ async def test_memory_prepared_transaction_recovery_and_version_backup(tmp_path)
     )
     # Simulate process death between the same two os.replace calls.
     os.replace(staged_content, user / (current.memory_id + ".md"))
+    LegacyMemoryRecovery().recover_transactions(user)
     reopened = FileMemoryStore(user, tmp_path / "project")
     restored = await reopened.read_record(current.memory_id)
     assert restored.content == content and restored.sha256 == data["sha256"]
@@ -76,6 +80,7 @@ async def test_memory_removal_recovers_after_first_file_move(tmp_path):
     archived = user / "removed" / current.memory_id
     archived.mkdir(parents=True)
     os.replace(user / (current.memory_id + ".md"), archived / "content.md")
+    LegacyMemoryRecovery().recover_transactions(user)
     reopened = FileMemoryStore(user, tmp_path / "project")
     assert await reopened.list_records() == ()
     assert (archived / "record.json").is_file()

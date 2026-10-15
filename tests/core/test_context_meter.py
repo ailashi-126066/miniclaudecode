@@ -58,3 +58,26 @@ def test_appended_tail_is_estimated_but_context_edit_invalidates_reported_anchor
     edit = SessionEntry("edit", "u", "context_edit", "t")
     snapshot = replace(snapshot, entries=(*snapshot.entries, edit), leaf_id="edit")
     assert meter.report(snapshot, projection)["source"] == "estimate"
+
+
+def test_unchanged_memory_recall_keeps_the_provider_usage_anchor():
+    meter, snapshot, projection = scenario()
+    recalled = SessionEntry("recall", "a", "memory_load", "t", data={"records": []})
+    snapshot = replace(snapshot, entries=(*snapshot.entries, recalled), leaf_id="recall")
+    projection = replace(
+        projection,
+        leaf_id="recall",
+        entries=(*projection.entries, ProjectedEntry("recall", ())),
+    )
+    report = meter.report(snapshot, projection)
+    assert report["source"] == "provider_usage"
+    assert report["tokens"] == 110
+    assert report["anchor_request_id"] == "req"
+
+
+def test_changed_memory_snapshot_still_invalidates_the_provider_usage_anchor():
+    meter, snapshot, projection = scenario()
+    projection = replace(
+        projection, checkpoint={"memories": [{"memory_id": "changed", "content": "new preference"}]}
+    )
+    assert meter.report(snapshot, projection)["source"] == "estimate"

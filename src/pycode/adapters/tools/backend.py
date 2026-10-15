@@ -13,7 +13,6 @@ import threading
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from uuid import uuid4
 
 from deepagents.backends.protocol import (
     BackendProtocol,
@@ -27,8 +26,10 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 
+from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
 from pycode.adapters.tools.read_range import read_range
 from pycode.adapters.tools.rg_stream import RipgrepMatches, SearchOutput
+from pycode.adapters.tools.workspace_path import is_internal_component
 from pycode.core.errors import ToolError
 from pycode.core.messages import ToolResult
 from pycode.core.truncation import MAX_BYTES, MAX_LINES
@@ -41,37 +42,20 @@ class BackendInvocation:
     result: object = None
 
 
-def atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = path.stat().st_mode if path.exists() else None
-    temporary = path.with_name(f".{uuid4().hex}.pycode-write.partial")
-    try:
-        with temporary.open("xb") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        if mode is not None:
-            temporary.chmod(mode)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-async def owned_io(function, *arguments):
-    task = asyncio.create_task(asyncio.to_thread(function, *arguments))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
-
-
 class PycodeBackend(BackendProtocol):
     def __init__(
-        self, workspace: Path, *, read_only=False, excluded_roots=(), rg=None, search_timeout=15
+        self,
+        workspace: Path,
+        *,
+        read_only=False,
+        excluded_roots=(),
+        rg=None,
+        search_timeout=15,
+        empty_missing_root=False,
     ):
         self.workspace = workspace.resolve()
         self.read_only = read_only
+        self.empty_missing_root = empty_missing_root
         excluded = []
         for value in excluded_roots:
             path = Path(value).resolve()
@@ -103,7 +87,7 @@ class PycodeBackend(BackendProtocol):
             components = tuple(part.casefold().rstrip(" .") for part in components)
             if any(":" in part for part in components):
                 raise ToolError("outside_workspace", "Windows drive and stream paths are forbidden")
-        if any(part in {".git", ".pycode"} for part in components):
+        if any(is_internal_component(part) for part in components):
             raise ToolError("outside_workspace", "Internal project state is not accessible")
         path = (self.workspace / relative).resolve()
         if not path.is_relative_to(self.workspace):
@@ -111,7 +95,7 @@ class PycodeBackend(BackendProtocol):
         components = path.relative_to(self.workspace).parts
         if os.name == "nt":
             components = tuple(part.casefold().rstrip(" .") for part in components)
-        if any(part in {".git", ".pycode"} for part in components):
+        if any(is_internal_component(part) for part in components):
             raise ToolError("outside_workspace", "Internal project state is not accessible")
         for excluded in self.excluded_roots:
             if path.is_relative_to(excluded):
@@ -125,10 +109,6 @@ class PycodeBackend(BackendProtocol):
                 self.locks[key] = threading.RLock()
             return self.locks[key]
 
-    def digest(self, path: Path) -> str:
-        with path.open("rb") as source:
-            return hashlib.file_digest(source, "sha256").hexdigest()
-
     def check_version(self, path: Path) -> None:
         expected = self.receipts.get(str(path))
         if not path.exists():
@@ -137,7 +117,7 @@ class PycodeBackend(BackendProtocol):
             return
         if expected is None:
             raise ToolError("file_not_read", "Read the existing file before changing it")
-        if self.digest(path) != expected:
+        if file_sha256(path) != expected:
             raise ToolError("file_changed", "File changed since it was read; read it again")
 
     def error(self, error: OSError | ToolError | UnicodeError) -> str:
@@ -162,12 +142,12 @@ class PycodeBackend(BackendProtocol):
         try:
             path = self.resolve(file_path)
             with self.lock(path):
-                before = self.digest(path)
+                before = file_sha256(path)
                 with path.open("rb") as source:
                     result = read_range(
                         source, "", max(0, offset) + 1, min(limit, MAX_LINES), MAX_BYTES - 512, 0
                     )
-                if self.digest(path) != before:
+                if file_sha256(path) != before:
                     raise ToolError("file_changed", "File changed while reading")
                 self.receipts[str(path)] = before
                 content = result.text
@@ -195,7 +175,7 @@ class PycodeBackend(BackendProtocol):
         expected = self.receipts.get(str(path))
         if expected is None:
             raise ToolError("file_not_read", "Native read did not establish a version receipt")
-        if await owned_io(self.digest, path) != expected:
+        if await owned_io(file_sha256, path) != expected:
             raise ToolError("file_changed", "File changed before complete range preservation")
         writer = await outputs.begin(context, "head")
         source = None
@@ -218,7 +198,7 @@ class PycodeBackend(BackendProtocol):
                 await writer.append(chunk)
                 if chunk.endswith(b"\n"):
                     lines += 1
-            if await owned_io(self.digest, path) != expected:
+            if await owned_io(file_sha256, path) != expected:
                 raise ToolError("file_changed", "File changed while preserving complete range")
             return await writer.finish(
                 ToolResult(
@@ -286,6 +266,8 @@ class PycodeBackend(BackendProtocol):
     def ls(self, path: str) -> LsResult:
         try:
             directory = self.resolve(path)
+            if self.empty_missing_root and directory == self.workspace and not directory.exists():
+                return LsResult(entries=[])
             entries = []
             for child in sorted(directory.iterdir()):
                 try:
@@ -334,6 +316,8 @@ class PycodeBackend(BackendProtocol):
         result_type = GlobResult if files else GrepResult
         try:
             command, base = self.search_command(pattern, path, include, files=files)
+            if self.empty_missing_root and base == self.workspace and not base.exists():
+                return result_type(matches=[])
             parser = RipgrepMatches(
                 base, self.workspace, self.resolve, files=files, max_count=max_count
             )
@@ -398,6 +382,8 @@ class PycodeBackend(BackendProtocol):
         result_type = GlobResult if files else GrepResult
         try:
             command, base = self.search_command(pattern, path, include, files=files)
+            if self.empty_missing_root and base == self.workspace and not base.exists():
+                return result_type(matches=[])
             process = await asyncio.create_subprocess_exec(
                 *command, cwd=base, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )

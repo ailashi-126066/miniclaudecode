@@ -75,6 +75,7 @@ class HookEngine:
         outputs,
         events,
         *,
+        error_boundary,
         snapshots=None,
         owned_tasks=None,
         plans=None,
@@ -93,6 +94,7 @@ class HookEngine:
             events,
             outputs,
             snapshots=snapshots,
+            error_boundary=error_boundary,
         )
         self._tasks = owned_tasks if owned_tasks is not None else {}
         self._locks = {}

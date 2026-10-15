@@ -15,9 +15,9 @@ from pycode.adapters.sandbox.seatbelt import SeatbeltSandbox
 from pycode.core.sandbox import SandboxSettings
 
 
-async def execute(sandbox, workspace, command, *, network=False):
+async def execute(sandbox, workspace, command, *, network=False, mode="on"):
     argv = await sandbox.launch(
-        ("/bin/bash", "-c", command), str(workspace), SandboxSettings("on", network)
+        ("/bin/bash", "-c", command), str(workspace), SandboxSettings(mode, network)
     )
     process = await asyncio.create_subprocess_exec(
         *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -41,12 +41,35 @@ async def verify(root):
     workspace.mkdir(parents=True)
     outside = workspace.parent / (workspace.name + "-outside")
     sandbox = SeatbeltSandbox()
+    manual = await sandbox.status(SandboxSettings("on"))
+    automatic = await sandbox.status(SandboxSettings("on-auto"))
+    assert manual.enabled and not manual.auto_approve
+    assert automatic.enabled and automatic.auto_approve
     allowed = await execute(
         sandbox, workspace, "printf allowed > " + shlex.quote(str(workspace / "inside.txt"))
     )
     denied = await execute(sandbox, workspace, "printf denied > " + shlex.quote(str(outside)))
     assert allowed["exit_code"] == 0 and (workspace / "inside.txt").read_text() == "allowed"
     assert denied["exit_code"] != 0 and not outside.exists()
+    auto_allowed = await execute(
+        sandbox,
+        workspace,
+        "printf automatic > " + shlex.quote(str(workspace / "auto.txt")),
+        mode="on-auto",
+    )
+    auto_denied = await execute(
+        sandbox, workspace, "printf denied > " + shlex.quote(str(outside)), mode="on-auto"
+    )
+    assert auto_allowed["exit_code"] == 0 and (workspace / "auto.txt").read_text() == "automatic"
+    assert auto_denied["exit_code"] != 0 and not outside.exists()
+    protected = {}
+    for relative in (".env", ".git/config", ".pycode/state.json"):
+        path = workspace / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("protected-test-marker")
+        rejected = await execute(sandbox, workspace, "printf changed > " + shlex.quote(str(path)))
+        assert rejected["exit_code"] != 0 and path.read_text() == "protected-test-marker"
+        protected[relative] = rejected
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -72,6 +95,13 @@ async def verify(root):
             "status": "passed",
             "write_inside": allowed,
             "write_outside": denied,
+            "on_auto_write_inside": auto_allowed,
+            "on_auto_write_outside": auto_denied,
+            "protected_state": protected,
+            "modes": {
+                "on": {"enabled": manual.enabled, "auto_approve": manual.auto_approve},
+                "on-auto": {"enabled": automatic.enabled, "auto_approve": automatic.auto_approve},
+            },
             "network_denied": no_network,
             "network_allowed": with_network,
         }

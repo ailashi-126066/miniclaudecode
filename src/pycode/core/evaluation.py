@@ -37,11 +37,7 @@ def evaluation_outcome(
         return "no_patch"
     if "repeated_tool_failure" in failure_codes:
         return "repeated_tool_failure"
-    claimed = re.search(
-        r"\btests?\s+(?:all\s+)?(?:passed|pass|successful)\b|测试(?:全部)?通过",
-        final_text,
-        re.IGNORECASE,
-    )
+    claimed = claims_tests_passed(final_text)
     if claimed and test_exit_code != 0:
         return "claim_mismatch"
     if not verified:
@@ -49,3 +45,22 @@ def evaluation_outcome(
     if test_exit_code == 0:
         return "passed"
     return "tests_failed"
+
+
+def claims_tests_passed(text):
+    for clause in re.split(r"[.!?\n;]|,\s+|\bbut\b|但是", text, flags=re.IGNORECASE):
+        for match in re.finditer(
+            r"\btests?\s+(?:all\s+)?(?:passed|pass|successful)\b|测试(?:全部)?通过",
+            clause,
+            re.IGNORECASE,
+        ):
+            prefix = clause[: match.start()]
+            if not re.search(
+                r"\b(?:no|not|never|cannot|don['’]t|didn['’]t|haven['’]t)"
+                r"(?:\s+(?:actual|actually|yet|all|claim|claimed|that|confirm|say)){0,4}\s*$"
+                r"|(?:未|没有|不能|无法)(?:声明|声称)?\s*$",
+                prefix,
+                re.IGNORECASE,
+            ):
+                return True
+    return False

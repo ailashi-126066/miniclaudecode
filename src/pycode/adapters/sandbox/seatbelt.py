@@ -25,6 +25,9 @@ def build_profile(workspace, network_enabled):
         "(allow process-fork)",
         "(allow sysctl-read)",
         '(allow file-read* (subpath "/"))',
+        # Standard logging and redirected commands use the null device. This
+        # grants no write access to an ordinary file outside the workspace.
+        '(allow file-write-data (literal "/dev/null"))',
         f"(allow file-write* (subpath {quote(root)}))",
         f"(deny file-write-unlink (literal {quote(root)}))",
     ]

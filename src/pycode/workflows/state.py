@@ -73,6 +73,10 @@ class RunContext:
     system_hash: str = ""
     skill_selection: Any = None
     skill_boundary: bool = False
+    model_fallback: Any = None
+    tool_selector: Any = None
+    selected_tool_names: tuple[str, ...] | None = None
+    read_only: bool = False
     failure_guard: dict = field(default_factory=dict)
     serial_failure_signature: str | None = None
     interrupted_calls: set[str] = field(default_factory=set)

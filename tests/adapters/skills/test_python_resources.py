@@ -20,6 +20,7 @@ from pycode.services.skill_resources import SkillResources
 from pycode.services.skills import SkillService
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 async def activate(tmp_path, *, code=None, limit_seconds=120):
@@ -52,7 +53,14 @@ class Approved:
 def executor(tool, outputs):
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (tool,))
-    return ToolExecutor(registry, validator, Approved(), EventStream("s1", "r1", ()), outputs)
+    return ToolExecutor(
+        registry,
+        validator,
+        Approved(),
+        EventStream("s1", "r1", ()),
+        outputs,
+        error_boundary=execute_tool_errors,
+    )
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,6 @@
 # 简历模版：jianli.xiaolinnote.com
 """Download bounded GitHub trees and publish validated Skills without executing resources."""
 
-import asyncio
 import base64
 import binascii
 import hashlib
@@ -27,6 +26,7 @@ from pycode.adapters.skills.catalog import MAX_SKILL_BYTES, linked
 from pycode.adapters.skills.github_source import parse_skill_url, safe_component
 from pycode.adapters.skills.parser import parse_skill
 from pycode.adapters.storage.file_lease import FileLease
+from pycode.adapters.storage.path_io import owned_io
 from pycode.core.errors import StorageError, ToolError
 from pycode.core.values import json_dumps, plain_data
 
@@ -36,15 +36,6 @@ MAX_FILE_COUNT = 64
 MAX_RECURSION_DEPTH = 4
 MAX_TREE_ENTRIES = 128
 API = "https://api.github.com"
-
-
-async def owned_io(action):
-    task = asyncio.create_task(asyncio.to_thread(action))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
 
 
 def write_bytes(path, data):

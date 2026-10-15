@@ -8,6 +8,7 @@ from langchain.agents.middleware import (
     hook_config,
 )
 from langchain_core.messages import RemoveMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from pycode.core.errors import ModelError
@@ -21,6 +22,7 @@ from pycode.workflows.boundaries import (
     save_message,
 )
 from pycode.workflows.messages import from_assistant, to_framework
+from pycode.workflows.model_requests import model_request_step
 from pycode.workflows.state import PycodeState
 
 
@@ -38,41 +40,60 @@ class HistoryMiddleware(AgentMiddleware):
 
     async def abefore_model(self, state, runtime):
         context = runtime.context
-        if context.mcp is not None:
-            await context.mcp.refresh(context.registry)
-        summary = None
-        if context.summary is not None:
-            context.summary.set_tools(context.model_tools or context.registry.model_specs())
-            summary = await context.summary.prepare()
-            if summary.applied_job_id is not None:
-                await run_hook(context, "compact", summary.applied_job_id)
-        if context.eviction is not None:
-            await context.eviction.apply(
-                protected_entry_ids=summary.protected_entry_ids if summary else ()
-            )
-        if context.durable_inputs is not None:
-            context.inputs = await context.durable_inputs.pending(context.run_id)
-        pending = context.inputs.take("steer", one_at_a_time=context.one_at_a_time)
-        for message in pending:
-            await deliver_input(context, message, "steer")
-        turn = state.get("turn", 0) + 1
-        await run_hook(context, "turn_start", f"{context.run_id}:turn-{turn}")
-        if turn > 1:
-            await context.events.emit("turn_start", {"turn": turn})
-        updates = {"turn": turn}
-        if context.team is not None:
-            updates["async_tasks"] = await context.team.tasks()
-        if context.history_store is not None:
-            snapshot = await context.history_store.snapshot()
-            projection = context.projector.project(snapshot)
-            context.model_source_leaf_id = snapshot.leaf_id
-            messages = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
-            for message in projection.messages:
-                messages.append(to_framework(message, context.selection))
-            updates.update(messages=messages, branch_leaf_id=snapshot.leaf_id)
-        elif pending:
-            updates["messages"] = [to_framework(message, context.selection) for message in pending]
-        return updates
+        if context.model_fallback is not None:
+            context.model_fallback.restore_primary(context)
+
+        async def maintain_context(current):
+            if current.mcp is not None:
+                await current.mcp.refresh(current.registry)
+            summary = None
+            if current.summary is not None:
+                current.summary.set_tools(current.model_tools or current.registry.model_specs())
+                summary = await current.summary.prepare()
+                if summary.applied_job_id is not None:
+                    await run_hook(current, "compact", summary.applied_job_id)
+            if current.eviction is not None:
+                await current.eviction.apply(
+                    protected_entry_ids=summary.protected_entry_ids if summary else ()
+                )
+            return current
+
+        async def deliver_steering(current):
+            if current.durable_inputs is not None:
+                current.inputs = await current.durable_inputs.pending(current.run_id)
+            pending = current.inputs.take("steer", one_at_a_time=current.one_at_a_time)
+            for message in pending:
+                await deliver_input(current, message, "steer")
+            return pending
+
+        async def project_turn(pending):
+            turn = state.get("turn", 0) + 1
+            await run_hook(context, "turn_start", f"{context.run_id}:turn-{turn}")
+            if turn > 1:
+                await context.events.emit("turn_start", {"turn": turn})
+            updates = {"turn": turn}
+            if context.team is not None:
+                updates["async_tasks"] = await context.team.tasks()
+            if context.history_store is not None:
+                snapshot = await context.history_store.snapshot()
+                projection = context.projector.project(snapshot)
+                context.model_source_leaf_id = snapshot.leaf_id
+                messages = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
+                for message in projection.messages:
+                    messages.append(to_framework(message, context.selection))
+                updates.update(messages=messages, branch_leaf_id=snapshot.leaf_id)
+            elif pending:
+                updates["messages"] = [
+                    to_framework(message, context.selection) for message in pending
+                ]
+            return updates
+
+        chain = (
+            RunnableLambda(maintain_context)
+            | RunnableLambda(deliver_steering)
+            | RunnableLambda(project_turn)
+        )
+        return await chain.ainvoke(context)
 
     async def awrap_model_call(self, request, handler):
         context = request.runtime.context
@@ -101,8 +122,10 @@ class HistoryMiddleware(AgentMiddleware):
         )
         if not context.skill_boundary:
             request = await prepare_model_boundary(request)
+        requests = context.model_fallback or context.requests
+        model_step = model_request_step(requests, handler, logical_id=boundary)
         try:
-            response = await context.requests.invoke(request, handler, logical_id=boundary)
+            response = await model_step.ainvoke(request)
         except ModelError as error:
             if error.code != "context_overflow" or context.summary is None:
                 raise
@@ -117,7 +140,7 @@ class HistoryMiddleware(AgentMiddleware):
                     to_framework(message, context.selection) for message in projection.messages
                 ]
             )
-            response = await context.requests.invoke(request, handler, logical_id=boundary)
+            response = await model_step.ainvoke(request)
         model_response = (
             response.model_response if isinstance(response, ExtendedModelResponse) else response
         )

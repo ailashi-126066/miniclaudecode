@@ -7,14 +7,15 @@ from pathlib import Path
 
 from deepagents.backends.protocol import WriteResult
 
-from pycode.adapters.tools.backend import PycodeBackend, owned_io
+from pycode.adapters.storage.path_io import owned_io
+from pycode.adapters.tools.backend import PycodeBackend
 from pycode.core.errors import ToolError
 from pycode.core.plans import PlanDocument
 
 
 class PlanBackend(PycodeBackend):
     def __init__(self, root):
-        super().__init__(root)
+        super().__init__(root, empty_missing_root=True)
         self.active_name = None
 
     def configure(self, plan_id):

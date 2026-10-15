@@ -21,6 +21,7 @@ from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
 from pycode.workflows.agent import AgentRuntime, RunContext
 from pycode.workflows.model_requests import ModelRequestRunner
+from pycode.workflows.tool_errors import execute_tool_errors
 
 VECTORS = json.loads((Path(__file__).parents[1] / "fixtures/pi-agent-loop.json").read_text())
 
@@ -87,7 +88,9 @@ def assemble(responses):
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (tool,))
     events = EventStream("session-1", "run-1", (recorder,))
-    executor = ToolExecutor(registry, validator, ReadOnlyToolGate(), events)
+    executor = ToolExecutor(
+        registry, validator, ReadOnlyToolGate(), events, error_boundary=execute_tool_errors
+    )
     selection = ModelSelection("test", "scripted", "deepseek")
     timing = TestTiming()
     requests = ModelRequestRunner(
@@ -112,7 +115,7 @@ def assemble(responses):
         registry=registry,
         requests=requests,
     )
-    runtime = AgentRuntime(model, (tool.spec,))
+    runtime = AgentRuntime(model)
     return runtime, context, model, tool, journal, recorder
 
 
@@ -277,7 +280,9 @@ async def test_sequential_tool_forces_barrier_under_parallel_default():
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (BarrierTool(),))
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, ReadOnlyToolGate(), context.events)
+    context.executor = ToolExecutor(
+        registry, validator, ReadOnlyToolGate(), context.events, error_boundary=execute_tool_errors
+    )
     await runtime.run((Message("u1", "user", "start"),), context)
 
 
@@ -309,7 +314,9 @@ async def test_graph_tool_cancellation_is_collected_before_run_returns():
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (WaitingTool(),))
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, ReadOnlyToolGate(), context.events)
+    context.executor = ToolExecutor(
+        registry, validator, ReadOnlyToolGate(), context.events, error_boundary=execute_tool_errors
+    )
     running = asyncio.create_task(runtime.run((Message("u1", "user", "start"),), context))
     await started.wait()
     running.cancel()

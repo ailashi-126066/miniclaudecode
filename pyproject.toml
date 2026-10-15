@@ -15,6 +15,8 @@ dependencies = [
     "jsonschema>=4.26,<5",
     "langchain[mcp]==1.4.4",
     "langgraph==1.2.14",
+    "langmem==0.0.30",
+    "pydantic>=2.7,<3",
     "langchain-deepseek>=1,<2",
     "langchain-openai>=1.7,<2",
     "langchain-anthropic>=1.7.5,<2",
@@ -24,9 +26,9 @@ dependencies = [
 pycode = "pycode.app.cli:main"
 
 [project.optional-dependencies]
-eval = ["langfuse==4.17.0"]
+eval = ["langfuse==4.17.0", "openevals==0.2.0", "agentevals==0.0.9"]
 team = ["starlette==1.7.0", "uvicorn==0.54.0"]
-dev = ["pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.17,<1", "build>=1,<2", "hatchling>=1.27,<2"]
+dev = ["editables==0.6", "pytest>=9,<10", "pytest-asyncio>=1,<2", "ruff>=0.17,<1", "build>=1,<2", "hatchling>=1.27,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycode"]

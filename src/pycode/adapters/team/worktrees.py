@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from pycode.adapters.snapshot.git_tree import GitSnapshotStore
 from pycode.adapters.storage.file_lease import FileLease
-from pycode.adapters.tools.backend import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, owned_io
 from pycode.core.errors import ToolError
 from pycode.core.values import json_dumps
 

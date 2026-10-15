@@ -35,6 +35,8 @@ FRAMEWORKS = {
     "langchain_deepseek",
     "langchain_anthropic",
     "langgraph",
+    "langmem",
+    "trustcall",
     "textual",
     "deepagents",
     "fastmcp",
@@ -125,7 +127,9 @@ def check_branding(root: Path = ROOT) -> list[str]:
             continue
         if any(part in excluded for part in relative.parts) or not path.is_file():
             continue
-        if relative.as_posix() == "docs/source-map.md" or relative.parts[:2] == (
+        # Verification evidence retains actual source-directory names and argv;
+        # those historical names are provenance, not current product branding.
+        if relative.as_posix() in {"docs/source-map.md", "测试数据.md"} or relative.parts[:2] == (
             "docs",
             "licenses",
         ):

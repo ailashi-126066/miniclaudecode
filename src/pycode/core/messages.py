@@ -10,7 +10,14 @@ from pycode.core.models import ModelSelection
 Role = Literal["system", "user", "assistant", "tool", "custom"]
 StopReason = Literal["stop", "tool_calls", "length", "error", "aborted", "content_filter"]
 Purpose = Literal[
-    "agent", "summary", "memory_extract", "memory_select", "plan", "subagent", "retry"
+    "agent",
+    "summary",
+    "memory_extract",
+    "memory_select",
+    "tool_selection",
+    "plan",
+    "subagent",
+    "retry",
 ]
 
 

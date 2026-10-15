@@ -1,10 +1,12 @@
 """Native framework Async Subagents tools against a real local HTTP host."""
 
 import asyncio
+import json
 import socket
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
+import httpx
 import pytest
 import uvicorn
 from deepagents.middleware.async_subagents import AsyncSubAgentMiddleware
@@ -52,11 +54,11 @@ class FixedWorker:
 
 
 @asynccontextmanager
-async def server():
+async def server(initial_role="worker"):
     workers = []
 
     async def factory(thread_id, graph_id):
-        if graph_id != "worker":
+        if graph_id != initial_role:
             raise ValueError("Unknown role")
         worker = FixedWorker()
         workers.append(worker)
@@ -82,13 +84,13 @@ async def server():
         listener.close()
 
 
-def tools_for(url):
+def tools_for(url, graph_id="worker"):
     middleware = AsyncSubAgentMiddleware(
         async_subagents=[
             {
                 "name": "worker",
                 "description": "fixed Worker",
-                "graph_id": "worker",
+                "graph_id": graph_id,
                 "url": url,
             }
         ]
@@ -162,3 +164,50 @@ async def test_server_close_cancels_and_collects_every_owned_worker(count):
             await worker.model.started.wait()
     assert all(worker.cancelled for worker in workers)
     assert all(task.done() for task in protocol.running.values())
+
+
+@pytest.mark.parametrize("change", ["readonly", "integration", "workspace"])
+@pytest.mark.parametrize("initial_role", ["readonly", "worker", "integration"])
+async def test_existing_worker_rejects_role_or_workspace_change_before_interrupt(
+    change, initial_role
+):
+    async with server(initial_role) as (url, protocol, workers):
+        state = {}
+        await native_call(
+            tools_for(url, initial_role),
+            state,
+            "start_async_task",
+            description="wait",
+            subagent_type="worker",
+        )
+        task_id = next(iter(state["async_tasks"]))
+        run_id = state["async_tasks"][task_id]["run_id"]
+        await asyncio.wait_for(workers[0].model.started.wait(), 10)
+        instruction = "change role"
+        role = change
+        if role == initial_role:
+            role = "worker" if initial_role != "worker" else "readonly"
+        if change == "workspace":
+            role = initial_role
+            instruction = json.dumps(
+                {
+                    "pycode_task": {
+                        "instruction": "change workspace",
+                        "worktree": {"base": "HEAD", "include_uncommitted": False},
+                    }
+                }
+            )
+        async with httpx.AsyncClient(base_url=url, timeout=5) as client:
+            response = await client.post(
+                f"/threads/{task_id}/runs",
+                json={
+                    "assistant_id": role,
+                    "input": {"messages": [{"role": "user", "content": instruction}]},
+                    "multitask_strategy": "interrupt",
+                },
+            )
+        assert response.status_code == 409
+        assert len(workers) == len(protocol.runs) == 1
+        assert protocol.threads[task_id].graph_id == initial_role
+        assert protocol.runs[run_id]["status"] == "running"
+        assert workers[0].instructions == ["wait"] and not workers[0].cancelled

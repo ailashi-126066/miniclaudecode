@@ -11,8 +11,9 @@ from pathlib import Path
 
 from pycode.adapters.storage.file_lease import FileLease
 from pycode.adapters.storage.layout import StorageLayout
+from pycode.adapters.storage.memory_references import memory_reference_values
+from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
 from pycode.adapters.storage.session_codec import decode_entry, decode_header
-from pycode.adapters.tools.backend import atomic_write, owned_io
 from pycode.core.errors import StorageError
 from pycode.core.storage import StorageInventory, StoredObject, mark_objects
 from pycode.core.values import json_dumps, plain_data
@@ -306,18 +307,16 @@ class FileStorageObjects:
             memory_roots.append(root)
             if root not in self.allowed_roots:
                 self.allowed_roots.append(root)
+        memory_writing = False
         for root in memory_roots:
-            if not root.exists():
-                continue
-            for path in sorted(root.glob("*.json")):
-                if re.fullmatch(r"[a-f0-9]{32}", path.stem):
-                    root_tokens.extend(string_values(self.read_json(path)))
-            candidates = root / "candidates"
-            if candidates.exists():
-                for path in sorted(candidates.glob("*.json")):
-                    data = self.read_json(path)
-                    if data.get("status") == "pending":
-                        root_tokens.extend(string_values(data))
+            values, busy = memory_reference_values(root)
+            for value in values:
+                root_tokens.extend(string_values(value))
+            if busy:
+                if root == self.root / "memory":
+                    memory_writing = True
+                else:
+                    active_projects.add(StorageLayout(root.parent.parent, self.root).project.name)
         if self.quarantine.exists():
             for path in sorted(self.quarantine.glob("*/record.json")):
                 data = self.read_json(path)
@@ -362,6 +361,7 @@ class FileStorageObjects:
                 references.update(aliases.get(token, ()))
             protected = (
                 item.protected
+                or memory_writing
                 or item.metadata.get("project_id") in uncertain_projects
                 or item.metadata.get("project_id") in active_projects
             )
@@ -399,7 +399,7 @@ class FileStorageObjects:
         target = self.checked(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
-            if self.file_hash(source) != self.file_hash(target):
+            if file_sha256(source) != file_sha256(target):
                 raise StorageError(
                     "gc_restore_conflict", "Destination object has different contents"
                 )
@@ -413,15 +413,11 @@ class FileStorageObjects:
             shutil.copyfile(source, target)
             with target.open("rb") as copied:
                 os.fsync(copied.fileno())
-            if self.file_hash(source) != self.file_hash(target):
+            if file_sha256(source) != file_sha256(target):
                 raise StorageError(
                     "gc_copy_failed", "Cross-filesystem quarantine copy failed verification"
                 ) from error
             source.unlink()
-
-    def file_hash(self, path):
-        with path.open("rb") as source:
-            return hashlib.file_digest(source, "sha256").hexdigest()
 
     def purge_snapshot_ref(self, item):
         gitdir = self.checked(item.metadata["gitdir"])

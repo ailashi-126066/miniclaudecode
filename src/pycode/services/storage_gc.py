@@ -2,10 +2,11 @@
 
 from pycode.core.session import EntryDraft
 from pycode.core.storage import RETENTION_SECONDS, mark_objects
+from pycode.ports.storage import StorageObjects
 
 
 class StorageGC:
-    def __init__(self, objects, sessions, timing, *, active_references=None):
+    def __init__(self, objects: StorageObjects, sessions, timing, *, active_references=None):
         self.objects = objects
         self.sessions = sessions
         self.timing = timing

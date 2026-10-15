@@ -1,5 +1,7 @@
 """JSONL restart recovery ends lost runs without executing their old calls."""
 
+from dataclasses import replace
+
 from pycode.core.inputs import pending_input_entries
 from pycode.core.messages import Message, ToolResult
 from pycode.core.session import EntryDraft
@@ -8,7 +10,7 @@ from pycode.core.tools import ToolContext
 
 
 async def recover_conversation(
-    store, outputs=None, *, reason="process_exit", outcome="interrupted"
+    store, outputs=None, *, reason="process_exit", outcome="interrupted", recover_tool=None
 ):
     snapshot = await store.snapshot()
     path = SessionTree(snapshot.index).path(snapshot.leaf_id)
@@ -46,18 +48,21 @@ async def recover_conversation(
             if key in paired:
                 continue
             operation_id = f"{run_id}:{message.id}:{call.id}"
+            context = ToolContext(
+                snapshot.header.session_id,
+                run_id,
+                operation_id,
+                snapshot.header.workspace,
+                call.id,
+                call.name,
+            )
+            confirmed = await recover_tool(context, call, snapshot) if recover_tool else None
             output_id = None
-            if outputs is not None:
-                output_id = await outputs.interrupted_reference(
-                    ToolContext(
-                        snapshot.header.session_id,
-                        run_id,
-                        operation_id,
-                        snapshot.header.workspace,
-                        call.id,
-                        call.name,
-                    )
-                )
+            if confirmed is not None and outputs is not None:
+                confirmed = await outputs.prepare(context, confirmed, "head")
+                output_id = confirmed.output_id
+            elif outputs is not None:
+                output_id = await outputs.interrupted_reference(context)
             result = ToolResult(
                 call.id,
                 call.name,
@@ -71,6 +76,14 @@ async def recover_conversation(
                 output_id=output_id,
                 details={"source_assistant_id": message.id, "output_recovered": bool(output_id)},
             )
+            if confirmed is not None:
+                result = replace(
+                    confirmed,
+                    details={
+                        **confirmed.details,
+                        "source_assistant_id": message.id,
+                    },
+                )
             result_entry_id = await store.append_message(
                 Message(f"interrupted:{message.id}:{call.id}", "tool", tool_result=result)
             )

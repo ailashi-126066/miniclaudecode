@@ -15,7 +15,7 @@ from uuid import uuid4
 from pydantic import TypeAdapter
 
 from pycode.adapters.storage.migration import migrate_output_metadata
-from pycode.adapters.storage.path_io import io_path
+from pycode.adapters.storage.path_io import atomic_write, io_path
 from pycode.adapters.storage.session_codec import decode_header
 from pycode.adapters.tools.read_range import read_range
 from pycode.core.errors import ToolError
@@ -121,17 +121,9 @@ class FileToolOutputStore:
 
     def publish_metadata(self, metadata: OutputMetadata) -> None:
         directory = self.directory(metadata.session_id)
-        directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{metadata.output_id}.json"
-        temporary = target.with_name(f".{uuid4().hex}.partial")
-        try:
-            with temporary.open("w", encoding="utf-8") as output:
-                json.dump(plain_data(metadata), output, sort_keys=True, ensure_ascii=False)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, target)
-        finally:
-            temporary.unlink(missing_ok=True)
+        encoded = json_dumps(metadata, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        atomic_write(target, encoded)
 
     async def begin(self, context: ToolContext, mode: PreviewMode) -> "StreamingOutputWriter":
         if context.session_id != self._session_id:
@@ -315,13 +307,19 @@ class FileToolOutputStore:
 
         return await self.run_io(read_reference)
 
-    async def read(self, output_id, offset, limit, max_bytes, byte_offset=0):
+    async def read(
+        self, output_id, offset, limit, max_bytes, byte_offset=0, *, absolute_byte_offset=None
+    ):
         self.validate_id(output_id)
         if (
             offset < 1
             or not 1 <= limit <= MAX_LINES
             or not 4 <= max_bytes <= MAX_BYTES
             or byte_offset < 0
+            or (
+                absolute_byte_offset is not None
+                and (type(absolute_byte_offset) is not int or absolute_byte_offset < 0)
+            )
         ):
             raise ToolError("invalid_output_range", "Output range exceeds line or byte limits")
         entry = None
@@ -410,7 +408,9 @@ class FileToolOutputStore:
                 if digest != metadata.sha256 or size != metadata.byte_count:
                     raise ToolError("output_corrupt", "Complete output content verification failed")
                 stream.seek(0)
-                return read_range(stream, output_id, offset, limit, max_bytes, byte_offset)
+                return read_range(
+                    stream, output_id, offset, limit, max_bytes, byte_offset, absolute_byte_offset
+                )
 
         return await self.run_io(read_object)
 

@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from pycode.app.config import AppConfig
 from pycode.app.container import open_agent_session
 from pycode.core.messages import Message
@@ -26,7 +28,7 @@ async def main():
     config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
     session = await open_agent_session(
         config,
-        (ProviderConfig(**request["provider"]),),
+        (TypeAdapter(ProviderConfig).validate_json(json.dumps(request["provider"]), strict=True),),
         "s1",
         create=True,
         refresh_models=False,

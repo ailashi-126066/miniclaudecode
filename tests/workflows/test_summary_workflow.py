@@ -9,11 +9,21 @@ from pycode.core.errors import ModelError
 from pycode.core.requests import RetryPolicy
 from pycode.services.events import EventStream
 from pycode.workflows.model_requests import ModelRequestRunner
-from pycode.workflows.summary import SummaryWorkflow
+from pycode.workflows.summary import SUMMARY_SYSTEM, SummaryWorkflow, serialize_source
 
 
 @pytest.mark.parametrize(
-    "case", ["valid", "empty", "empty-tags", "analysis-only", "length", "tool"]
+    "case",
+    [
+        "valid",
+        "valid-tags",
+        "content-blocks",
+        "empty",
+        "empty-tags",
+        "analysis-only",
+        "length",
+        "tool",
+    ],
 )
 async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool_execution(
     tmp_path, case
@@ -38,7 +48,20 @@ async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool
                 "total_tokens": 120,
             },
         )
-        if case == "empty":
+        if case == "valid-tags":
+            response = response.model_copy(
+                update={"content": "<summary>Goal: continue the task</summary>"}
+            )
+        elif case == "content-blocks":
+            response = response.model_copy(
+                update={
+                    "content": [
+                        {"type": "thinking", "thinking": "private reasoning"},
+                        {"type": "text", "text": "Goal: continue the task"},
+                    ]
+                }
+            )
+        elif case == "empty":
             response = AIMessage(content="")
         elif case == "empty-tags":
             response = AIMessage(content="<summary> </summary>")
@@ -65,7 +88,7 @@ async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool
             captured.job_id,
             purpose="summary",
         )
-        if case == "valid":
+        if case in {"valid", "valid-tags", "content-blocks"}:
             completion = await SummaryWorkflow(model).run(captured, runner)
             assert completion.text == "Goal: continue the task"
             assert (
@@ -75,6 +98,8 @@ async def test_summary_is_a_real_single_framework_request_with_usage_and_no_tool
             with pytest.raises(ModelError):
                 await SummaryWorkflow(model).run(captured, runner)
         assert len(model.requests) == 1
+        assert model.requests[0][0].content == SUMMARY_SYSTEM
+        assert model.requests[0][1].content == serialize_source(captured)
         assert "<conversation>" in model.requests[0][1].content
         assert (await records.list_requests())[0].purpose == "summary"
     finally:

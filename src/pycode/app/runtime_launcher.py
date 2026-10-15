@@ -33,42 +33,46 @@ class ConfiguredRuntimeLauncher:
         plan_backend=None,
         durable_inputs=None,
         runtime_factory=None,
+        model_resolver=None,
         hook_factory=None,
         prompt_factory=None,
         lifecycle_provider=None,
         team=None,
+        memory=None,
     ) -> None:
-        self._config = config
+        self.config = config
+        self.model_resolver = model_resolver
         self._runtime_factory = runtime_factory
         self._hook_factory = hook_factory
         self._prompt_factory = prompt_factory
-        self._lifecycle_provider = lifecycle_provider
+        self.lifecycle_provider = lifecycle_provider
         self.team = team
-        self._tools = tools
-        self._consumers = consumers
-        self._summary: SummaryService | None = None
-        self._event_journal = event_journal
-        self._configured_hooks = configured_hooks
-        self._mcp_connections = mcp_connections
-        self._mcp_config_hash = mcp_config_hash
-        self._plans = plans
-        self._plan_backend = plan_backend
-        self._durable_inputs = durable_inputs
+        self.memory = memory
+        self.tools = tools
+        self.consumers = consumers
+        self.summary: SummaryService | None = None
+        self.event_journal = event_journal
+        self.configured_hooks = configured_hooks
+        self.mcp_connections = mcp_connections
+        self.mcp_config_hash = mcp_config_hash
+        self.plans = plans
+        self.plan_backend = plan_backend
+        self.durable_inputs = durable_inputs
         self._hook_engines = []
-        self._hook_tasks = {}
+        self.hook_tasks = {}
         self._lifecycle_engine = None
         self._lifecycle_context = None
         self._active_container = None
 
     async def startup(self, store):
-        if not self._configured_hooks:
+        if not self.configured_hooks:
             return
         snapshot = await store.snapshot()
         lifetime = uuid4().hex
         engine = self._hook_factory(self, store, snapshot, lifetime)
         self._lifecycle_engine = engine
         self._lifecycle_context = HookContext(
-            snapshot.header.session_id, lifetime, str(self._config.workspace), lifetime, "startup"
+            snapshot.header.session_id, lifetime, str(self.config.workspace), lifetime, "startup"
         )
         self._hook_engines.append(engine)
         await engine.fire(self._lifecycle_context)
@@ -119,7 +123,7 @@ class ConfiguredRuntimeLauncher:
     async def execute(
         self, provider, store, run_id, *, inputs=(), history=(), resume=False, answers=None
     ):
-        if not self._config.workspace.is_dir():
+        if not self.config.workspace.is_dir():
             raise StorageError("workspace_missing", "Execution workspace no longer exists")
         if resume:
             container = self._active_container
@@ -134,7 +138,7 @@ class ConfiguredRuntimeLauncher:
             if container.context.hooks is not None:
                 self._hook_engines.append(container.context.hooks)
                 container.owns_hooks = False
-            self._summary = container.context.summary
+            self.summary = container.context.summary
             container.owns_summary = False
         keep_waiting = False
         try:
@@ -165,25 +169,25 @@ class ConfiguredRuntimeLauncher:
         if container.context.hooks is not None:
             self._hook_engines.append(container.context.hooks)
             container.owns_hooks = False
-        self._summary = container.context.summary
+        self.summary = container.context.summary
         container.owns_summary = False
         try:
             if container.context.mcp is not None:
                 await container.context.mcp.refresh(container.context.registry)
-                self._summary.set_tools(container.context.registry.model_specs())
+                self.summary.set_tools(container.context.registry.model_specs())
             current = ContextProjector().project(await store.snapshot())
             effective = []
             for declaration in current.checkpoint.get("model_tools", ()):
                 effective.append(ToolSpec(**plain_data(declaration)))
             if effective:
-                self._summary.set_tools(tuple(effective))
-            report = await self._summary.prepare(manual=True)
+                self.summary.set_tools(tuple(effective))
+            report = await self.summary.prepare(manual=True)
             if container.context.hooks is not None and report.applied_job_id is not None:
                 await container.context.hooks.fire(
                     HookContext(
                         snapshot.header.session_id,
                         container.context.run_id,
-                        str(self._config.workspace),
+                        str(self.config.workspace),
                         report.applied_job_id,
                         "compact",
                     )
@@ -215,15 +219,15 @@ class ConfiguredRuntimeLauncher:
                     if isinstance(result, BaseException):
                         raise result
             finally:
-                if self._summary is not None:
-                    await self._summary.aclose()
-                    self._summary = None
-                if self._mcp_connections is not None:
-                    await self._mcp_connections.aclose()
+                if self.summary is not None:
+                    await self.summary.aclose()
+                    self.summary = None
+                if self.mcp_connections is not None:
+                    await self.mcp_connections.aclose()
 
     async def invalidate_summary(self, reason):
-        if self._summary is not None:
-            await self._summary.invalidate(reason)
+        if self.summary is not None:
+            await self.summary.invalidate(reason)
 
     async def reconcile_hook(self, store, operation_id, action, text="", is_error=False):
         snapshot = await store.snapshot()

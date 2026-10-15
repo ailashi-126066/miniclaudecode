@@ -1,8 +1,8 @@
 # 源码来源与复用记录
 
-实施规范：工作区根目录 `pi计划.md`。当前开发目录为
+唯一实施规范：项目根目录 `第二个计划.md`。原开发目录为
 `C:/Users/21125/Desktop/go/pycode`；原规范中的 macOS 绝对路径属于来源环境，
-在此工作区对应同级参考目录。开发期不创建 `.git`，最终历史接入尚未授权执行。
+在此工作区对应同级参考目录。当前副本没有 `.git`；最终历史接入只能在真实目标仓库中核验。
 
 ## 固定来源
 
@@ -14,7 +14,8 @@
   用户于 2026-10-10 明确说明这是其自行编写的代码。按用户授权直接复用和改造，
   不因缺少项目级许可证文件阻止迁移。保留源文件现有署名；此授权不扩大第三方依赖许可证。
 
-固定提交源码归档位于忽略的 `.source-cache/`，仅供对照，不作为运行依赖或随发行包发布。
+当前固定提交源码归档缓存位于 `tests/.runtime-tests/source-cache/`，仅供对照，
+不作为运行依赖或随发行包发布。原阶段使用的 `.source-cache/` 属于历史验证目录。
 归档 URL、完整提交和 SHA-256 见 `baselines/upstream.json`。
 原始归档保留以核对来源，文件清单见本文件末尾与 `baselines/upstream-files.json`。
 
@@ -56,8 +57,10 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   JSONL once/结果、owned background、真实只读 Agent 动作和 Plan/权限边界为本项目接入。
 - `services/plans.py`、`adapters/storage/plans.py`、`workflows/plans.py`：精确 Markdown 路径，
   当前进程审批、批准内容 hash、反馈与重启过期语义。AskUser 使用同样 live interrupt。
-- `services/memory.py`、`workflows/memory.py`、`adapters/storage/memory*.py`：MewCode 的提取/
-  选择/审阅设计， grounded evidence、三种类别、有界快照、事务恢复和原子索引为本项目实现。
+- `services/json_memory.py`、`workflows/memory_update.py`、`adapters/storage/json_memory.py`：
+  官方 LangMem Store Manager／管理搜索工具／prompt_memory 适配，三类 JSON 记忆、可信来源、
+  单一召回、分组提交、持久作业／来源游标和规则比较为本项目接入。`legacy_memory.py` 仅保留
+  已有旧事务的迁移恢复；旧提取器、人工审阅服务和 Markdown 工具路由已退出运行包。
 - `services/team.py`、`workflows/team.py`、`adapters/team/*`：Deep Agents Async Subagents
   五个 native tools 及 Agent Protocol；pycode 添加依赖、并发、worktree 和安全集成清理。
   没有独立 Worker 消息队列／已消费游标；同步只读子任务和 fork Skill 使用 native task。
@@ -67,6 +70,8 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   adapter 构造仍在唯一 `app/container.py`。没有 import 注册、全局服务定位或 monkey patch。
 - `adapters/ui/*`、`app/cli*.py`：MewCode Textual/CLI 设计；当前品牌 pycode、原始历史
   增量组件、折叠/对象回读、live/expired 等待、Plan/memory/team、可读名称和 UTF-8 输出。
+  `commands.py`、`completion.py` 参考只读 `code-python/mewcode/commands/{registry,parser,completion}.py`；
+  仅注册本项目既有入口。原候选思路适配为 Textual OptionList，点击选择实际行，Enter 分开补全和提交。
 - `core/evaluation.py`、`services/evaluation.py`、`adapters/evaluation/*`：固定 GitHub corpus
   12 Python 题、3 smoke、实际 harness、独立测试及摘要-only Langfuse。本项目新增流水线。
   上游 `Aider-AI/polyglot-benchmark@7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f`；

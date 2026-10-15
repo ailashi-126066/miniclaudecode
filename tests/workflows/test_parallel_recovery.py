@@ -19,6 +19,7 @@ from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
 from pycode.workflows.agent import AgentRuntime
 from pycode.workflows.permissions import InterruptToolGate
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 class HeldRead:
@@ -64,8 +65,10 @@ async def test_parallel_tool_cancellation_collects_both_and_never_restarts_them(
     context.journal = journal
     context.history_store = journal
     context.projector = ContextProjector()
-    context.executor = ToolExecutor(registry, validator, InterruptToolGate(), context.events)
-    runtime = AgentRuntime(model, registry.list_specs())
+    context.executor = ToolExecutor(
+        registry, validator, InterruptToolGate(), context.events, error_boundary=execute_tool_errors
+    )
+    runtime = AgentRuntime(model)
     try:
         running = asyncio.create_task(runtime.run((Message("u1", "user", "read"),), context))
         await asyncio.wait_for(tool.started.wait(), 5)
@@ -92,8 +95,10 @@ async def test_parallel_native_interrupt_answers_preserve_call_result_order(tmp_
             await super().authorize(tool_context, replace(spec, category="write"), call)
 
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, AskEveryRead(), context.events)
-    runtime = AgentRuntime(model, registry.list_specs())
+    context.executor = ToolExecutor(
+        registry, validator, AskEveryRead(), context.events, error_boundary=execute_tool_errors
+    )
+    runtime = AgentRuntime(model)
     pending = await runtime.run((Message("u1", "user", "read"),), context)
     assert pending.outcome == "needs_input" and tool.executed == 0
     async with asyncio.timeout(5):
@@ -128,8 +133,10 @@ async def test_completed_read_settles_while_an_earlier_call_waits_for_permission
             await super().authorize(tool_context, spec, call)
 
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, AskFirstRead(), context.events)
-    runtime = AgentRuntime(model, registry.list_specs())
+    context.executor = ToolExecutor(
+        registry, validator, AskFirstRead(), context.events, error_boundary=execute_tool_errors
+    )
+    runtime = AgentRuntime(model)
     pending = await asyncio.wait_for(runtime.run((Message("u", "user", "read"),), context), 5)
     assert pending.outcome == "needs_input" and tool.executed == 1
     saved = [item.tool_result for item in journal.messages if item.tool_result]
@@ -168,8 +175,10 @@ async def test_unrelated_prior_failure_does_not_serialize_two_parallel_reads():
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (tool, Failure()))
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, InterruptToolGate(), context.events)
-    runtime = AgentRuntime(model, registry.list_specs())
+    context.executor = ToolExecutor(
+        registry, validator, InterruptToolGate(), context.events, error_boundary=execute_tool_errors
+    )
+    runtime = AgentRuntime(model)
     running = asyncio.create_task(runtime.run((Message("u", "user", "read"),), context))
     try:
         await asyncio.wait_for(tool.started.wait(), 5)
@@ -210,8 +219,10 @@ async def test_matching_failure_barrier_yields_all_permission_interrupts():
     validator = JsonSchemaValidator()
     registry = ToolRegistry(validator, (tool,))
     context.registry = registry
-    context.executor = ToolExecutor(registry, validator, AskRepeatedRead(), context.events)
-    runtime = AgentRuntime(model, registry.list_specs())
+    context.executor = ToolExecutor(
+        registry, validator, AskRepeatedRead(), context.events, error_boundary=execute_tool_errors
+    )
+    runtime = AgentRuntime(model)
     pending = await asyncio.wait_for(runtime.run((Message("u", "user", "read"),), context), 5)
     assert pending.outcome == "needs_input" and len(pending.pending) == 2
     answers = {}

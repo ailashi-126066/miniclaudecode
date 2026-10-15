@@ -11,6 +11,7 @@ from pycode.services.events import EventStream
 from pycode.services.permission import ReadOnlyToolGate
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 class EchoTool:
@@ -49,7 +50,9 @@ def make_executor(tool=None, gate=None):
     recorder = Recorder()
     events = EventStream("session-1", "run-1", (recorder,))
     registry = ToolRegistry(validator, (tool,))
-    executor = ToolExecutor(registry, validator, gate or ReadOnlyToolGate(), events)
+    executor = ToolExecutor(
+        registry, validator, gate or ReadOnlyToolGate(), events, error_boundary=execute_tool_errors
+    )
     context = ToolContext("session-1", "run-1", "operation-1", "/workspace")
     return executor, context, tool, recorder
 

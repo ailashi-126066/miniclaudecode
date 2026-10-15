@@ -15,6 +15,7 @@ from pycode.core.summaries import SummaryCompletion, SummarySettings
 from pycode.services.context_projector import ContextProjector
 from pycode.services.events import EventStream
 from pycode.services.summary import SummaryService
+from pycode.workflows.summary import prepare_summary
 
 
 class Generator:
@@ -51,7 +52,15 @@ async def setup(tmp_path, generator):
         ModelSelection("test", "test-model", "openai"), (), InputBudget.create(20000, 1000), 4000
     )
     events = EventStream("s1", "r1", ())
-    service = SummaryService(history, ContextProjector(), objects, generator, settings, events)
+    service = SummaryService(
+        history,
+        ContextProjector(),
+        objects,
+        generator,
+        settings,
+        events,
+        preparation=prepare_summary,
+    )
     return history, objects, settings, events, service
 
 
@@ -147,7 +156,15 @@ async def test_finished_background_object_can_be_restored_after_close(tmp_path):
     await service.prepare()
     await service.collect(cancel=False)
     await service.aclose()
-    restored = SummaryService(history, ContextProjector(), objects, generator, settings, events)
+    restored = SummaryService(
+        history,
+        ContextProjector(),
+        objects,
+        generator,
+        settings,
+        events,
+        preparation=prepare_summary,
+    )
     try:
         assert (await restored.prepare(manual=True)).applied_job_id == generator.sources[0].job_id
         assert len(generator.sources) == 1
@@ -165,7 +182,15 @@ async def test_cancelled_generator_is_collected_and_not_restored_as_generating(t
     assert generator.cancelled
     assert (await objects.load(generator.sources[0].job_id))[1].status == "interrupted"
     generator.release.set()
-    restored = SummaryService(history, ContextProjector(), objects, generator, settings, events)
+    restored = SummaryService(
+        history,
+        ContextProjector(),
+        objects,
+        generator,
+        settings,
+        events,
+        preparation=prepare_summary,
+    )
     try:
         assert (await restored.prepare(manual=True)).applied_job_id is not None
         assert len(generator.sources) == 2
@@ -331,6 +356,67 @@ async def test_public_background_cancel_collects_task_and_next_manual_request_ca
         generator.release.set()
         result = await service.prepare(manual=True)
         assert result.applied_job_id != old.job_id and len(generator.sources) == 2
+    finally:
+        await service.aclose()
+        await history.aclose()
+
+
+async def test_force_without_wait_and_apply_keeps_one_owned_job_until_explicit_adoption(tmp_path):
+    generator = Generator(blocked=True)
+    history, _, _, _, service = await setup(tmp_path, generator)
+    try:
+        report = await asyncio.wait_for(service.prepare(force=True, wait_for_capacity=False), 1)
+        assert report.status == "generating" and report.applied_job_id is None
+        await generator.started.wait()
+        generator.release.set()
+        await service.collect(cancel=False)
+        report = await service.prepare(force=True, allow_apply=False)
+        assert report.status == "ready" and report.applied_job_id is None
+        assert len(generator.sources) == 1
+        assert not any(entry.type == "compaction" for entry in (await history.snapshot()).entries)
+        report = await service.prepare(force=True)
+        assert report.applied_job_id == generator.sources[0].job_id
+        assert len(generator.sources) == 1
+    finally:
+        await service.aclose()
+        await history.aclose()
+
+
+async def test_cancelled_capacity_wait_keeps_background_job_for_later_adoption(tmp_path):
+    generator = Generator(blocked=True)
+    history, _, _, _, service = await setup(tmp_path, generator)
+    applying = None
+    try:
+        await service.prepare()
+        await generator.started.wait()
+        applying = asyncio.create_task(service.prepare(manual=True))
+        await asyncio.sleep(0)
+        applying.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await applying
+        assert not generator.cancelled
+        assert not any(entry.type == "compaction" for entry in (await history.snapshot()).entries)
+        generator.release.set()
+        await service.collect(cancel=False)
+        report = await service.prepare(manual=True)
+        assert report.applied_job_id == generator.sources[0].job_id
+        assert len(generator.sources) == 1
+    finally:
+        if applying is not None and not applying.done():
+            applying.cancel()
+            await asyncio.gather(applying, return_exceptions=True)
+        await service.aclose()
+        await history.aclose()
+
+
+async def test_force_starts_and_adopts_in_the_same_preparation_check(tmp_path):
+    generator = Generator()
+    history, _, _, _, service = await setup(tmp_path, generator)
+    try:
+        report = await service.prepare(force=True)
+        assert report.status == "applied"
+        assert report.applied_job_id == generator.sources[0].job_id
+        assert len(generator.sources) == 1
     finally:
         await service.aclose()
         await history.aclose()

@@ -37,16 +37,33 @@ def skip_line_bytes(stream: BinaryIO, byte_offset: int) -> None:
 
 
 def read_range(
-    stream: BinaryIO, output_id: str, offset: int, limit: int, max_bytes: int, byte_offset: int
+    stream: BinaryIO,
+    output_id: str,
+    offset: int,
+    limit: int,
+    max_bytes: int,
+    byte_offset: int,
+    absolute_byte_offset: int | None = None,
 ) -> OutputSlice:
     line = 1
+    if absolute_byte_offset is not None:
+        size = stream.seek(0, 2)
+        if absolute_byte_offset > size:
+            raise ToolError("invalid_output_range", "Absolute cursor exceeds the output")
+        stream.seek(absolute_byte_offset)
+        first = stream.read(1)
+        if first and first[0] & 0xC0 == 0x80:
+            raise ToolError("invalid_output_range", "Absolute cursor splits a UTF-8 character")
+        stream.seek(absolute_byte_offset)
+        line = offset
     while line < offset:
         chunk = stream.readline(64 * 1024)
         if not chunk:
             return OutputSlice(output_id, "", offset, offset - 1, False, offset, 0)
         if chunk.endswith(b"\n"):
             line += 1
-    skip_line_bytes(stream, byte_offset)
+    if absolute_byte_offset is None:
+        skip_line_bytes(stream, byte_offset)
     pieces = []
     visible = 0
     returned_lines = 0

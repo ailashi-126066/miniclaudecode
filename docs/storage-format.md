@@ -72,3 +72,39 @@ compressed session JSONL. Source hashes cover actual package bytes; the verifica
 hashes tests/tools and the dependency lock. Exported traces explicitly state whether every raw
 entry was retained and that ephemeral output objects were removed with the workspace. Earlier
 reports are immutable historical evidence and are never rewritten by normal test execution.
+
+JSON memory migration is in progress. The new JsonMemoryStore binds configured namespaces
+(non-path user/project identities) to separate `memory.json` files. Schema version 1 contains
+namespace, revision, typed records with timezone timestamps, and committed source-batch receipts.
+Duplicate keys, missing required fields, future versions and corrupt files fail without overwrite.
+Updates use the existing FileLease and atomic_write; prior whole snapshots are inactive JSON
+version backups. A job-owned BaseStore view stages component writes and freezes before commit.
+Each scope commits independently with its observed revision, content and source progress together.
+Replayed source receipts cannot undo a newer correction. Directory search uses a metered model,
+never embeddings, keyword ranking or full-body injection into selection prompts.
+The application still uses the old memory service until migration, evidence validation, recovery,
+active tools and GC integration are verified. These new adapter tests do not establish that switch.
+
+
+Legacy per-record Markdown/JSON conversion now preserves original IDs, scoped content, evidence
+and timestamps. Original files and exact hashed migration backups are retained as inactive
+recovery material; old Store/Markdown entry points reject access once active JSON exists.
+A prepared manifest and immutable receipt identify a published migration, so interrupted completion
+can resume without replaying edits or undoing newer corrections. Unknown aggregate Markdown
+without verifiable IDs/provenance is preserved and reported rather than guessed into records.
+UUID spelling aliases resolve to the existing key, including official tools updating old hex IDs.
+The v1 migration receipt is additive optional metadata; core snapshot fields remain required.
+GC uses the same strict snapshot/backup validation, scans pending jobs and version sources, and
+protects active memory writers. Mutation rechecks the inventory before moving or purging objects.
+These adapter and GC changes still precede the application's memory-service migration.
+
+
+New memory commits capture a trusted original-branch evidence snapshot before model review.
+Tool quotes use checked complete output readback, with bounded character ranges and no preview
+fallback after corruption. Physical source/role/scope checks precede a metered support verdict;
+actual source presence does not alone authorize a new claim or deletion. A job-owned write permit
+binds accepted changes and their observed target hashes. Associated changes validate together,
+independent valid groups can commit, and rejected groups cannot advance the whole source batch.
+Progress IDs and character positions must be real, contiguous captured sources. The existing
+atomic JSON commit remains the sole publication path. Durable rejected-group recovery and the
+application memory-service/tool switch are still pending integration.

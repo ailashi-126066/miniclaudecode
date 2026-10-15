@@ -21,3 +21,16 @@ class IsolatedWorkerToolGate:
         if spec.category == "read" or spec.name in {"write_file", "edit_file"}:
             return
         await self.external_gate.authorize(context, spec, call)
+
+
+class MemoryToolGate:
+    """Only the explicitly registered memory tools bypass ordinary file-write approval."""
+
+    def __init__(self, parent, specs):
+        self.parent = parent
+        self.grants = {spec.name: spec for spec in specs}
+
+    async def authorize(self, context, spec, call):
+        if spec.source == "memory" and self.grants.get(spec.name) == spec:
+            return
+        await self.parent.authorize(context, spec, call)

@@ -7,8 +7,9 @@ from tests.support.skill_resources import write_resource_skill
 from tests.workflows.test_skills_http import skill_reply
 
 from pycode.app.config import AppConfig
-from pycode.app.container import open_agent_session
+from pycode.app.container import open_agent_session, sandbox_status
 from pycode.core.messages import Message
+from pycode.core.values import plain_data
 
 
 @pytest.mark.parametrize("kind", ["sync", "async"])
@@ -39,7 +40,10 @@ async def test_skill_is_framework_loaded_and_python_requires_each_approval(
             assert "resource_probe" in str(requests[1]["body"]["tools"])
             details = waiting.pending[0]["approval_details"]
             assert details["skill"] == "resource" and details["script_sha256"]
-            assert waiting.pending[0]["sandbox"]["available"] is False
+            reported_sandbox = waiting.pending[0]["sandbox"]
+            assert reported_sandbox == plain_data(await sandbox_status(config))
+            assert reported_sandbox["enabled"] is False
+            assert reported_sandbox["auto_approve"] is False
             first = await session.resume(
                 {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
             )

@@ -1,6 +1,6 @@
 # pycode
 
-本地 Python 编码 Agent。实施规范是父目录的 `pi计划.md`。执行栈固定为
+本地 Python 编码 Agent。唯一实施规范是项目根目录的 `第二个计划.md`。执行栈固定为
 `deepagents==0.7.23`、`langchain[mcp]==1.4.4`、`langgraph==1.2.14`。
 主循环由 `create_deep_agent` 执行，文件入口为 FilesystemMiddleware，Skill 加载由
 SkillsMiddleware 执行，MCP 连接和协议由 LangChain 内置 MCPAdapter 持有。
@@ -10,6 +10,8 @@ SkillsMiddleware 执行，MCP 连接和协议由 LangChain 内置 MCPAdapter 持
 Python 3.11+；开发验证环境是 Windows／Python 3.12.10。文件搜索需要 PATH 中的 `rg`，
 Bash 使用 Git Bash 或系统 Bash。Git tree 快照和修改型 Worker 需要项目已经存在 Git 仓库。
 本项目开发目录保持非 Git；相关测试只使用 `tests/` 中的临时仓库。
+
+如果旧版本曾在某个虚拟环境中注册 `py` console script，请在该旧虚拟环境中卸载旧包或删除该虚拟环境，再安装当前版本；不要删除或改写系统 Python Launcher 的 `py` 命令。
 
 ```powershell
 python -m venv .venv
@@ -31,10 +33,99 @@ pycode --workspace C:\project session name SESSION_ID "项目分析"
 pycode --workspace C:\project session open "项目分析"
 ```
 
+## 独立质量与轨迹评估（开发目录）
+
+在开发虚拟环境安装 `.[dev,eval]`，并使用 `requirements-dev.lock` 约束版本。
+OpenEvals 固定为 0.2.0，AgentEvals 固定为 0.0.9。数据集和评分标准在
+`tests/evals/quality-cases.json`，运行前固定；所有运行数据保存到 `tests/.runtime-tests/`。
+
+```text
+python tools/run_output_quality.py
+python tools/run_trajectory_quality.py
+python -m tests.support.verify_live_inferred_rule_evaluation
+python tools/run_rule_comparison_quality.py --source tests/.runtime-tests/live/RUN/result.json
+```
+
+输出评估实际调用记忆应用服务、摘要工作流和官方规则优化器。轨迹评估执行当前
+AgentSession，但使用本地 HTTP 服务注入可控选择、重试、fallback 和中断；这些轨迹
+不能替代真实远程服务验收。生成调用与裁判调用分开记录，裁判不执行业务工具。
+
+每项都带错误输出／轨迹负控制。范围拒绝、作业未完成或裁判失败不能算质量通过。
+评估脚本支持只恢复未完成项：`run_output_quality.py --resume-memory-from DIR
+--only memory-preference --retry-memory`，`run_trajectory_quality.py --resume REPORT
+--only tool-selection`，以及规则裁判的 `--resume-positive-grades REPORT`。
+保留原始报告；`tools/summarize_quality_suite.py --help` 给出完整汇总参数。
+模型评分是固定小数据集诊断，不替代确定性测试和推断规则的运行时采用凭据。
+
+## 主模型工具选择
+
+Provider 配置可包含 `tool_selector`。默认开启，候选可选工具超过 8 个且候选数达到 24
+或声明估计达到 12000 token 时，使用官方 LLMToolSelectorMiddleware。读取、发现、回读、
+提问与当前计划出口等必需工具在权限过滤后保留，不占可选工具的 8 个额度；Provider 专有
+工具另外保留。候选较少时跳过选择请求。
+
+```json
+"tool_selector": {
+  "enabled": true,
+  "max_tools": 8,
+  "candidate_threshold": 24,
+  "schema_token_threshold": 12000,
+  "input_limit": 16000,
+  "output_limit": 1024,
+  "always_include": [],
+  "on_failure": "all"
+}
+```
+
+不设置 `model` 时使用当前已配置模型；也可设置
+`"model": {"provider": "已配置名称", "model_id": "已声明模型"}`。选择模型须支持 schema 工具，
+使用独立的受控请求、最多 1024 输出 token，默认关闭选择请求的 thinking；主模型配置不变。
+工具名／说明通过官方组件的结构化 schema 传入，未选择 Skill 正文不加载。
+
+失败或无效选择默认返回已经通过权限过滤的声明集合，继续执行真实预算检查；
+`on_failure: "error"` 则停止主请求。取消、程序缺陷和关键持久化错误向上传播。
+选择后的实际 Schema 计入预算；重试复用相同选择与排列顺序；未声明或版本已变化的
+工具不执行。JSONL 审计保存前后 Schema 估计，实际用量独立归属 `tool_selection`。
+
 名称是显示 metadata。完整 session_id 仍是唯一身份；重名要求明确选择 ID。
 TUI 支持 `/session name 名称`、`/session open ID-or-name`、`/session fork 新ID`、
 `/plan`、`/memory`、`/storage status`、`/storage gc --dry-run`、`/team list`、
 `/team check ID`、`/team update ID 新指令`、`/team cancel ID` 和 `/skill:NAME 参数`。
+
+## 主模型故障切换
+
+每个 Provider 可声明有序的 `fallback_models`，每项只引用已经配置的 Provider 和模型：
+
+```json
+"fallback_models": [
+  {"provider": "backup", "model_id": "declared-model"}
+]
+```
+
+未配置时只运行原模型。主模型原有有限重试耗尽后，连接、超时、限流、可切换服务错误
+与流式服务错误由官方 ModelFallbackMiddleware 尝试备用实例。每个候选独立按现有策略重试，
+SDK 重试仍关闭；工具选择和已完成工具结果不重新执行。
+
+取消、审批中断、配置／认证错误、程序缺陷和关键持久化失败不触发后续请求。工具、图片、
+thinking 和 Provider 专有声明不兼容时记录跳过原因；缺失备用凭据不影响主模型成功路径。
+实际 SDK、API 模式、输出额度、观察器与逐次用量跟随实际候选；窗口改变时重新计量并按
+原摘要服务安全压缩。请求保留相同 logical_id、独立 request_id、candidate_index 和候选内
+attempt。失败流式片段保留来源，不写成成功历史或拼接到下一请求。
+
+运行内故障切换不改变显式首选；下一轮仍从首选模型开始。该初版仅用于主 Agent，
+后台摘要／记忆、选择器和 Worker 不自动启用该切换。
+
+## 工具错误与可靠结算
+
+工具执行异常由官方 ToolErrorMiddleware 在现有权限与快照边界内部处理；
+允许重试的只读临时错误先经过现有有限 ToolRetryMiddleware，写入／Shell／外部动作不扩大
+重试范围。可恢复 ToolError 和执行 I/O 异常映射为稳定 error_code、原 call ID 与工具名；
+已有错误结果保留，不重复包装。异常文本有界并脱敏，写入失败保留副作用不确定性和快照。
+
+取消、审批中断、程序缺陷、关键同步 Hook、快照与输出／JSONL 保存失败不会当成普通
+错误继续运行。只有完整输出、快照绑定与唯一正式 JSONL 结果保存后才发结束事件。
+工作区文件后端与 Python Skill 路径检查使用同一个保留组件规则，阻止 `.PYCODE`／`.GIT`
+等大小写别名访问内部状态。
 
 ## 运行与恢复
 
@@ -66,9 +157,16 @@ Hooks 支持 command、prompt、HTTP 和真实只读子 Agent 动作；同步失
 Windows／Linux 没有 Seatbelt；macOS Bash 可选 `--sandbox on|on-auto`，
 `--sandbox-network` 显式允许网络。macOS 物理隔离仍须在目标平台验收。
 
-长期记忆区分用户偏好、纠正反馈、项目知识，使用真实来源证据；默认 auto，另有 review／off。
-候选冲突必须审阅。选择是有界快照，更新有事务恢复、版本保护和旧版本备份。
-`/memory` 界面可编辑、换作用域、批准或拒绝。无 Provider 的 CLI 可以管理已存在记忆。
+长期记忆使用每作用域一个 `memory.json`，区分语义事实、历史案例和程序规则；默认 auto，
+另有 off。官方 LangMem 管理／搜索、后台整理和规则优化共用 Store、真实来源校验与可靠提交，
+无需记忆人工审批。无 Provider 的 CLI 可以查看、编辑、移动和删除已存在记忆。
+
+`memory edit ID "正文" --scope user|project` 指定目标作用域；`memory move ID user|project`
+只移动，ID、原创建时间和已有来源保留。同 ID 在两侧都存在时，用 `--from-scope` 指定来源。
+TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先保存目标再删除未变化的源，
+每个文件独立原子发布，并用持久凭据恢复；两文件之间不宣称原子事务。冲突保留已有内容并报错。
+迁入不同作用域的用户偏好／项目知识标为明确作用域纠正；迁入规则由该次用户动作明确采用，
+修改案例正文时取消原“已验证”标记。迁移备份与旧格式原件仍用于恢复。
 
 `team.json` 位于用户数据目录或受信任项目目录，声明 `name`、`description`、`graph_id`、
 `url`、可选 `headers` 和 `modifies_workspace`。本地服务：

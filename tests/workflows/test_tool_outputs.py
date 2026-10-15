@@ -16,6 +16,7 @@ from pycode.services.permission import ReadOnlyToolGate
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
 from pycode.workflows.agent import AgentRuntime
+from pycode.workflows.tool_errors import execute_tool_errors
 
 
 async def test_large_tool_and_readback_run_through_actual_framework_and_same_executor(tmp_path):
@@ -66,13 +67,18 @@ async def test_large_tool_and_readback_run_through_actual_framework_and_same_exe
     registry = ToolRegistry(validator, (BigOutput(), ReadToolResult(outputs)))
     context.registry = registry
     context.executor = ToolExecutor(
-        registry, validator, ReadOnlyToolGate(), context.events, outputs
+        registry,
+        validator,
+        ReadOnlyToolGate(),
+        context.events,
+        outputs,
+        error_boundary=execute_tool_errors,
     )
     context.journal = store
     context.history_store = store
     context.projector = ContextProjector()
     context.outputs = outputs
-    runtime = AgentRuntime(model, registry.list_specs())
+    runtime = AgentRuntime(model)
     result = await runtime.run((Message("u1", "user", "generate and read"),), context)
     assert result.final_text == "done"
     sent = [message for message in model.requests[1] if isinstance(message, ToolMessage)][0]

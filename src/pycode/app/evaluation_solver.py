@@ -1,5 +1,6 @@
 """Coding evaluations use existing sessions and the exact configured model."""
 
+import asyncio
 from dataclasses import replace
 from uuid import uuid4
 
@@ -29,15 +30,7 @@ class ConfiguredEvaluationSolver:
             credential_workspace=self.config.credential_workspace or self.config.workspace,
         )
         identity = self.metadata_factory()
-        session = await self.session_opener(
-            config,
-            self.providers,
-            "evaluation",
-            create=True,
-            refresh_models=False,
-            startup_hooks=False,
-            connect_mcp=False,
-        )
+        session = None
         try:
             instructions = (workspace / ".docs/instructions.md").read_text(encoding="utf-8")
             prompt = (
@@ -48,7 +41,29 @@ class ConfiguredEvaluationSolver:
                 "or use external tools. "
                 "Run the existing tests with python -m pytest -q.\n\n" + instructions
             )
-            result = await session.run(Message(uuid4().hex, "user", prompt))
+            failure = {}
+            outcome, final_text = "agent_error", ""
+            try:
+                # Bound the actual solver, then collect settled receipts outside
+                # that deadline. A timeout must retain the requests it incurred.
+                async with asyncio.timeout(task.timeout_seconds * 3):
+                    session = await self.session_opener(
+                        config,
+                        self.providers,
+                        "evaluation",
+                        create=True,
+                        refresh_models=False,
+                        startup_hooks=False,
+                        connect_mcp=False,
+                    )
+                    result = await session.run(Message(uuid4().hex, "user", prompt))
+                    outcome, final_text = result.outcome, result.final_text
+            except TimeoutError:
+                outcome = "timeout"
+            except Exception as error:
+                failure = {"error_type": type(error).__name__, "error": str(error)}
+            if session is None:
+                return {"outcome": outcome, "final_text": final_text, **identity, **failure}
             view = await session.inspect()
             entries = view["snapshot"]["entries"]
             failures = []
@@ -96,8 +111,8 @@ class ConfiguredEvaluationSolver:
                     }
                 )
             return {
-                "outcome": result.outcome,
-                "final_text": result.final_text,
+                "outcome": outcome,
+                "final_text": final_text,
                 "session_id": "evaluation",
                 "usage": await session.usage(),
                 **identity,
@@ -109,6 +124,8 @@ class ConfiguredEvaluationSolver:
                 "model_requests": requests,
                 "failure_codes": failures,
                 "verified": verified_at > max(edits, default=-1),
+                **failure,
             }
         finally:
-            await session.aclose()
+            if session is not None:
+                await session.aclose()

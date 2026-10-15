@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -25,7 +26,9 @@ async def test_fixed_model_three_task_smoke_is_real_local_protocol_control(
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     root = Path(__file__).parents[2]
     definition = root / "tests/evals/manifest.json"
-    cache = root / "tests/evals/cache/polyglot"
+    cache = Path(
+        os.environ.get("PYCODE_EVAL_CACHE", root / "tests/.runtime-tests/eval-cache/polyglot")
+    )
     workspaces = EvaluationWorkspaces(definition, cache, tmp_path / "work", tmp_path / "results")
     replies = []
     for task in workspaces.tasks:
