@@ -30,7 +30,7 @@ def main():
     lines = [
         "# Windows Python 3.12; clean --ignore-installed resolution of "
         "pyproject.toml [dev,team,eval].",
-        "# See docs/verification/post-review-fixes.json for the resolution evidence.",
+        "# See archive/verification/post-review-fixes.json for the resolution evidence.",
     ]
     for name in sorted(versions):
         requirement = "langchain[mcp]" if name == "langchain" else name

@@ -1,6 +1,7 @@
 """Static enforcement of module dependency direction and product branding."""
 
 import ast
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -41,6 +42,14 @@ FRAMEWORKS = {
     "deepagents",
     "fastmcp",
 }
+# Top-level packages each first-party package must never import: the product stays
+# independent of evaluation, developer scripts and archived evidence; evals may use pycode.
+FORBIDDEN_IMPORTS = {
+    "pycode": frozenset({"evals", "scripts", "archive"}),
+    "evals": frozenset({"archive"}),
+}
+# Locally generated evaluation data (corpus checkouts, work trees, results); never scanned.
+EVAL_GENERATED = {"cache", "work", "results"}
 
 
 def imported_modules(node: ast.AST, module: str, is_package: bool) -> list[str]:
@@ -58,12 +67,20 @@ def imported_modules(node: ast.AST, module: str, is_package: bool) -> list[str]:
 
 def dependency_errors(source: str, module: str, is_package: bool = False) -> list[str]:
     parts = module.split(".")
-    if len(parts) < 2 or parts[1] not in LAYERS:
+    top = parts[0]
+    forbidden = FORBIDDEN_IMPORTS.get(top, frozenset())
+    layer = parts[1] if top == "pycode" and len(parts) >= 2 and parts[1] in LAYERS else None
+    if not forbidden and layer is None:
         return []
-    layer = parts[1]
     errors = []
     for node in ast.walk(ast.parse(source)):
-        for dependency in imported_modules(node, module, is_package):
+        dependencies = imported_modules(node, module, is_package)
+        blocked = next((item for item in dependencies if item.split(".")[0] in forbidden), None)
+        if blocked is not None:
+            errors.append(f"{module}:{node.lineno}: {top} cannot import {blocked}")
+        if layer is None:
+            continue
+        for dependency in dependencies:
             imported = dependency.split(".")
             if len(imported) >= 2 and imported[0] == "pycode" and imported[1] in LAYERS:
                 if imported[1] not in ALLOWED[layer]:
@@ -84,18 +101,39 @@ def dependency_errors(source: str, module: str, is_package: bool = False) -> lis
     return errors
 
 
+def module_name(relative: Path) -> tuple[str, bool]:
+    parts = list(relative.with_suffix("").parts)
+    is_package = parts[-1] == "__init__"
+    if is_package:
+        parts.pop()
+    return ".".join(parts), is_package
+
+
 def check_dependencies(root: Path = ROOT) -> list[str]:
     errors = []
     source_root = root / "src"
     for path in sorted((source_root / "pycode").rglob("*.py")):
-        relative = path.relative_to(source_root).with_suffix("")
-        parts = list(relative.parts)
-        is_package = parts[-1] == "__init__"
-        if is_package:
-            parts.pop()
-        module = ".".join(parts)
+        module, is_package = module_name(path.relative_to(source_root))
+        errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, is_package))
+    # evals is a top-level package next to src/; its generated corpora and runs are not code.
+    for path in sorted((root / "evals").rglob("*.py")):
+        relative = path.relative_to(root)
+        if any(part in EVAL_GENERATED or part.startswith(".") for part in relative.parts[1:]):
+            continue
+        module, is_package = module_name(relative)
         errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, is_package))
     return errors
+
+
+def branding_excluded(relative: Path) -> bool:
+    parts = relative.parts
+    if parts[:1] == ("archive",):
+        return True
+    if parts[:1] == ("evals",) and any(part in EVAL_GENERATED for part in parts[1:]):
+        return True
+    if parts[:2] == ("tests", "evals") and any(part in EVAL_GENERATED for part in parts[2:]):
+        return True
+    return False
 
 
 def check_branding(root: Path = ROOT) -> list[str]:
@@ -105,6 +143,7 @@ def check_branding(root: Path = ROOT) -> list[str]:
         ".venv",
         ".source-cache",
         ".git",
+        ".worktrees",
         ".pytest_cache",
         ".ruff_cache",
         "__pycache__",
@@ -117,19 +156,22 @@ def check_branding(root: Path = ROOT) -> list[str]:
         "dependency-artifacts",
     }
     extensions = {".py", ".md", ".toml", ".json", ".tcss", ".txt", ".yaml", ".yml"}
-    for path in sorted(root.rglob("*")):
+    paths = []
+    for directory, names, files in os.walk(root):
+        current = Path(directory)
+        # Prune excluded trees instead of walking caches, worktrees and archived evidence.
+        names[:] = [
+            name
+            for name in names
+            if name not in excluded and not branding_excluded((current / name).relative_to(root))
+        ]
+        paths.extend(current / name for name in files)
+    for path in sorted(paths):
         relative = path.relative_to(root)
-        if relative.parts[:3] in {
-            ("tests", "evals", "cache"),
-            ("tests", "evals", "work"),
-            ("tests", "evals", "results"),
-        }:
+        if branding_excluded(relative):
             continue
-        if any(part in excluded for part in relative.parts) or not path.is_file():
-            continue
-        # Verification evidence retains actual source-directory names and argv;
-        # those historical names are provenance, not current product branding.
-        if relative.as_posix() in {"docs/source-map.md", "测试数据.md"} or relative.parts[:2] == (
+        # Source attribution keeps actual upstream directory names; licenses keep notices.
+        if relative.as_posix() == "docs/source-map.md" or relative.parts[:2] == (
             "docs",
             "licenses",
         ):

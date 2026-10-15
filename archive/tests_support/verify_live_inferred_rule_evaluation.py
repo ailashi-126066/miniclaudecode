@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tools.record_verification import manifest
+from archive.scripts.record_verification import manifest
 
 from pycode.app.config import AppConfig, load_providers
 from pycode.app.container import (

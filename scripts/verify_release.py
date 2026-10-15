@@ -1,37 +1,125 @@
-"""Record actual final checks, build artifacts and a fresh wheel installation."""
+"""Release checks: lint, architecture, build, package contents and a fresh wheel installation."""
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import tarfile
 import threading
 import time
+import zipfile
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
 
-from record_verification import manifest
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def source_digest(root):
+    """Hash the packaged inputs so a run can detect sources changing underneath it."""
+    candidates = [root / "pyproject.toml", root / "requirements-dev.lock"]
+    for path in sorted((root / "src").rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+            candidates.append(path)
+    candidates.extend(sorted((root / "docs" / "licenses").glob("*.txt")))
+    records = [
+        {
+            "path": path.relative_to(root).as_posix(),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in candidates
+        if path.is_file()
+    ]
+    encoded = json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def verify_distribution(directory):
+    """Check built wheel/sdist for package identity, required notices and leaked caches."""
+    wheel = next(directory.glob("pycode-*.whl"))
+    sdist = next(directory.glob("pycode-*.tar.gz"))
+    with zipfile.ZipFile(wheel) as archive:
+        wheel_files = archive.namelist()
+        metadata = archive.read("pycode-0.1.0.dist-info/METADATA").decode()
+        entrypoints = archive.read("pycode-0.1.0.dist-info/entry_points.txt").decode()
+    with tarfile.open(sdist) as archive:
+        sdist_files = archive.getnames()
+    forbidden = (
+        "/.venv/",
+        "/__pycache__/",
+        "/.runtime-tests/",
+        "/.fix-20261013/",
+        "/audit-20261013/",
+        "/evals/cache/",
+        "/evals/work/",
+        "/evals/results/",
+        "/archive/",
+        "/.worktrees/",
+        "/.env",
+        "/.git/",
+    )
+    for name in [*wheel_files, *sdist_files]:
+        for fragment in forbidden:
+            if fragment in "/" + name and not name.endswith("/.env.example"):
+                raise ValueError("Distribution includes private/generated content: " + name)
+    # The wheel is the installable product: only the pycode package and its metadata.
+    for name in wheel_files:
+        if not name.startswith(("pycode/", "pycode-0.1.0.dist-info/")):
+            raise ValueError("Wheel includes non-product content: " + name)
+    assert "pycode = pycode.app.cli:main" in entrypoints and "\npy =" not in entrypoints
+    for package, version in (
+        ("deepagents", "0.7.23"),
+        ("langchain", "1.4.4"),
+        ("langgraph", "1.2.14"),
+    ):
+        assert package in metadata and "==" + version in metadata
+    assert "langgraph-checkpoint-sqlite" not in metadata
+    assert "pycode/licenses/pi-MIT.txt" in wheel_files
+    assert "pycode/licenses/opencode-MIT.txt" in wheel_files
+    assert "pycode/licenses/exercism-MIT.txt" in wheel_files
+    print(
+        json.dumps(
+            {
+                "wheel": wheel.name,
+                "sdist": sdist.name,
+                "wheel_files": len(wheel_files),
+                "sdist_files": len(sdist_files),
+                "status": "passed",
+            }
+        )
+    )
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--evidence-dir", type=Path, default=Path("docs/verification"))
-    parser.add_argument("--dist", type=Path, default=Path("dist"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="new directory for logs, report and dist (default: tests/.runtime-tests/release-*)",
+    )
     parser.add_argument("--with-evals", action="store_true")
+    parser.add_argument("--check-distribution", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
-    evidence = (root / args.evidence_dir).resolve()
-    distribution = (root / args.dist).resolve()
-    if not evidence.is_relative_to(root) or not distribution.is_relative_to(root):
-        raise RuntimeError("Verification artifacts must remain inside the project")
-    evidence.mkdir(parents=True, exist_ok=True)
-    report_path = evidence / "delivery-checks.json"
-    if report_path.exists() or distribution.exists():
-        raise RuntimeError("Use new evidence and distribution directories; preserve prior runs")
-    source = manifest(root)
+    if args.check_distribution:
+        verify_distribution(args.check_distribution)
+        return 0
+    root = ROOT
+    default = Path("tests/.runtime-tests") / ("release-" + datetime.now().strftime("%Y%m%dT%H%M%S"))
+    evidence = (root / (args.output or default)).resolve()
+    if not evidence.is_relative_to(root):
+        raise RuntimeError("Release artifacts must remain inside the project")
+    if evidence.exists():
+        raise RuntimeError("Use a new output directory; preserve prior runs")
+    evidence.mkdir(parents=True)
+    distribution = evidence / "dist"
+    report_path = evidence / "release-checks.json"
+    source = source_digest(root)
+    has_evals = (root / "evals" / "__main__.py").is_file()
     report = {
-        "source_sha256": source["sha256"],
+        "source_sha256": source,
         "extras": ["eval"] if args.with_evals else [],
         "status": "running",
         "checks": [],
@@ -42,7 +130,7 @@ def main():
         result = subprocess.run(
             argv, cwd=cwd, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
         )
-        log = evidence / ("delivery-" + name + ".log")
+        log = evidence / (name + ".log")
         log.write_bytes(result.stdout)
         report["checks"].append(
             {
@@ -59,25 +147,25 @@ def main():
         if result.returncode:
             report["status"] = "failed"
             report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-            raise RuntimeError("Delivery check failed: " + name)
+            raise RuntimeError("Release check failed: " + name)
         return result.stdout
 
     python = sys.executable
-    check("lint", [python, "-m", "ruff", "check", "--no-cache", "src", "tests", "tools"])
-    check(
-        "format", [python, "-m", "ruff", "format", "--no-cache", "--check", "src", "tests", "tools"]
-    )
-    check("architecture", [python, "tools/check_architecture.py"])
+    script = Path(__file__).resolve()
+    sources = ["src", "tests", "scripts", *(["evals"] if has_evals else [])]
+    check("lint", [python, "-m", "ruff", "check", "--no-cache", *sources])
+    check("format", [python, "-m", "ruff", "format", "--no-cache", "--check", *sources])
+    check("architecture", [python, "scripts/check_architecture.py"])
     check("pip-check", [python, "-m", "pip", "check"])
     check("build", [python, "-m", "build", "--no-isolation", "--outdir", str(distribution)])
-    check("distribution", [python, "tools/verify_distribution.py", "--dist", str(distribution)])
+    check("distribution", [python, str(script), "--check-distribution", str(distribution)])
     install_root = (root / "tests/.runtime-tests" / ("install-" + uuid4().hex[:8])).resolve()
     if not install_root.is_relative_to((root / "tests").resolve()) or install_root.exists():
         raise RuntimeError("Use a new test-owned clean installation directory")
     check("venv", [python, "-m", "venv", str(install_root)])
     installed_python = install_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     executable = install_root / ("Scripts/pycode.exe" if os.name == "nt" else "bin/pycode")
-    constraints = evidence / "constraints-delivery.txt"
+    constraints = evidence / "constraints.txt"
     constraints.write_text(
         (root / "requirements-dev.lock").read_text().replace("langchain[mcp]", "langchain")
     )
@@ -168,8 +256,19 @@ print(json.dumps({'status': 'passed', 'versions': expected}))
             cwd=install_root,
             environment=clean_environment,
         )
-    if manifest(root)["sha256"] != source["sha256"]:
-        raise RuntimeError("Source changed during delivery checks")
+        # evals/ ships only in the sdist; run its entry point from the checkout against the
+        # freshly installed pycode (no PYTHONPATH, so src/ is not on the path).
+        if has_evals:
+            check(
+                "evals-help",
+                [str(installed_python), "-m", "evals", "coding", "--help"],
+                cwd=root,
+                environment=clean_environment,
+            )
+        else:
+            print("evals-help: skipped (no evals/ package in this checkout)", flush=True)
+    if source_digest(root) != source:
+        raise RuntimeError("Source changed during release checks")
     report["status"] = "passed"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return 0

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from langmem import create_prompt_optimizer
-from tools.record_verification import manifest
+from archive.scripts.record_verification import manifest
 from typing_extensions import TypedDict
 
 from pycode.adapters.storage.json_memory import JsonMemoryStore

@@ -1,5 +1,5 @@
 # Python 3.12 pinned dev/team/eval stack; Windows-only packages use platform markers.
-# See docs/verification/post-review-fixes.json for the resolution evidence.
+# See archive/verification/post-review-fixes.json for the resolution evidence.
 agentevals==0.0.9
 aiofile==3.12.3
 annotated-types==0.8.0

@@ -14,8 +14,9 @@ from pycode.app.container import build_tui
 
 async def main(project):
     workspace = project / ".acceptance" / "tui-demo"
-    output = project / "docs" / "verification"
+    output = project / ".acceptance" / "tui-demo-screens"
     await asyncio.to_thread(workspace.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(output.mkdir, parents=True, exist_ok=True)
     os.environ["PYCODE_RECOVERY_TEST_KEY"] = "deterministic-demo-key"
     questions = {
         "questions": [

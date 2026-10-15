@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tools.record_verification import manifest
+from archive.scripts.record_verification import manifest
 
 from pycode.adapters.storage.layout import StorageLayout
 from pycode.adapters.storage.requests import SQLiteRequestStore

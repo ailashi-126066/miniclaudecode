@@ -42,7 +42,7 @@ OpenEvals 固定为 0.2.0，AgentEvals 固定为 0.0.9。数据集和评分标�
 ```text
 python tools/run_output_quality.py
 python tools/run_trajectory_quality.py
-python -m tests.support.verify_live_inferred_rule_evaluation
+python -m archive.tests_support.verify_live_inferred_rule_evaluation
 python tools/run_rule_comparison_quality.py --source tests/.runtime-tests/live/RUN/result.json
 ```
 
@@ -220,13 +220,20 @@ git -C tests/evals/cache/polyglot config core.autocrlf true
 git -C tests/evals/cache/polyglot sparse-checkout set python
 git -C tests/evals/cache/polyglot checkout --detach 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f
 python -m pytest -q
+python scripts/check_architecture.py
+python scripts/verify_release.py
 ```
 
-审查修复后的验证入口为 `docs/verification/post-review-fixes.json`；
+`scripts/` 是开发脚本：`check_architecture.py`（分层依赖与品牌检查）、`verify_release.py`
+（lint、格式、架构、构建、包内容、全新 venv 安装与本地最小会话；`--with-evals` 额外安装
+`[eval]` 并检查评测入口）、`verify_seatbelt.py`、`verify_live_provider.py`、
+`verify_skills_online.py`、`render_tui_demo.py`、`lock_dependencies.py`。
+历史验证证据与旧流程脚本在 `archive/`，不维护、不测试、不打包。
+审查修复后的验证入口为 `archive/verification/post-review-fixes.json`；
 `deepagents-migration.json` 与其他历史报告只证明各自记录时点，保留原始结果。
 缓存显式设置 Git 文本换行，使检出文件对应冻结清单的精确哈希。
 源码来源、授权和不可变清单见 `docs/source-map.md`。
-本次 GitHub 提交与历史接入验证见 `docs/verification/github-submission-20261013/README.md`；
+本次 GitHub 提交与历史接入验证见 `archive/verification/github-submission-20261013/README.md`；
 原开发验证报告保持原始结果。
 
 长期记忆的手动编辑使用 `memory --session ID edit MEMORY_ID "新内容"`；

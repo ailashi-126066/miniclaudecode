@@ -16,8 +16,8 @@
 
 当前固定提交源码归档缓存位于 `tests/.runtime-tests/source-cache/`，仅供对照，
 不作为运行依赖或随发行包发布。原阶段使用的 `.source-cache/` 属于历史验证目录。
-归档 URL、完整提交和 SHA-256 见 `baselines/upstream.json`。
-原始归档保留以核对来源，文件清单见本文件末尾与 `baselines/upstream-files.json`。
+归档 URL、完整提交和 SHA-256 见 `archive/baselines/upstream.json`。
+原始归档保留以核对来源，文件清单见本文件末尾与 `archive/baselines/upstream-files.json`。
 
 ## 许可证与署名
 
@@ -31,7 +31,7 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
 ## 最终模块映射（2026-10-13）
 
 固定来源清单和作者授权保持不变。以下说明当前复用边界；真实命令、源码摘要及结果以
-`docs/verification/deepagents-migration.json` 为准，历史阶段报告不证明当前版本。
+`archive/verification/deepagents-migration.json` 为准，历史阶段报告不证明当前版本。
 
 - `workflows/agent.py`：Deep Agents 0.7.23 公共 create_deep_agent，唯一主 harness；
   `state.py`、`history.py`、`boundaries.py`、`settlement.py` 保存 Pi 的原始消息、顺序、
@@ -80,7 +80,7 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
 
 ## 移植规则
 
-2026-10-13 审查修复另存 `verification/post-review-fixes.json`：修复实际 Team 配置／装配、
+2026-10-13 审查修复另存 `archive/verification/post-review-fixes.json`：修复实际 Team 配置／装配、
 权限和等待链路，MCP 工具直接使用 MCPAdapter 的 BaseTool；rg 改为有界流式 NUL 帧解析，
 结算失败收拢活跃工具，TUI 使用不可变展示缓存，评测保存版本关联的完整验证证据。
 来源清单、许可证及历史报告保持原样；下述来源哈希不因本次修复而重写。

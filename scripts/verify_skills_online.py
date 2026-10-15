@@ -52,7 +52,7 @@ async def verify(args):
             "complete document on demand",
         ],
     }
-    destination = root / "docs/verification/skill-online-final.json"
+    destination = root / "tests/.runtime-tests/skill-online/skill-online-final.json"
     await asyncio.to_thread(
         destination.write_text, json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
     )

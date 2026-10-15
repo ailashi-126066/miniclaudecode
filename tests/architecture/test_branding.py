@@ -1,4 +1,5 @@
-from tools.check_architecture import check_branding
+import pytest
+from scripts.check_architecture import check_branding
 
 
 def test_no_product_brand_residue():
@@ -21,10 +22,50 @@ def test_source_attribution_and_license_are_allowed(tmp_path):
 
 
 def test_actual_source_paths_in_verification_evidence_are_preserved(tmp_path):
-    (tmp_path / "测试数据.md").write_text(
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "archive" / "测试数据.md").write_text(
         "- 实际命令：verify_sources --local-source /reference/" + "mew" + "code\n",
         encoding="utf-8",
     )
     assert check_branding(tmp_path) == []
     (tmp_path / "README.md").write_text("Product: " + "mew" + "code", encoding="utf-8")
     assert len(check_branding(tmp_path)) == 1
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "archive/verification/report.json",
+        "archive/scripts/run_check.py",
+        ".worktrees/s1-scripts/README.md",
+        "tests/.runtime-tests/venv/notes.txt",
+        "evals/cache/polyglot/README.md",
+        "evals/work/RUN/solution.py",
+        "evals/results/RUN/summary.json",
+        "tests/evals/cache/polyglot/README.md",
+    ],
+)
+def test_archive_worktrees_and_generated_data_are_not_scanned(tmp_path, relative):
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("Product: " + "mew" + "code", encoding="utf-8")
+    assert check_branding(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "src/pycode/app/cli.py",
+        "tests/app/test_cli.py",
+        "scripts/verify_release.py",
+        "evals/coding/runner.py",
+        "evals/data/manifest.json",
+        "docs/architecture.md",
+        "archived/README.md",
+    ],
+)
+def test_maintained_directories_are_scanned(tmp_path, relative):
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("Product: " + "mew" + "code", encoding="utf-8")
+    assert check_branding(tmp_path) == [relative + ":1: obsolete product brand"]

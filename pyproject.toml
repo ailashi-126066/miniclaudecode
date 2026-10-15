@@ -36,8 +36,8 @@ packages = ["src/pycode"]
 "docs/licenses" = "pycode/licenses"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "docs", "pyproject.toml", "README.md", ".env.example", "requirements-dev.lock"]
-exclude = ["tests/.runtime-tests", "tests/.fix-20261013", "tests/audit-20261013", "tests/dependency-artifacts", "tests/evals/cache", "tests/evals/work", "tests/evals/results"]
+include = ["src", "tests", "scripts", "evals", "docs", "pyproject.toml", "README.md", ".env.example", "requirements-dev.lock"]
+exclude = ["archive", ".worktrees", "tests/.runtime-tests", "tests/.fix-20261013", "tests/audit-20261013", "tests/dependency-artifacts", "tests/evals/cache", "tests/evals/work", "tests/evals/results"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,7 +50,7 @@ addopts = "-ra --import-mode=importlib"
 target-version = "py311"
 line-length = 100
 src = ["src"]
-exclude = [".source-cache", ".venv", "tests/.runtime-tests", "tests/.t", "tests/.fix-20261013", "tests/audit-20261013", "tests/dependency-artifacts", "tests/evals/cache", "tests/evals/work", "tests/evals/results"]
+exclude = [".source-cache", ".venv", ".worktrees", "archive", "tests/.runtime-tests", "tests/.t", "tests/.fix-20261013", "tests/audit-20261013", "tests/dependency-artifacts", "tests/evals/cache", "tests/evals/work", "tests/evals/results"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "ASYNC"]
