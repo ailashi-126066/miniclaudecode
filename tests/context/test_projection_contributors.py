@@ -21,6 +21,7 @@ def snapshot(*entries):
 
 class MessageCount:
     name = "message-count"
+    incremental_safe = False
     checkpoint_keys = frozenset({"message_count"})
 
     def contribute(self, state, path, entries, checkpoint):
@@ -101,3 +102,30 @@ def test_completed_plan_clears_active_plan_in_an_older_compaction():
     )
     projected = ContextProjector((PlanProjection(),)).project(snapshot(compacted, completed))
     assert "plan" not in projected.checkpoint
+
+
+def test_incremental_missing_tool_result_is_deeply_immutable():
+    from pycode.kernel import ToolCall
+
+    user = SessionEntry("u", None, "message", "t", message=Message("u", "user", "task"))
+    assistant = SessionEntry(
+        "a",
+        "u",
+        "message",
+        "t",
+        message=Message("a", "assistant", tool_calls=(ToolCall("call", "probe", {}),)),
+    )
+    projector = ContextProjector()
+    projector.project(snapshot(user))
+    current = projector.project(snapshot(user, assistant))
+    result = current.messages[-1].require_tool_result()
+    assert result.error_code == "execution_unknown"
+    with pytest.raises(TypeError):
+        result.details["status"] = "success"
+    assert (
+        projector.project(snapshot(user, assistant))
+        .messages[-1]
+        .require_tool_result()
+        .details["status"]
+        == "unknown"
+    )

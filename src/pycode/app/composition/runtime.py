@@ -283,6 +283,11 @@ async def build_runtime(
                     *modules.agent.selector_required_names(),
                     *modules.tools.selector_required_names(),
                     *(tool.spec.name for tool in memory_tools),
+                    *(
+                        modules.team.selector_required_names(team_member, provider)
+                        if team_member
+                        else ()
+                    ),
                     *(modules.plans.selector_required_names(plans) if plans is not None else ()),
                     *(modules.skills.selector_required_names() if modules.skills else ()),
                 ),

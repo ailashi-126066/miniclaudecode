@@ -45,7 +45,7 @@ class ConfiguredChildSessions:
             prompt_suffix=child_prompt(record["mode"], record["agent_id"], record["role"]),
             modules=child_modules,
         )
-        if fork_entry_ids:
+        if fork_entry_ids is not None:
             await session.configure_fork_context(fork_entry_ids)
         return session
 

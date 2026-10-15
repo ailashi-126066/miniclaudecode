@@ -251,6 +251,7 @@ async def test_view_factory_failure_closes_records_before_returning(tmp_path, mo
     selected = replace(default_modules(config), skills=None, mcp=None)
     application = compose_application(config, modules=selected)
     store = await application.session_repository().open("view", create=True)
+    await store.append_message(Message("u", "user", "persist view"))
     await store.aclose()
     closed = []
 
@@ -273,6 +274,7 @@ async def test_output_factory_fails_before_request_database_is_opened(tmp_path, 
     config = configuration(tmp_path)
     selected = replace(default_modules(config), skills=None, mcp=None)
     store = await selected.sessions.repository().open("view", create=True)
+    await store.append_message(Message("u", "user", "persist view"))
     await store.aclose()
     opened = []
 

@@ -41,8 +41,9 @@ class SkillsFrameworkExtension:
 
 
 class SkillsToolExtension:
-    def __init__(self, resources, recorder, selection):
+    def __init__(self, resources, recorder, selection, constraint=None):
         self.resources, self.recorder, self.selection = resources, recorder, selection
+        self.constraint = constraint
 
     def get_tool(self, name):
         return self.resources.get_tool(name)
@@ -54,7 +55,9 @@ class SkillsToolExtension:
             return None
         return self.resources.get_tool(name)
 
-    async def before_call(self, context, call):
+    async def validate_call(self, context, call):
+        if self.constraint is not None:
+            await self.constraint.check_call(call)
         if call.name != "read_file" or context.agent_id != "lead":
             return
         path = call.arguments.get("file_path", "")
@@ -65,6 +68,9 @@ class SkillsToolExtension:
             raise ToolError(
                 "skill_requires_subagent", "Use task with subagent_type=skill-" + selected.name
             )
+
+    async def before_call(self, context, call):
+        await self.validate_call(context, call)
 
     def prepare_result(self, call, result):
         if (

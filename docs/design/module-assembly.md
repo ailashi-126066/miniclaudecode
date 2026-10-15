@@ -165,7 +165,9 @@ Skills 仍保留 compaction/fork 来源、原 read_file 调用配对、正文已
 - ProjectionContribution 可返回 `usage_invalidating_entry_ids`，host 校验属于当前 path；
   ProjectedContext 用单独元数据承载，不加入 checkpoint/config_hash，不改 JSONL。
   `context_config_system_prompt=False` 表示该投影消息不重复拼入 system fingerprint。
-- 模块存在任意贡献器时不采用旧的无扩展感知增量快路径；同revision仍缓存。
+- 贡献器通过 `incremental_safe` 显式声明普通追加不影响既有贡献。仅全部声明安全时采用
+  增量快路径；未知或 False 均重算，同 revision 仍缓存。当前 Skills 保守为 False，
+  默认 SystemPrompt 的单消息增量与共享 immutable messages 保留；跨追加保留 usage invalidation IDs。
 - Session/run 构造和关闭都尝试收拢全部已拥有资源；前序失败、重复取消和重复关闭有回归用例。
 
 当前实际模块图见 `module-assembly-import-graph.json`；旧 `final-import-graph.json` 仅为首轮阶段四快照。

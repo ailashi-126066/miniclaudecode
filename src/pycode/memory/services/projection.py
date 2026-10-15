@@ -6,6 +6,7 @@ from pycode.kernel import Message, ProjectedEntry, clone_value
 
 class MemoryProjection:
     name = "memory"
+    incremental_safe = True
     checkpoint_keys = frozenset({"memories"})
 
     def contribute(self, snapshot, path, entries, checkpoint):

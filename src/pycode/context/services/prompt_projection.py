@@ -6,6 +6,7 @@ from pycode.kernel import Message, ProjectedEntry, clone_value
 
 class SystemPromptProjection:
     name = "system_prompt"
+    incremental_safe = True
     checkpoint_keys = frozenset({"prompt_snapshot", "system_prompt"})
 
     def contribute(self, snapshot, path, entries, checkpoint):

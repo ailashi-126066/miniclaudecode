@@ -37,11 +37,16 @@ class ForkSkillDelegate:
                     break
             inherited = (snapshot.header.session_id, source_leaf)
             if self.entry.context == "recent":
+                latest_user = None
                 for saved in SessionTree(snapshot.index).path(source_leaf):
+                    if saved.message is not None and saved.message.role == "user":
+                        latest_user = saved.id
                     if saved.data.get("kind") == "run_start":
-                        source_ids = []
+                        # The initiating user input is persisted before run_start.
+                        source_ids = [latest_user] if latest_user is not None else []
                     if saved.type == "message" and saved.require_message().role != "system":
-                        source_ids.append(saved.id)
+                        if saved.id not in source_ids:
+                            source_ids.append(saved.id)
         messages = state.get("messages", [])
         if not messages or not isinstance(messages[-1].content, str):
             raise ToolError("empty_subagent_task", "Subagent needs a text task")
@@ -50,7 +55,9 @@ class ForkSkillDelegate:
         )
         instruction += "\nTask arguments: " + arguments
         result = await self.run_blocking(
-            instruction, fork_from=inherited, fork_entry_ids=source_ids or None
+            instruction,
+            fork_from=inherited,
+            fork_entry_ids=source_ids if self.entry.context == "recent" else None,
         )
         if result["status"] != "completed":
             raise ToolError("subagent_failed", "Readonly delegate ended with " + result["status"])

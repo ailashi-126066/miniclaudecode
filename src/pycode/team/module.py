@@ -15,6 +15,9 @@ class TeamModule:
     def tools(self, member, provider):
         return lead_tools(member, provider) if member.agent_id == "lead" else child_tools(member)
 
+    def selector_required_names(self, member, provider) -> tuple[str, ...]:
+        return tuple(tool.spec.name for tool in self.tools(member, provider))
+
     def event_relay(self, member):
         return ChildEventRelay(member)
 

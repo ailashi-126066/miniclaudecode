@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pycode.kernel import EntryDraft
 from pycode.kernel.domain.completion import RunResult
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message, ToolResult
@@ -148,6 +149,18 @@ async def test_message_injected_before_model_and_wait_delivery_is_acknowledged_a
         record = await spawn(team)
         await team.inbox.send("lead", record["agent_id"], "new constraint", "run")
         child_store = store_for(tmp_path / "child")
+        await child_store.append_message(Message("child-input", "user", "inspect"))
+        await child_store.append_entry(
+            EntryDraft(
+                "custom",
+                data={
+                    "kind": "run_start",
+                    "input_id": "child-input",
+                    "execution_session_id": (await child_store.snapshot()).header.session_id,
+                },
+                run_id="child-run",
+            )
+        )
         context = SimpleNamespace(durable_inputs=DurableInputs(child_store), run_id="child-run")
         await team.member(record["agent_id"]).flush_inbox(context)
         pending = await context.durable_inputs.pending("child-run")
@@ -356,6 +369,13 @@ async def test_fifo_wakes_follow_first_new_message_instead_of_agent_creation_ord
         second = await spawn(team)
         team.children.values[second["agent_id"]].release.set()
         await team.drivers[second["agent_id"]]
+        # Each second run has its own gate. The initial completed runs left the
+        # gates set, which otherwise lets a FIFO wake finish before cancellation
+        # of the blocker returns and makes an active-driver assertion race.
+        first_child = team.children.values[first["agent_id"]]
+        second_child = team.children.values[second["agent_id"]]
+        first_child.release.clear()
+        second_child.release.clear()
         blocker = await spawn(team)
         await team.inbox.send("lead", second["agent_id"], "second gets first slot", "run")
         await team.inbox.send("lead", first["agent_id"], "first gets later slot", "run")
@@ -363,7 +383,22 @@ async def test_fifo_wakes_follow_first_new_message_instead_of_agent_creation_ord
         await team.cancel(blocker["agent_id"])
         await team.schedule_wakes()
         assert second["agent_id"] in team.drivers
-        await team.drivers[second["agent_id"]]
+        assert first["agent_id"] not in team.drivers
+        second_driver = team.drivers[second["agent_id"]]
+        second_child.release.set()
+        await second_driver
+        assert first["agent_id"] in team.drivers
+        first_driver = team.drivers[first["agent_id"]]
+        first_child.release.set()
+        await first_driver
+        assert len(first_child.inputs) == len(second_child.inputs) == 2
+        assert not team.inbox.pending(first["agent_id"])
+        assert not team.inbox.pending(second["agent_id"])
+        assert all(
+            message["status"] == "delivered"
+            for message in team.inbox.records.values()
+            if message["recipient"] in {first["agent_id"], second["agent_id"]}
+        )
     finally:
         await close(team)
 
@@ -424,4 +459,42 @@ async def test_recoverable_child_open_failure_does_not_degrade_other_spawns(tmp_
         record = await spawn(team)
         assert record["status"] == "running" and team.active_count() == 1
     finally:
+        await close(team)
+
+
+@pytest.mark.parametrize("has_ended_run", [False, True])
+async def test_inbox_flush_releases_messages_rejected_by_native_run_ownership(
+    tmp_path, has_ended_run
+):
+    team = team_at(tmp_path)
+    child_store = store_for(tmp_path / "child")
+    try:
+        record = await spawn(team)
+        sent = await team.inbox.send("lead", record["agent_id"], "late correction", "lead-run")
+        await child_store.append_message(Message("child-input", "user", "inspect"))
+        if has_ended_run:
+            await child_store.append_entry(
+                EntryDraft(
+                    "custom",
+                    data={
+                        "kind": "run_start",
+                        "input_id": "child-input",
+                        "execution_session_id": (await child_store.snapshot()).header.session_id,
+                    },
+                    run_id="child-run",
+                )
+            )
+            await child_store.append_entry(
+                EntryDraft("custom", data={"kind": "run_end"}, run_id="child-run")
+            )
+        context = SimpleNamespace(durable_inputs=DurableInputs(child_store), run_id="child-run")
+        await team.member(record["agent_id"]).flush_inbox(context)
+        message = team.inbox.records[sent["message_ids"][0]]
+        assert message["status"] == "pending" and message["delivery"] is None
+        assert not any(
+            entry.type == "input_queued" for entry in (await child_store.snapshot()).entries
+        )
+        assert not (await context.durable_inputs.pending("child-run")).has("steer")
+    finally:
+        await child_store.aclose()
         await close(team)

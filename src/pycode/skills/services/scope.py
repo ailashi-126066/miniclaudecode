@@ -26,11 +26,14 @@ class SkillsScopeConstraint:
         return {ALIASES.get(name, name) for name in scope} | {"SkillSearch"}
 
     async def authorize(self, context, spec, call):
+        await self.check_call(call)
+
+    async def check_call(self, call):
         allowed = await self.allowed()
-        instruction_read = spec.name == "read_file" and call.arguments.get(
+        instruction_read = call.name == "read_file" and call.arguments.get(
             "file_path", ""
         ).startswith("/skills/")
-        if allowed is not None and spec.name not in allowed and not instruction_read:
+        if allowed is not None and call.name not in allowed and not instruction_read:
             raise ToolError("skill_tool_not_allowed", "Active Skill scope excludes this tool")
 
     async def filter_request(self, request):
@@ -42,6 +45,9 @@ class SkillsScopeConstraint:
             name = (
                 tool.name if not isinstance(tool, dict) else tool.get("function", tool).get("name")
             )
-            if name in allowed:
+            if name in allowed or name == "read_file":
+                # Loading/reloading instructions remains possible even when the
+                # active Skill excludes ordinary workspace reads. authorize()
+                # still permits only the exact Skill-path exception.
                 tools.append(tool)
         return request.override(tools=tools)

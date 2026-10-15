@@ -17,6 +17,7 @@ from pycode.skills.domain.skills import active_skills
 
 class SkillsProjection:
     name = "skills"
+    incremental_safe = False
     checkpoint_keys = frozenset({"skills"})
 
     def contribute(

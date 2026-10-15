@@ -31,17 +31,19 @@ def repair_tool_pairing(messages: tuple[Message, ...]) -> tuple[Message, ...]:
         for call in message.tool_calls:
             result = resolved.get((index, call.id))
             if result is None:
-                result = Message(
-                    f"unknown:{message.id}:{call.id}",
-                    "tool",
-                    tool_result=ToolResult(
-                        call.id,
-                        call.name,
-                        UNKNOWN_RESULT,
-                        is_error=True,
-                        error_code="execution_unknown",
-                        details={"status": "unknown"},
-                    ),
+                result = freeze_value(
+                    Message(
+                        f"unknown:{message.id}:{call.id}",
+                        "tool",
+                        tool_result=ToolResult(
+                            call.id,
+                            call.name,
+                            UNKNOWN_RESULT,
+                            is_error=True,
+                            error_code="execution_unknown",
+                            details={"status": "unknown"},
+                        ),
+                    )
                 )
             output.append(result)
     return tuple(output)

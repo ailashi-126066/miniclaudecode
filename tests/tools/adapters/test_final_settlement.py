@@ -149,3 +149,121 @@ async def test_native_tool_retry_retries_only_declared_temporary_read_errors():
     assert result.outcome == "completed" and reader.attempts == 2
     results = [message.tool_result for message in journal.messages if message.tool_result]
     assert len(results) == 1 and results[0].text == "read completed"
+
+
+@pytest.mark.parametrize("category", ["read", "write", "external"])
+@pytest.mark.parametrize("value,code", [("same", "tool_not_declared"), (3, "invalid_arguments")])
+async def test_known_tool_hidden_from_final_request_never_prepares_approves_or_executes(
+    category, value, code
+):
+    from dataclasses import replace
+
+    runtime, context, _, tool, journal, _ = assemble(
+        [response("hidden", value=value), AIMessage(id="done", content="choose an available tool")]
+    )
+    tool.spec = replace(tool.spec, category=category)
+    context.registry.replace_source("builtin", (tool,))
+
+    class Gate:
+        async def authorize(self, current, spec, call):
+            raise AssertionError("Undeclared tool must not request approval")
+
+    async def hide(request):
+        return request.override(tools=[item for item in request.tools if item.name != "echo"])
+
+    class Extension:
+        prepared = 0
+        validated = 0
+
+        def lookup(self, name, *, state):
+            return None
+
+        async def validate_call(self, current, call):
+            self.validated += 1
+
+        async def before_call(self, current, call):
+            self.prepared += 1
+
+        def prepare_result(self, call, result):
+            return result
+
+        async def after_persist(self, current, call, result, entry_id):
+            return None
+
+    extension = Extension()
+    original_factory = runtime.bindings.settlement_middleware_factory
+
+    def factory(current):
+        middleware = original_factory(current)
+        middleware.tool_extensions = (extension,)
+        return middleware
+
+    context.executor.gate = Gate()
+    runtime.bindings = replace(
+        runtime.bindings, model_filters=(hide,), settlement_middleware_factory=factory
+    )
+    result = await runtime.run((Message("u1", "user", "work"),), context)
+    assert result.outcome == "completed" and tool.executed == []
+    outputs = [message.require_tool_result() for message in journal.messages if message.tool_result]
+    assert len(outputs) == 1 and outputs[0].error_code == code
+    assert outputs[0].details["executed"] is False
+    assert extension.prepared == 0
+    assert extension.validated == (1 if code == "tool_not_declared" else 0)
+
+
+async def test_hidden_tool_schema_error_is_redacted_in_result_history_and_complete_output(tmp_path):
+    from dataclasses import replace
+
+    from pycode.kernel import SessionHeader, json_dumps
+    from pycode.session.adapters.storage.session import JsonlSessionStore
+    from pycode.tools.adapters.output_store import FileToolOutputStore
+    from tests.support.requests import TestTiming
+
+    secret = "api_key=private-secret-key sk-abcdefghijklmnop12345678 "
+    runtime, context, _, tool, _, _ = assemble(
+        [
+            response("hidden-secret", value=secret + "x" * 4000),
+            AIMessage(id="done", content="fixed"),
+        ]
+    )
+    tool.spec = replace(
+        tool.spec,
+        input_schema={
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+            "required": ["value"],
+        },
+    )
+    context.registry.replace_source("builtin", (tool,))
+    sessions = tmp_path / "sessions"
+    journal = JsonlSessionStore(
+        sessions / context.session_id,
+        SessionHeader(context.session_id, context.workspace, "created"),
+        TestTiming(),
+    )
+    context.journal = journal
+    context.outputs = FileToolOutputStore(sessions, context.session_id)
+
+    async def hide(request):
+        return request.override(tools=[item for item in request.tools if item.name != "echo"])
+
+    runtime.bindings = replace(runtime.bindings, model_filters=(hide,))
+    try:
+        result = await runtime.run((Message("u1", "user", "work"),), context)
+        assert result.outcome == "completed" and tool.executed == []
+        saved = [
+            entry.require_message().require_tool_result()
+            for entry in (await journal.snapshot()).entries
+            if entry.message is not None and entry.message.tool_result is not None
+        ]
+        assert len(saved) == 1 and saved[0].error_code == "invalid_arguments"
+        assert saved[0].details["executed"] is False and len(saved[0].text) == 1600
+        assert "[redacted]" in saved[0].text
+        assert "private-secret-key" not in json_dumps(saved[0])
+        assert "sk-abcdefghijklmnop12345678" not in json_dumps(saved[0])
+        output = sessions / context.session_id / "tool-results" / (saved[0].output_id + ".txt")
+        assert output.read_text() == saved[0].text
+        assert "private-secret-key" not in output.read_text()
+        assert "sk-abcdefghijklmnop12345678" not in output.read_text()
+    finally:
+        await journal.aclose()

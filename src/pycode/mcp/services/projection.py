@@ -10,6 +10,7 @@ from pycode.mcp.domain.mcp import active_mcp
 
 class MCPProjection:
     name = "mcp"
+    incremental_safe = True
     checkpoint_keys = frozenset({"mcp"})
 
     def contribute(

@@ -24,6 +24,7 @@ from pycode.kernel import (
     ToolError,
     ToolResult,
     ToolSpec,
+    clone_value,
     data_hash,
     json_dumps,
 )
@@ -32,7 +33,7 @@ from pycode.tools import ToolExecutor, ToolOutputStore, ToolRegistry
 from pycode.tools.adapters.framework_tool import make_framework_tool
 from pycode.tools.adapters.state import ToolSettlementState
 from pycode.tools.domain.execution import batch_execution_mode
-from pycode.tools.domain.tool_failures import repeated_tool_failure
+from pycode.tools.domain.tool_failures import repeated_tool_failure, tool_failure
 from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
 from pycode.tools.ports.publication import MessagePublisher, ToolLifecycle
 
@@ -202,7 +203,7 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 )
 
             if result is None:
-                result = self.declaration_error(context, call, spec)
+                result = await self.declaration_error(context, call, spec, tool_context)
 
             if result is None:
                 try:
@@ -225,6 +226,15 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
             operation_id=tool_context.operation_id,
             details={**result.details, "source_assistant_id": context.assistant.id},
         )
+        if context.outputs is not None and result.output_id is None:
+            # Pre-execution rejections have the same durable output contract as
+            # executor results; neither the model nor the UI gets a second fact.
+            result = await context.outputs.prepare(tool_context, result, "head")
+            await context.events.emit(
+                "tool_output_ready",
+                {"call_id": result.call_id, "name": result.name, "output_id": result.output_id},
+                operation_id=tool_context.operation_id,
+            )
         for extension in self.tool_extensions:
             result = extension.prepare_result(call, result)
         async with context.settlement:
@@ -286,19 +296,6 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 error_code="repeated_tool_failure",
                 details={"executed": False},
             )
-        if (
-            result is None
-            and context.selected_tool_names is not None
-            and (call.name not in context.selected_tool_names)
-        ):
-            result = ToolResult(
-                call.id,
-                call.name,
-                "Tool was not declared for this model request",
-                is_error=True,
-                error_code="tool_not_declared",
-                details={"executed": False},
-            )
         return result
 
     def resolve_tool(self, request, context, call, tool_context):
@@ -348,8 +345,29 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 )
         return request, spec, result
 
-    def declaration_error(self, context, call, spec):
+    async def declaration_error(self, context, call, spec, tool_context):
         result = None
+        if context.selected_tool_names is not None and call.name not in context.selected_tool_names:
+            # A hidden tool can never execute or request approval. Preserve a
+            # more specific, purely rejecting feature policy when one applies.
+            try:
+                if call.parse_error:
+                    raise ToolError("invalid_arguments", call.parse_error)
+                context.executor.validator.validate(spec.input_schema, clone_value(call.arguments))
+                for extension in self.tool_extensions:
+                    await extension.validate_call(tool_context, call)
+                if context.plans is not None:
+                    await context.plans.guard(tool_context, spec, call)
+            except ToolError as error:
+                return tool_failure(error, call, executed=False)
+            return ToolResult(
+                call.id,
+                call.name,
+                "Tool was not declared for this model request",
+                is_error=True,
+                error_code="tool_not_declared",
+                details={"executed": False},
+            )
         if context.selected_tool_names is not None:
             for declared in context.model_tools:
                 if declared.name != call.name or declared.source == "deepagents":

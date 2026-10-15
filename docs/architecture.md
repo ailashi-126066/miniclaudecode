@@ -23,8 +23,8 @@ their owning feature resources. Old global layer packages and compatibility shel
 The exact permitted DAG is in `docs/design/feature-dependencies.json`. Context owns no Skill,
 MCP, Memory or Plan reconstruction: immutable contributors return only their owned checkpoint
 keys and entries in a fixed order. Generic usage invalidation and system-fingerprint metadata
-keep counting independent of feature event names. Contributors currently recompute on changed
-history rather than incorrectly reuse an incremental result; unchanged revisions remain cached.
+keep counting independent of feature event names. Unknown or unsafe contributors recompute on changed history. Incremental append is used only
+when every contributor explicitly guarantees safety; unchanged revisions remain cached.
 The checker enforces layer purity, explicit module entry ownership, public origins, module and
 feature cycles, aliases/TYPE_CHECKING/dynamic imports, and real native-port implementation coverage.
 

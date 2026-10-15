@@ -152,7 +152,10 @@ class TeamInbox:
                 await self.acknowledge([item["id"]])
                 remaining.remove(item["id"])
         except StorageError as error:
-            if error.code not in {"input_admission_closed", "no_pending_run"}:
+            # The native history store can settle the owning run between
+            # reservation and durable admission. Keep the inbox message pending
+            # for the next explicit run/wake; never ACK a rejected input.
+            if error.code not in {"input_admission_closed", "no_pending_run", "run_settled"}:
                 raise
         finally:
             if remaining:

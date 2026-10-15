@@ -121,7 +121,7 @@ class SkillsSession:
             tools,
             routes,
             SkillsFrameworkExtension(resources, selection, tuple(routes), constraint),
-            SkillsToolExtension(resources, recorder, selection),
+            SkillsToolExtension(resources, recorder, selection, constraint),
             constraint,
             subagents,
         )

@@ -39,6 +39,16 @@ REQUIRED_TOOLS = frozenset(
         "search_user_memory",
         "manage_project_memory",
         "search_project_memory",
+        "send_message",
+        "list_agents",
+        "list_tasks",
+        "spawn_agent",
+        "wait_agents",
+        "cancel_agent",
+        "create_task",
+        "update_task",
+        "review_agent",
+        "merge_agent",
     }
 )
 

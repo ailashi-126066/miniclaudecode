@@ -54,9 +54,9 @@ class ContextProjector:
         self._tree = None
 
     def incremental(self, snapshot):
-        # A contributor can depend on any newly appended fact, including ordinary
-        # messages. Until it has an explicit incremental contract, rebuild it.
-        if self._contributors:
+        # Unknown contributors can depend on ordinary appended messages. Only an
+        # explicit capability declaration permits reuse of their previous output.
+        if not all(getattr(item, "incremental_safe", False) for item in self._contributors):
             return None
         if self._cached is None or self._key is None:
             return None
@@ -106,6 +106,7 @@ class ContextProjector:
             self._cached.selection,
             self._cached.thinking,
             self._cached.checkpoint,
+            self._cached.usage_invalidating_entry_ids,
         )
 
     def project(self, snapshot: SessionSnapshot) -> ProjectedContext:

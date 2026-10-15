@@ -6,6 +6,7 @@ from pycode.kernel import Message, ProjectedEntry, clone_value
 
 class PlanProjection:
     name = "plans"
+    incremental_safe = True
     checkpoint_keys = frozenset({"plan"})
 
     def contribute(self, snapshot, path, entries, checkpoint):

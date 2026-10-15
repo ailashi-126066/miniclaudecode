@@ -13,6 +13,7 @@ from pycode.kernel.domain.tools import ToolContext, ToolSpec
 from pycode.sandbox.adapters.seatbelt import RequiredSandbox, UnavailableSandbox
 from pycode.sandbox.domain.sandbox import SandboxSettings
 from pycode.team.adapters.team_tools import child_tools, lead_tools
+from pycode.team.module import TeamModule
 from pycode.tools.adapters.permissions import TeamToolGate
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.services.permissions import NoOpToolGate, WorkerBoundaryGate
@@ -149,3 +150,23 @@ def test_user_skill_read_grant_is_narrow_and_keeps_dotenv_and_write_denials(tmp_
     assert f'(allow file-write* (subpath "{workspace}"))' in profile
     assert f'(allow file-write* (subpath "{skill}"))' not in profile
     assert '(allow file-read* (subpath "' + str(home / ".pycode") + '"))' not in profile
+
+
+def test_selector_required_team_controls_match_each_member_capability_exactly():
+    module = TeamModule()
+    lead = set(module.selector_required_names(SimpleNamespace(agent_id="lead"), None))
+    child = set(module.selector_required_names(SimpleNamespace(agent_id="child"), None))
+    assert lead == {
+        "send_message",
+        "list_agents",
+        "list_tasks",
+        "spawn_agent",
+        "wait_agents",
+        "cancel_agent",
+        "create_task",
+        "update_task",
+        "review_agent",
+        "merge_agent",
+    }
+    assert child == {"send_message", "list_agents", "list_tasks", "claim_task", "update_task"}
+    assert "probe_0" not in lead | child
