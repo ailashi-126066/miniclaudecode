@@ -8,6 +8,7 @@
 """Skill Python execution is a normal, approved, sequential external tool."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from pycode.adapters.tools.process_runner import run_process
 from pycode.adapters.tools.workspace_path import resolve_workspace_path
 from pycode.core.messages import ToolResult
 from pycode.core.skills import resource_spec
+from pycode.core.subprocess_env import subprocess_environment
 from pycode.core.values import json_dumps
 
 
@@ -67,6 +69,7 @@ class PythonSkillTool:
             limit_seconds=self._timeout,
             stdin=json_dumps(request, ensure_ascii=False).encode("utf-8"),
             prefix="skill_python",
+            environment=subprocess_environment(os.environ),
             progress=context.progress,
         )
 

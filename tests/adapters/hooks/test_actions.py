@@ -79,3 +79,13 @@ async def test_command_variables_are_data_and_cannot_inject_shell_or_environment
     assert not result.is_error and result.text == value
     assert not (tmp_path / "injected").exists()
     assert runner.expand("$MESSAGE", context) == value
+
+
+async def test_command_receives_only_explicit_environment_references(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_API_KEY", "inherited-secret")
+    runner = actions(tmp_path, {"HOOK_API_KEY": "referenced-secret"})
+    context = HookContext("s1", "r1", str(tmp_path), "b", "post_receive")
+    tool = ToolContext("s1", "r1", "op", str(tmp_path), "call", "hook__test")
+    command = 'printf "%s|%s|%s" "${FAKE_API_KEY:-}" "$ENV.HOOK_API_KEY" "${PATH:+path}"'
+    result = await runner.execute(asdict(HookAction("command", command=command)), context, tool)
+    assert not result.is_error and result.text == "|referenced-secret|path"

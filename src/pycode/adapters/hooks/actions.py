@@ -19,6 +19,7 @@ import httpx
 from pycode.adapters.tools.process_runner import run_process
 from pycode.core.errors import StorageError, ToolError
 from pycode.core.messages import ToolResult
+from pycode.core.subprocess_env import subprocess_environment
 from pycode.core.tools import ToolContext
 from pycode.core.values import json_dumps, plain_data
 
@@ -75,6 +76,7 @@ class ConfiguredHookActions:
                 {"condition": plain_data(hook.condition), "fields": context.fields()}
             ).encode(),
             prefix="hook_condition",
+            environment=subprocess_environment(os.environ),
         )
         if result.is_error:
             raise ToolError(
@@ -94,7 +96,8 @@ class ConfiguredHookActions:
         return self._environment[name]
 
     def command(self, template, context):
-        environment = dict(os.environ)
+        # Only explicit $ENV.NAME references reach the command; nothing else is inherited.
+        environment = subprocess_environment(os.environ)
         index = 0
 
         def bind(match):

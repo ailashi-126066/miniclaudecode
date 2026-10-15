@@ -72,6 +72,24 @@ async def test_real_command_output_is_complete_on_disk_and_bounded_in_model_resu
     await journal.aclose()
 
 
+async def test_command_environment_excludes_inherited_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_API_KEY", "fake-secret-value")
+    monkeypatch.setenv("PYCODE_UNLISTED_VALUE", "unlisted")
+    executor, context, journal, outputs = await assemble(tmp_path)
+    try:
+        result = await executor.execute(
+            context, ToolCall("call-1", "Bash", {"command": "env"}), "tool_calls"
+        )
+        assert not result.is_error and result.exit_code == 0
+        variables = dict(line.split("=", 1) for line in result.text.splitlines() if "=" in line)
+        assert "FAKE_API_KEY" not in variables and "fake-secret-value" not in result.text
+        assert "PYCODE_UNLISTED_VALUE" not in variables
+        assert variables["PATH"]
+        assert variables["HOME"]
+    finally:
+        await journal.aclose()
+
+
 async def test_cancelled_command_cannot_write_after_owner_returns(tmp_path):
     executor, context, journal, outputs = await assemble(tmp_path)
     code = (

@@ -19,6 +19,7 @@ from pycode.core.errors import ToolError
 from pycode.core.hashing import data_hash
 from pycode.core.messages import ToolResult
 from pycode.core.sandbox import SandboxSettings
+from pycode.core.subprocess_env import subprocess_environment
 from pycode.core.tools import ToolContext, ToolSpec
 from pycode.core.values import plain_data
 from pycode.ports.outputs import ToolOutputStore
@@ -83,5 +84,8 @@ class Bash:
             ToolResult(context.call_id, self.spec.name, ""),
             limit_seconds=arguments.get("timeout", 120),
             progress=context.progress,
-            environment=self._environment,
+            # Never inherit provider keys or other credentials from the parent process.
+            environment=subprocess_environment(
+                os.environ if self._environment is None else self._environment
+            ),
         )

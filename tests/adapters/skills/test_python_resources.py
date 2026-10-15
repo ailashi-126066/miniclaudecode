@@ -125,6 +125,24 @@ async def test_large_unicode_output_is_complete_and_pageable_after_common_execut
         await store.aclose()
 
 
+async def test_resource_worker_does_not_inherit_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_API_KEY", "fake-secret-value")
+    code = (
+        "import os\n"
+        "def execute(detail):\n"
+        "    return repr((os.environ.get('FAKE_API_KEY'), bool(os.environ.get('PATH'))))\n"
+    )
+    store, tool, outputs = await activate(tmp_path, code=code)
+    context = ToolContext("s1", "r1", "operation", str(tmp_path))
+    try:
+        result = await executor(tool, outputs).execute(
+            context, ToolCall("call", tool.spec.name, VECTORS["argument"]), "tool_calls"
+        )
+        assert not result.is_error and result.text.strip() == "(None, True)"
+    finally:
+        await store.aclose()
+
+
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_timeout_and_cancel_stop_resource_and_its_owned_child(tmp_path, cancel):
     code = (
