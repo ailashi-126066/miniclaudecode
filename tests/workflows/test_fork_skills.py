@@ -51,7 +51,7 @@ async def test_fork_skill_native_task_has_own_history_and_loaded_state(
             child = next(
                 entry["data"]["session_id"]
                 for entry in state["snapshot"]["entries"]
-                if entry["type"] == "team_delegate"
+                if entry["type"] == "team_agent"
             )
             first_child = str(requests[2]["body"]["messages"])
             assert ("OLD CONTEXT" in first_child) is (context == "full")

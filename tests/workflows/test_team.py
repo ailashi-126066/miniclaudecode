@@ -1,5 +1,6 @@
-"""Deep Agents native synchronous delegation, durable children and read-only policy."""
+"""In-process team tools use independent session histories and normal settlement."""
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -9,10 +10,8 @@ from tests.support.http_provider import chat_completion, protocol_server
 from tests.workflows.test_skills_http import skill_reply
 
 from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.team.worktrees import WorktreeManager
 from pycode.app.config import AppConfig
 from pycode.app.container import open_agent_session
-from pycode.app.team_runtime import ConfiguredWorkers
 from pycode.core.messages import Message
 
 
@@ -24,19 +23,74 @@ def finished(text):
     return response
 
 
-async def test_modifying_worker_uses_owned_worktree_native_write_and_keeps_parent_unchanged(
+@pytest.mark.parametrize("write_attempt", [False, True])
+async def test_spawn_readonly_has_own_history_and_cannot_write(
+    tmp_path, monkeypatch, write_attempt
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    source = tmp_path / "code.py"
+    source.write_text("original code\n")
+    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+    calls, lock = {"lead": 0, "child": 0}, threading.Lock()
+
+    def respond(request):
+        lead = "spawn_agent" in str(request["body"]["tools"])
+        key = "lead" if lead else "child"
+        with lock:
+            step = calls[key]
+            calls[key] += 1
+        if lead:
+            if step == 0:
+                return skill_reply(
+                    "spawn_agent",
+                    {"mode": "readonly", "role": "reviewer", "task": "Inspect code.py"},
+                    "spawn",
+                )
+            if step == 1:
+                return skill_reply("wait_agents", {}, "wait")
+            return finished("parent finished")
+        if step == 0:
+            name = "write_file" if write_attempt else "read_file"
+            arguments = {"file_path": "/workspace/code.py"}
+            if write_attempt:
+                arguments["content"] = "bad"
+            return skill_reply(name, arguments, "child-tool")
+        return finished("child finished")
+
+    with protocol_server(respond) as (url, requests):
+        session = await open_agent_session(
+            config, (provider(url),), "lead", create=True, refresh_models=False
+        )
+        try:
+            result = await session.run(Message("u1", "user", "Review the project"))
+            assert result.outcome == "completed"
+            assert source.read_text() == "original code\n"
+            state = await session.inspect()
+            record = state["team"]["agents"][0]
+            assert record["status"] == "completed"
+            assert (await session.usage())["team"]["request_count"] == 2
+            assert any(e["type"] == "team_agent" for e in state["snapshot"]["entries"])
+            child_requests = [r for r in requests if "spawn_agent" not in str(r["body"]["tools"])]
+            assert all("write_file" not in str(r["body"]["tools"]) for r in child_requests)
+        finally:
+            await session.aclose()
+    child_history = (
+        StorageLayout(tmp_path, config.user_data).sessions / record["session_id"] / "entries.jsonl"
+    )
+    assert '"team_parent"' in child_history.read_text()
+    assert ('"unknown_tool"' in child_history.read_text()) is write_attempt
+
+
+async def test_worker_native_file_write_keeps_lead_unchanged_and_history_retained(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     project = repository(tmp_path)
-    base = project / "base.py"
-    base.write_text("base\n")
+    (project / "base.py").write_text("base\n")
     git(project, "add", ".")
     git(project, "commit", "-qm", "base")
     head = git(project, "rev-parse", "HEAD")
     config = AppConfig(project, tmp_path / "data", memory_mode="off")
-    layout = StorageLayout(config.workspace, config.user_data)
-    worktrees = WorktreeManager(project, layout.project / "worktrees")
     with protocol_server(
         [
             skill_reply(
@@ -46,91 +100,76 @@ async def test_modifying_worker_uses_owned_worktree_native_write_and_keeps_paren
             ),
             finished("created file; tests not run"),
         ]
-    ) as (url, requests):
-        workers = ConfiguredWorkers(
-            config, (provider(url),), open_agent_session, worktrees, layout.runtime_database
-        )
-        worker = await workers.create("thread-1", "worker")
-        try:
-            result = await worker.run("Create new.py")
-            assert result.outcome == "completed" and len(requests) == 2
-            record = await worktrees.inspect(worker.worktree_id)
-            root = Path(record["path"])
-            changed = root / "new.py"
-            assert changed.read_text() == "worker change\n"
-            parent_changed = project / "new.py"
-            assert not parent_changed.exists() and git(project, "rev-parse", "HEAD") == head
-            values = await worker.values()
-            assert record["branch"] in values["messages"][-1]["content"]
-            assert "tests not run" in values["messages"][-1]["content"]
-            usage = await worker.session.usage()
-            assert usage["session"]["request_count"] == 2
-        finally:
-            await worker.aclose()
-        retained = await worktrees.inspect(worker.worktree_id)
-        assert retained["worker_stopped"] and retained["dirty"]
-        assert not (await worktrees.cleanup(worker.worktree_id))["removed"]
-
-
-@pytest.mark.parametrize("write_attempt", [False, True])
-async def test_native_task_has_separate_child_history_readonly_files_and_metering(
-    tmp_path, monkeypatch, write_attempt
-):
-    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
-    source = tmp_path / "code.py"
-    source.write_text("original code\n")
-    config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    child_tool = (
-        skill_reply(
-            "write_file", {"file_path": "/workspace/code.py", "content": "bad"}, "child-write"
-        )
-        if write_attempt
-        else skill_reply("read_file", {"file_path": "/workspace/code.py"}, "child-read")
-    )
-    replies = [
-        skill_reply(
-            "task", {"description": "Inspect code.py", "subagent_type": "readonly"}, "delegate"
-        ),
-        child_tool,
-        finished("child finished"),
-        finished("parent finished"),
-    ]
-    with protocol_server(replies) as (url, requests):
+    ) as (url, _):
         session = await open_agent_session(
             config, (provider(url),), "lead", create=True, refresh_models=False
         )
         try:
-            result = await session.run(Message("u1", "user", "Review the project"))
-            assert result.outcome == "completed" and result.final_text == "parent finished"
-            assert len(requests) == 4
-            assert source.read_text() == "original code\n"
-            assert "write_file" not in str(requests[1]["body"]["tools"])
-            view = await session.inspect()
-            delegates = [
-                entry for entry in view["snapshot"]["entries"] if entry["type"] == "team_delegate"
-            ]
-            assert len(delegates) == 2 and delegates[-1]["data"]["status"] == "completed"
-            child_id = delegates[-1]["data"]["session_id"]
-            usage = await session.usage()
-            assert usage["session"]["request_count"] == 2
-            assert usage["team"]["request_count"] == 2
-            assert usage["team_turn"]["request_count"] == 2
-            assert usage["total_with_team"]["request_count"] == 4
+            record = await session._team.spawn("worker", "engineer", "Create new.py", provider(url))
+            await session._team.inbox.wait(timeout=10)
+            record = session._team.records[record["agent_id"]]
+            assert record["status"] == "completed"
+            assert (Path(record["workspace"]) / "new.py").read_text() == "worker change\n"
+            assert not (project / "new.py").exists()
+            assert git(project, "rev-parse", "HEAD") == head
+            review = await session._team.review(record["agent_id"])
+            assert "worker change" in review["diff"]
+            history = (
+                StorageLayout(Path(record["workspace"]), config.user_data).sessions
+                / record["session_id"]
+            )
+            assert (history / "entries.jsonl").exists()
         finally:
             await session.aclose()
-        child = await open_agent_session(config, (provider(url),), child_id, refresh_models=False)
+
+
+async def test_worker_review_merge_requires_live_user_approval_then_cleans_worktree(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    project = repository(tmp_path)
+    (project / "base.py").write_text("base\n")
+    git(project, "add", ".")
+    git(project, "commit", "-qm", "base")
+    config = AppConfig(project, tmp_path / "data", memory_mode="off")
+    calls = {"lead": 0, "child": 0}
+    identifier = None
+
+    def respond(request):
+        lead = "spawn_agent" in str(request["body"]["tools"])
+        key = "lead" if lead else "child"
+        step = calls[key]
+        calls[key] += 1
+        if lead:
+            if step == 0:
+                return skill_reply("review_agent", {"id": identifier}, "review")
+            if step == 1:
+                return skill_reply("merge_agent", {"id": identifier}, "merge")
+            return finished("merged")
+        if step == 0:
+            return skill_reply(
+                "write_file",
+                {"file_path": "/workspace/new.py", "content": "worker code\n"},
+                "write",
+            )
+        return finished("worker done")
+
+    with protocol_server(respond) as (url, _):
+        session = await open_agent_session(
+            config, (provider(url),), "lead", create=True, refresh_models=False
+        )
         try:
-            child_view = await child.inspect()
-            tool_results = []
-            for entry in child_view["snapshot"]["entries"]:
-                message = entry.get("message")
-                if message and message["tool_result"]:
-                    tool_results.append(message["tool_result"])
-            assert len(tool_results) == 1
-            assert tool_results[0]["is_error"] is write_attempt
-            if write_attempt:
-                assert tool_results[0]["error_code"] == "unknown_tool"
-            else:
-                assert "original code" in tool_results[0]["text"]
+            record = await session._team.spawn("worker", "engineer", "Create new.py", provider(url))
+            identifier = record["agent_id"]
+            await session._team.inbox.wait(timeout=10)
+            result = await session.run(Message("merge-u", "user", "Review then merge the worker"))
+            assert result.outcome == "needs_input" and not (project / "new.py").exists()
+            result = await session.resume(
+                {"operation_id": result.pending[0]["operation_id"], "decision": "approve"}
+            )
+            assert result.outcome == "completed"
+            assert (project / "new.py").read_text() == "worker code\n"
+            assert session._team.records[identifier]["status"] == "merged"
+            assert not Path(session._team.records[identifier]["workspace"]).exists()  # noqa: ASYNC240
         finally:
-            await child.aclose()
+            await session.aclose()

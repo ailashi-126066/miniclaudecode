@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 EventKind = Literal[
+    "team",
     "model_change",
     "model_request_start",
     "model_request_end",

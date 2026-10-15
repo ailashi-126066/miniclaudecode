@@ -58,6 +58,7 @@ def test_registry_filters_only_command_names_and_refreshes_dynamic_skills():
     registry.set_skills([])
     assert registry.matches("/skill:") == ()
     assert "/storage status|gc" in registry.help_text()
+    assert registry.find("/agents").handler == "command_agents"
     assert len({command.name for command in COMMANDS}) == len(COMMANDS)
 
 

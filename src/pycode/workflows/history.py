@@ -74,6 +74,8 @@ class HistoryMiddleware(AgentMiddleware):
             return current
 
         async def deliver_steering(current):
+            if current.team is not None:
+                await current.team.flush_inbox(current)
             if current.durable_inputs is not None:
                 current.inputs = await current.durable_inputs.pending(current.run_id)
             pending = current.inputs.take("steer", one_at_a_time=current.one_at_a_time)
@@ -231,6 +233,8 @@ class HistoryMiddleware(AgentMiddleware):
     @hook_config(can_jump_to=["model"])
     async def aafter_agent(self, state, runtime):
         context = runtime.context
+        if context.team is not None:
+            await context.team.flush_inbox(context)
         if context.summary is not None:
             await context.summary.prepare(wait_for_capacity=False)
         if context.durable_inputs is not None:

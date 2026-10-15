@@ -14,6 +14,8 @@ class SessionService:
     async def list_sessions(self):
         sessions = []
         for header in await self._repository.list_headers():
+            if header.session_id.startswith("team-"):
+                continue
             store = await self._repository.open(header.session_id)
             try:
                 snapshot = await store.snapshot()

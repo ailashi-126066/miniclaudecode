@@ -215,6 +215,25 @@ async def command(args, config):
             return 0
         else:
             raise DomainError("unknown_command", "Unknown execution command")
+        while result.outcome == "completed":
+            state = await session.wait_team()
+            if state == "blocked":
+                output.value(
+                    {
+                        "agent_needs_input": (await session.inspect())
+                        .get("team", {})
+                        .get("approvals", [])
+                    }
+                )
+                await session.publish_result(result, collect_background=True)
+                return 2
+            if state != "input":
+                break
+            await session.publish_result(result)
+            next_result = await session.wake_team()
+            if next_result is None:
+                break
+            result = next_result
         await session.publish_result(result, collect_background=True)
         return 0 if result.outcome == "completed" else 2 if result.outcome == "needs_input" else 1
     except asyncio.CancelledError:

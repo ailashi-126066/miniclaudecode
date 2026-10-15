@@ -75,7 +75,7 @@ def python_read_paths():
     return paths
 
 
-def build_profile(workspace, network_enabled, home=None):
+def build_profile(workspace, network_enabled, home=None, *, skill_read_roots=()):
     root = Path(workspace).resolve()
     home = Path(home if home is not None else Path.home()).resolve()
 
@@ -120,6 +120,10 @@ def build_profile(workspace, network_enabled, home=None):
         # Later Seatbelt rules take precedence over earlier ones.
         deny_private(private),
         f"(allow file-read* (subpath {quote(root)}))",
+        *[
+            f"(allow file-read* (subpath {quote(Path(path).resolve())}))"
+            for path in skill_read_roots
+        ],
         # Dotenv files stay unreadable inside and outside the workspace.
         f"(deny file-read-data {DOTENV})",
         *([f"(allow file-read-data {example})"] if example else []),
@@ -153,8 +157,12 @@ class UnavailableSandbox:
 
 
 class SeatbeltSandbox:
-    def __init__(self, executable="/usr/bin/sandbox-exec"):
+    def __init__(self, executable="/usr/bin/sandbox-exec", *, skill_read_roots=()):
         self._executable = executable
+        self._skill_read_roots = tuple(skill_read_roots)
+
+    def for_skill(self, directory):
+        return SeatbeltSandbox(self._executable, skill_read_roots=(Path(directory).resolve(),))
 
     async def usable(self):
         process = None
@@ -205,5 +213,35 @@ class SeatbeltSandbox:
             raise ToolError(
                 "sandbox_unavailable", "Seatbelt became unavailable; command was not run"
             )
-        profile = await asyncio.to_thread(build_profile, workspace, settings.network_enabled)
+        profile = await asyncio.to_thread(
+            build_profile,
+            workspace,
+            settings.network_enabled,
+            skill_read_roots=self._skill_read_roots,
+        )
         return (self._executable, "-p", profile, *argv)
+
+
+class RequiredSandbox:
+    """Worker processes never fall back to executing outside an OS sandbox."""
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def for_skill(self, directory):
+        if not isinstance(self.backend, SeatbeltSandbox):
+            raise ToolError(
+                "worker_sandbox_unavailable", "Skill execution requires a strict sandbox backend"
+            )
+        return RequiredSandbox(self.backend.for_skill(directory))
+
+    async def status(self, settings):
+        return await self.backend.status(settings)
+
+    async def launch(self, argv, workspace, settings):
+        status = await self.backend.status(settings)
+        if not status.available or not status.enabled:
+            raise ToolError(
+                "worker_sandbox_unavailable", "Worker commands require an available OS sandbox"
+            )
+        return await self.backend.launch(argv, workspace, settings)

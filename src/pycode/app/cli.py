@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         sandbox=SandboxSettings(args.sandbox, args.sandbox_network),
         project_trusted=args.trust_project,
         memory_mode=args.memory_mode,
+        team_max_agents=args.max_agents,
     )
     if args.p is not None:
         if args.command is not None:

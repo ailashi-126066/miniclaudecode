@@ -293,3 +293,10 @@ class AgentRuntime:
             if not task.done() and not task.cancelling():
                 task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        if context.team is not None:
+            for message in context.completed:
+                if message.tool_result is not None:
+                    await context.team.settle_tool(message.tool_result, accepted=True)
+            for call in context.assistant.tool_calls if context.assistant is not None else ():
+                operation_id = f"{context.run_id}:{context.assistant.id}:{call.id}"
+                await context.team.settle_tool(operation_id, accepted=False)

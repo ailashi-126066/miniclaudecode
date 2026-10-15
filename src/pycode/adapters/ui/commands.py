@@ -45,6 +45,7 @@ COMMANDS = (
         True,
     ),
     Command("/plan", "Enter plan mode", "command_plan", "[TASK]", True),
+    Command("/agents", "Inspect or cancel local agents", "command_agents", "[cancel ID]"),
     Command("/usage", "Show token usage", "command_usage"),
     Command("/compact", "Compact conversation context", "command_compact"),
     Command("/reload", "Refresh the skill catalog", "command_reload"),

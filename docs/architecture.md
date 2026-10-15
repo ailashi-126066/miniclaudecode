@@ -41,11 +41,26 @@ tool definitions and system-prompt footprint are recorded for runtime/UI capacit
 Project prompt snapshots refresh only at new tasks. Store entries are immutable, indexed once
 by ID; active-path IDs and projection revision caches avoid deep-copying complete history.
 
-Native sync task uses independent read-only sessions. Fork Skills inherit full/recent/no parent
-context without loading into the parent. Remote Async Subagents, `team serve` and the Agent
-Protocol host are removed; multi-agent work will return in-process. TeamManager (task store,
-dependency policy, concurrency) and WorktreeManager stay as unwired building blocks for it.
-Usage retains purpose/agent/session identity and known team totals.
+AgentTeam owns asyncio child AgentSessions, a bounded atomic task board and durable inboxes.
+A dedicated team JSONL contains atomic transitions, separate from the lead branch leaf;
+child JSONL sessions link their lead and remain available after worktree removal.
+HistoryMiddleware flushes inboxes before model calls and before closing input admission.
+Wait delivery is acknowledged only after a successful ToolResult with message IDs is persisted;
+idle wake inputs are confirmed from JSONL. Restart marks active children interrupted without reruns.
+Readonly children expose read-only tools. Worker file tools target an owned worktree;
+commands need an available strict sandbox and explicit approval, and unisolated MCP/Hook actions
+are not loaded. Parent custom/Skill denials remain effective. Every merge has source-tree and
+target-HEAD-bound approval outside Auto Plan, then guarded Git integration and cleanup.
+Fork Skills and Hook delegates share this coordinator, preserving full/recent/no parent context.
+Usage retains purpose/agent/session identity and sums children from durable team_agent links.
+See [the reviewed design](design/inproc-team.md) for cancellation, conflict recovery and limits.
+
+| Team port | Implementation |
+| --- | --- |
+| ChildSessions / ChildSession | app.container.ConfiguredChildSessions / services.agent_session.AgentSession |
+| Worktrees | adapters.team.worktrees.WorktreeManager |
+| EventSink | services.events.EventStream |
+| SessionStore | adapters.storage.session.JsonlSessionStore |
 
 Plan is an exact writable document with run-bound approved hash; restart expires approvals.
 

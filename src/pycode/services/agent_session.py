@@ -17,6 +17,7 @@ from pycode.core.revert_state import pending_revert
 from pycode.core.runtime import RunResult
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
+from pycode.core.team import team_message_text
 from pycode.core.values import plain_data
 from pycode.ports.history import SessionStore
 from pycode.ports.runtime import RuntimeLauncher
@@ -49,6 +50,7 @@ class AgentSession:
         memory=None,
         recover_tool=None,
         recovery_outputs=None,
+        team=None,
     ) -> None:
         self._store = store
         self._projector = projector
@@ -69,6 +71,7 @@ class AgentSession:
         self._memory = memory
         self._recover_tool = recover_tool
         self._recovery_outputs = recovery_outputs
+        self._team = team
 
     async def submit_input(self, message: Message, kind: InputKind) -> bool:
         if self._durable_inputs is None:
@@ -105,8 +108,17 @@ class AgentSession:
                 yield
             finally:
                 self._active_task = None
+                if self._team is not None and asyncio.current_task().cancelling():
+                    await self._team.cancel_all("lead_cancelled")
 
     async def cancel(self) -> bool:
+        try:
+            return await self._cancel()
+        finally:
+            if self._team is not None:
+                await self._team.cancel_all("lead_cancelled")
+
+    async def _cancel(self) -> bool:
         running = self._active_task
         if running is None:
             async with self.execution():
@@ -247,115 +259,113 @@ class AgentSession:
             raise ValueError("A task starts with an identified user input")
         if self._execution.locked():
             raise StorageError("session_busy", "This session already has an active executor")
+        if self._team is not None:
+            self._team.stopping = False
         async with self.execution():
-            before = await self._store.snapshot()
-            path = SessionTree(before.index).path(before.leaf_id)
-            pending = self.pending_run(before)
-            original = next(
-                (
-                    entry
-                    for entry in before.entries
-                    if entry.type == "message" and entry.message.id == message.id
-                ),
-                None,
-            )
-            if original is not None:
-                if original.message != message:
-                    raise StorageError(
-                        "input_id_conflict", "Input ID already has different content"
+            return await self._run_locked(message)
+
+    async def _run_locked(self, message):
+        before = await self._store.snapshot()
+        path = SessionTree(before.index).path(before.leaf_id)
+        pending = self.pending_run(before)
+        original = next(
+            (
+                entry
+                for entry in before.entries
+                if entry.type == "message" and entry.message.id == message.id
+            ),
+            None,
+        )
+        if original is not None:
+            if original.message != message:
+                raise StorageError("input_id_conflict", "Input ID already has different content")
+            if original.id not in {entry.id for entry in path}:
+                raise StorageError("input_branch_conflict", "Input ID belongs to another branch")
+            for entry in reversed(path):
+                if (
+                    entry.type == "custom"
+                    and entry.data.get("kind") == "run_end"
+                    and (
+                        entry.data.get("input_id") == message.id
+                        or message.id in entry.data.get("input_ids", ())
                     )
-                if original.id not in {entry.id for entry in path}:
-                    raise StorageError(
-                        "input_branch_conflict", "Input ID belongs to another branch"
-                    )
-                for entry in reversed(path):
-                    if (
-                        entry.type == "custom"
-                        and entry.data.get("kind") == "run_end"
-                        and (
-                            entry.data.get("input_id") == message.id
-                            or message.id in entry.data.get("input_ids", ())
-                        )
-                    ):
-                        final_id = entry.data.get("final_entry_id")
-                        final_text = (
-                            SessionTree(before.index).get(final_id).message.text if final_id else ""
-                        )
-                        return RunResult(
-                            entry.data["outcome"],
-                            final_text,
-                            (),
-                            checkpoint_id=entry.data.get("checkpoint_id"),
-                            run_id=entry.run_id,
-                        )
-                following = path[path.index(original) + 1 :]
-                if pending is not None and pending.data["input_id"] == message.id:
-                    provider = await self._models.restore(self._default)
-                    return await self.resume_run(provider, pending)
-                if any(
-                    entry.type == "message" and entry.message.role in {"assistant", "tool"}
-                    for entry in following
                 ):
-                    raise StorageError(
-                        "execution_recovery_required",
-                        "Unsettled execution must be reconciled before continuing",
+                    final_id = entry.data.get("final_entry_id")
+                    final_text = (
+                        SessionTree(before.index).get(final_id).message.text if final_id else ""
                     )
-                history = tuple(
-                    item
-                    for item in self._projector.project(before).messages
-                    if item.id != message.id
-                )
-            else:
-                if pending is not None:
-                    raise StorageError(
-                        "session_needs_input",
-                        "Resume or resolve the pending task before adding input",
+                    return RunResult(
+                        entry.data["outcome"],
+                        final_text,
+                        (),
+                        checkpoint_id=entry.data.get("checkpoint_id"),
+                        run_id=entry.run_id,
                     )
-                history = self._projector.project(before).messages
-                await self._store.append_message(message)
-                if self._memory is not None:
-                    await self._memory.select(message.text)
-                if await self._models.current() is None:
-                    await self._models.select(self._default.name, self._default.model_id)
-            if self._skills is not None:
-                await self._skills.index()
-            provider = await self._models.restore(self._default)
-            start = await self._store.append_entry(
-                EntryDraft(
-                    "custom",
-                    data={
-                        "kind": "run_start",
-                        "input_id": message.id,
-                        "execution_session_id": before.header.session_id,
-                        "hook_config_hash": self._hook_config_hash,
-                        "mcp_config_hash": self._mcp_config_hash,
-                    },
-                    run_id=uuid4().hex,
+            following = path[path.index(original) + 1 :]
+            if pending is not None and pending.data["input_id"] == message.id:
+                provider = await self._models.restore(self._default)
+                return await self.resume_run(provider, pending)
+            if any(
+                entry.type == "message" and entry.message.role in {"assistant", "tool"}
+                for entry in following
+            ):
+                raise StorageError(
+                    "execution_recovery_required",
+                    "Unsettled execution must be reconciled before continuing",
                 )
+            history = tuple(
+                item for item in self._projector.project(before).messages if item.id != message.id
             )
-            try:
-                result = await self._launcher.run(provider, self._store, (message,), history)
-            except asyncio.CancelledError:
-                await recover_conversation(
-                    self._store, self._recovery_outputs, recover_tool=self._recover_tool
+        else:
+            if pending is not None:
+                raise StorageError(
+                    "session_needs_input",
+                    "Resume or resolve the pending task before adding input",
                 )
-                raise
-            except DomainError:
-                try:
-                    await recover_conversation(
-                        self._store,
-                        self._recovery_outputs,
-                        reason="run_error",
-                        outcome="error",
-                        recover_tool=self._recover_tool,
-                    )
-                except StorageError:
-                    logging.getLogger("pycode.session").exception(
-                        "Could not persist failed-run recovery; "
-                        "restart requires JSONL reconciliation"
-                    )
-                raise
-            return await self.settle_run(start, result)
+            history = self._projector.project(before).messages
+            await self._store.append_message(message)
+            if self._memory is not None:
+                await self._memory.select(message.text)
+            if await self._models.current() is None:
+                await self._models.select(self._default.name, self._default.model_id)
+        if self._skills is not None:
+            await self._skills.index()
+        provider = await self._models.restore(self._default)
+        start = await self._store.append_entry(
+            EntryDraft(
+                "custom",
+                data={
+                    "kind": "run_start",
+                    "input_id": message.id,
+                    "execution_session_id": before.header.session_id,
+                    "hook_config_hash": self._hook_config_hash,
+                    "mcp_config_hash": self._mcp_config_hash,
+                },
+                run_id=uuid4().hex,
+            )
+        )
+        try:
+            result = await self._launcher.run(provider, self._store, (message,), history)
+        except asyncio.CancelledError:
+            await recover_conversation(
+                self._store, self._recovery_outputs, recover_tool=self._recover_tool
+            )
+            raise
+        except DomainError:
+            try:
+                await recover_conversation(
+                    self._store,
+                    self._recovery_outputs,
+                    reason="run_error",
+                    outcome="error",
+                    recover_tool=self._recover_tool,
+                )
+            except StorageError:
+                logging.getLogger("pycode.session").exception(
+                    "Could not persist failed-run recovery; restart requires JSONL reconciliation"
+                )
+            raise
+        return await self.settle_run(start, result)
 
     def pending_run(self, snapshot):
         return pending_run_entry(snapshot)
@@ -451,7 +461,16 @@ class AgentSession:
                 if self._memory is not None:
                     await self._memory.aclose()
             finally:
-                await self._launcher.aclose()
+                if self._team is not None:
+                    self._team.closing = True
+                    await self._team.cancel_all("close")
+                    self._team.stopping = False
+                    self._team._closing_delegate = True
+                try:
+                    await self._launcher.aclose()
+                finally:
+                    if self._team is not None:
+                        await self._team.aclose()
         finally:
             try:
                 if self._view is not None:
@@ -468,7 +487,58 @@ class AgentSession:
             if self._plans is not None and self._plans.state is not None
             else None
         )
+        state["team"] = await self._team.view() if self._team is not None else None
         return state
+
+    async def record_team_parent(self, data):
+        async with self.execution():
+            await self._store.append_entry(EntryDraft("team_parent", data=data))
+
+    async def answer_agent(self, agent_id, answer):
+        if self._team is None:
+            raise StorageError("team_unavailable", "This session has no team")
+        return await self._team.answer(agent_id, answer)
+
+    async def cancel_agent(self, agent_id):
+        if self._team is None:
+            raise StorageError("team_unavailable", "This session has no team")
+        return await self._team.cancel(agent_id)
+
+    def team_wake_pending(self):
+        return (
+            self._team is not None
+            and not self._team.stopping
+            and not self._team.closing
+            and bool(self._team.inbox.pending("lead", wake_only=True))
+        )
+
+    async def wait_team(self):
+        return "idle" if self._team is None else await self._team.wait_lead_input()
+
+    async def wake_team(self):
+        if not self.team_wake_pending() or self._execution.locked():
+            return None
+        async with self.execution():
+            if self.pending_run(await self._store.snapshot()) is not None:
+                return None
+            input_id = "team-wake-" + uuid4().hex
+            messages = await self._team.inbox.reserve("lead", "wake", input_id)
+            if not messages:
+                return None
+            message = Message(
+                input_id,
+                "user",
+                "\n\n".join(team_message_text(m) for m in messages),
+                provider_metadata={"team_wake": [m["id"] for m in messages]},
+            )
+            try:
+                return await self._run_locked(message)
+            finally:
+                accepted = await self._team.input_accepted("lead", input_id)
+                ids = [m["id"] for m in messages]
+                await (
+                    self._team.inbox.acknowledge(ids) if accepted else self._team.inbox.release(ids)
+                )
 
     async def usage(self, run_id=None):
         if self._view is None:

@@ -29,7 +29,7 @@ from pycode.adapters.models.directory import SDKModelDirectory
 from pycode.adapters.models.factory import ModelFactory
 from pycode.adapters.models.failures import ProviderFailureClassifier
 from pycode.adapters.models.observation import ProviderObservation
-from pycode.adapters.sandbox.seatbelt import SeatbeltSandbox, UnavailableSandbox
+from pycode.adapters.sandbox.seatbelt import RequiredSandbox, SeatbeltSandbox, UnavailableSandbox
 from pycode.adapters.skills.backend import SkillBackend
 from pycode.adapters.skills.catalog import FileSkillCatalog
 from pycode.adapters.skills.install import GitHubSkillInstaller
@@ -65,7 +65,7 @@ from pycode.adapters.ui.tui import PyApp
 from pycode.app.background_models import ConfiguredMemoryUpdater, ConfiguredSummaryGenerator
 from pycode.app.config import AppConfig, credential_environment
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
-from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
+from pycode.app.team_runtime import TeamDelegate, child_config
 from pycode.core.context_budget import InputBudget
 from pycode.core.errors import ModelError, StorageError
 from pycode.core.execution_recovery import pending_run_entry
@@ -80,6 +80,7 @@ from pycode.core.session_tree import SessionTree
 from pycode.core.skill_selection import SkillSelection
 from pycode.core.skills import skill_tool_specs
 from pycode.core.summaries import SummarySettings
+from pycode.core.team import child_prompt
 from pycode.core.tool_eviction import EvictionBudget
 from pycode.core.tools import ToolSpec
 from pycode.core.values import plain_data
@@ -99,7 +100,12 @@ from pycode.services.mcp_bindings import MCPRuntimeBindings
 from pycode.services.memory import MemoryService
 from pycode.services.model_catalog import ModelCatalog
 from pycode.services.model_control import ModelControl
-from pycode.services.permission import IsolatedWorkerToolGate, MemoryToolGate, ReadOnlyToolGate
+from pycode.services.permission import (
+    MemoryToolGate,
+    NoOpToolGate,
+    ReadOnlyToolGate,
+    WorkerBoundaryGate,
+)
 from pycode.services.plans import PlanService, PlanToolGate
 from pycode.services.prompts import PromptService
 from pycode.services.restart import recover_conversation
@@ -110,6 +116,7 @@ from pycode.services.skill_resources import SkillLoadRecorder, SkillResources
 from pycode.services.skills import SkillService, SkillToolGate
 from pycode.services.storage_gc import StorageGC
 from pycode.services.summary import SummaryService
+from pycode.services.team import AgentTeam
 from pycode.services.tool_eviction import ToolEvictionService
 from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
@@ -119,10 +126,11 @@ from pycode.workflows.memory_tools import memory_tools
 from pycode.workflows.metered_model import MeteredChatModel
 from pycode.workflows.model_fallback import ModelCandidate, ModelFallback
 from pycode.workflows.model_requests import ModelRequestRunner
-from pycode.workflows.permissions import InterruptToolGate
+from pycode.workflows.permissions import InterruptToolGate, TeamToolGate
 from pycode.workflows.plans import InterruptPlanPrompt
 from pycode.workflows.questions import InterruptQuestionPrompt
 from pycode.workflows.summary import prepare_summary
+from pycode.workflows.team_tools import child_tools, lead_tools
 from pycode.workflows.tool_errors import execute_tool_errors
 from pycode.workflows.tool_selection import ToolSelector
 
@@ -165,7 +173,7 @@ def default_tools(config, outputs, shell, question_prompt=None, plans=None):
         )
     tools = [
         ReadToolResult(outputs),
-        Bash(shell, outputs, build_sandbox(), config.sandbox, environment=environment),
+        Bash(shell, outputs, worker_sandbox(config), config.sandbox, environment=environment),
     ]
     if question_prompt is not None:
         tools.append(AskUserQuestion(question_prompt))
@@ -275,6 +283,7 @@ def build_runtime(
     skill_selection=None,
     model_resolver=None,
     memory=None,
+    team_member=None,
 ) -> RuntimeContainer:
     checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
     observation = ProviderObservation(provider.implementation)
@@ -282,7 +291,14 @@ def build_runtime(
     model = factory.create(provider)
     validator = JsonSchemaValidator()
     scoped_memory_tools = memory_tools(memory, read_only=config.read_only)
-    tools = (*tools, *scoped_memory_tools)
+    team_tools = ()
+    if team_member is not None:
+        team_tools = (
+            lead_tools(team_member, provider)
+            if team_member.agent_id == "lead"
+            else child_tools(team_member)
+        )
+    tools = (*tools, *scoped_memory_tools, *team_tools)
     layout = StorageLayout(config.workspace, config.user_data)
     outputs = FileToolOutputStore(layout.sessions, session_id, history_store)
     enabled_tools = (
@@ -333,13 +349,27 @@ def build_runtime(
     if scoped_memory_tools:
         gate = MemoryToolGate(gate, tuple(tool.spec for tool in scoped_memory_tools))
     if plans is not None:
-        if config.isolated_worker:
-            gate = IsolatedWorkerToolGate(gate)
         gate = PlanToolGate(plans, gate)
     if config.tool_gate is not None:
         gate = config.tool_gate
     if history_store is not None:
         gate = SkillToolGate(history_store, gate)
+    constraints = (
+        SkillToolGate(history_store, config.tool_gate or NoOpToolGate())
+        if history_store is not None
+        else (config.tool_gate or NoOpToolGate())
+    )
+    if config.agent_id != "lead":
+        strict_sandbox = worker_sandbox(config)
+        gate = WorkerBoundaryGate(
+            constraints,
+            InterruptToolGate(strict_sandbox, config.sandbox),
+            readonly=config.read_only,
+            sandbox=strict_sandbox if config.isolated_worker else None,
+            settings=config.sandbox,
+        )
+    elif team_member is not None:
+        gate = TeamToolGate(team_member.team, gate, constraints, plans)
     snapshots = GitSnapshotStore(
         config.workspace, layout.project / "snapshots", excluded_roots=(config.user_data,)
     )
@@ -354,10 +384,8 @@ def build_runtime(
                 build_sandbox(),
                 config.sandbox,
                 credential_environment(config, (provider,)),
-                delegate=build_synchronous_delegate(
-                    config, provider, history_store, consumers, run_id
-                )
-                if config.allow_delegation
+                delegate=TeamDelegate(team_member.team, provider, history_store, run_id)
+                if config.allow_delegation and team_member is not None
                 else None,
             ),
             validator,
@@ -418,6 +446,7 @@ def build_runtime(
         model_tools=effective_tools,
         skill_selection=skill_selection,
         read_only=config.read_only,
+        team=team_member,
     )
     if provider.supports_tools:
 
@@ -533,7 +562,7 @@ def build_runtime(
             skill_selection=skill_selection,
         ),
         skills=skill_sources(config),
-        subagents=runtime_subagents(config, provider, history_store, consumers, run_id),
+        subagents=(),
         read_only=config.read_only,
         instructions=instructions,
         instruction_backend=InstructionFileBackend(instructions),
@@ -547,40 +576,12 @@ def build_runtime(
     )
 
 
-def runtime_subagents(config, provider, history, consumers, run_id=None):
-    if not config.allow_delegation or history is None:
-        return ()
-    delegate = build_synchronous_delegate(config, provider, history, consumers, run_id)
-    return (
-        {
-            "name": "readonly",
-            "description": "Inspect code and report findings without modifications",
-            "runnable": RunnableLambda(delegate.invoke),
-        },
-    )
-
-
-def build_synchronous_delegate(config, provider, history, consumers, run_id=None):
-    layout = StorageLayout(config.workspace, config.user_data)
-    workers = ConfiguredWorkers(
-        config,
-        (provider,),
-        open_agent_session,
-        None,
-        layout.runtime_database,
-        consumers,
-        session_forker=build_session_repository(config).fork,
-    )
-
-    return SynchronousDelegate(workers, history, run_id)
-
-
-def fork_skill_specs(config, provider, history, consumers, run_id, entries, catalog):
+def fork_skill_specs(config, provider, history, consumers, run_id, entries, catalog, team_member):
     specs = []
     for entry in entries:
         if entry.mode != "fork":
             continue
-        delegate = build_synchronous_delegate(config, provider, history, consumers, run_id)
+        delegate = TeamDelegate(team_member.team, provider, history, run_id)
         delegate.skill = entry
         delegate.skill_path = catalog.virtual_path(entry)
         specs.append(
@@ -614,10 +615,10 @@ def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime):
             build_sandbox(),
             launcher.config.sandbox,
             dict(os.environ),
-            delegate=build_synchronous_delegate(
-                launcher.config, launcher.lifecycle_provider, store, launcher.consumers, lifetime
+            delegate=TeamDelegate(
+                launcher.team_member.team, launcher.lifecycle_provider, store, lifetime
             )
-            if launcher.config.allow_delegation
+            if launcher.config.allow_delegation and launcher.team_member is not None
             else None,
         ),
         JsonSchemaValidator(),
@@ -663,6 +664,7 @@ async def build_configured_run(launcher, provider, store, run_id):
         journal=store,
         tools=launcher.tools,
         memory=launcher.memory,
+        team_member=launcher.team_member,
         consumers=launcher.consumers,
         history_store=store,
         checkpointer=InMemorySaver(),
@@ -681,7 +683,7 @@ async def build_configured_run(launcher, provider, store, run_id):
         effective_tools=tuple(inherited_tools),
         skill_selection=selection,
     )
-    if launcher.config.allow_delegation:
+    if launcher.config.allow_delegation and launcher.team_member is not None:
         container.runtime.subagents = (
             *container.runtime.subagents,
             *fork_skill_specs(
@@ -692,12 +694,16 @@ async def build_configured_run(launcher, provider, store, run_id):
                 run_id,
                 index.entries,
                 catalog,
+                launcher.team_member,
             ),
         )
     container.context.skill_resources = SkillResources(
         catalog,
         PythonSkillToolFactory(
-            catalog, container.context.outputs, build_sandbox(), launcher.config.sandbox
+            catalog,
+            container.context.outputs,
+            worker_sandbox(launcher.config),
+            launcher.config.sandbox,
         ),
         index.entries,
         reserved_tools=(
@@ -728,6 +734,8 @@ async def open_agent_session(
     refresh_models=True,
     startup_hooks=True,
     connect_mcp=True,
+    team_member=None,
+    prompt_suffix="",
 ) -> AgentSession:
     if not providers:
         raise ValueError("At least one configured provider is required")
@@ -771,7 +779,11 @@ async def open_agent_session(
         owned_hooks = asyncio.create_task(asyncio.to_thread(load_hooks, tuple(hook_roots)))
         try:
             configured_hooks = await asyncio.shield(owned_hooks)
-            if not config.allow_delegation:
+            if config.agent_id != "lead":
+                configured_hooks = tuple(
+                    hook for hook in configured_hooks if hook.action.type == "prompt"
+                )
+            elif not config.allow_delegation:
                 configured_hooks = tuple(
                     hook for hook in configured_hooks if hook.action.type != "agent"
                 )
@@ -798,6 +810,8 @@ async def open_agent_session(
         await event_journal.aclose()
         await store.aclose()
         raise
+    if config.agent_id != "lead":
+        servers = ()
     mcp_hash = data_hash([plain_data(server) for server in servers]) if servers else ""
     hook_hash = (
         data_hash([plain_data(hook) for hook in configured_hooks]) if configured_hooks else ""
@@ -843,10 +857,13 @@ async def open_agent_session(
             hook_factory=build_lifecycle_hook_engine,
             lifecycle_provider=providers[0],
             memory=memory,
+            team_member=team_member,
             prompt_factory=lambda history: PromptService(
                 history,
                 ProjectPromptSource(
-                    config.workspace, Path(__file__).parents[1] / "resources" / "system-prompt.txt"
+                    config.workspace,
+                    Path(__file__).parents[1] / "resources" / "system-prompt.txt",
+                    suffix=prompt_suffix,
                 ),
             ),
         )
@@ -886,6 +903,13 @@ async def open_agent_session(
         await store.aclose()
         raise
     try:
+        if config.allow_delegation and config.agent_id == "lead" and team_member is None:
+            team = await build_team(
+                config, providers, catalog, store, consumers, event_journal, plans
+            )
+            session._team = team
+            launcher.team_member = team.member("lead")
+            await team.initialize()
         await session.initialize_memory()
         if startup_hooks:
             await launcher.startup(store)
@@ -894,6 +918,116 @@ async def open_agent_session(
         await session.aclose()
         raise
     return session
+
+
+def worker_sandbox(config):
+    backend = build_sandbox()
+    return RequiredSandbox(backend) if config.isolated_worker else backend
+
+
+class ChildEventRelay:
+    def __init__(self, member):
+        self.member = member
+
+    async def consume(self, event):
+        if event.kind in {"error", "tool_execution_start"}:
+            record = self.member.team.records[self.member.agent_id]
+            await self.member.team.emit(
+                "activity",
+                {
+                    "agent_id": self.member.agent_id,
+                    "role": record["role"],
+                    "event": event.kind,
+                    "data": event.data,
+                },
+            )
+
+
+class ConfiguredChildSessions:
+    def __init__(self, config, providers, catalog):
+        self.config, self.providers, self.catalog = config, providers, catalog
+        self.workspace = str(config.workspace)
+
+    async def open(self, record, member, *, create, fork_from=None, fork_entry_ids=None):
+        config = child_config(self.config, record)
+        if record["mode"] == "worker":
+            owned = await build_worktree_manager(self.config).inspect(record["worktree_id"])
+            if owned["path"] != str(config.workspace) or owned.get("missing"):
+                raise StorageError(
+                    "invalid_worktree_record", "Child workspace does not match owned worktree"
+                )
+        provider = self.catalog.resolve(record["provider"], record["model_id"])
+        if fork_from is not None:
+            inherited = await build_session_repository(config).fork(
+                *fork_from, record["session_id"]
+            )
+            await inherited.aclose()
+        session = await open_agent_session(
+            config,
+            (provider,),
+            record["session_id"],
+            create=create and fork_from is None,
+            consumers=(ChildEventRelay(member),),
+            refresh_models=False,
+            startup_hooks=False,
+            connect_mcp=False,
+            team_member=member,
+            prompt_suffix=child_prompt(record["mode"], record["agent_id"], record["role"]),
+        )
+        if fork_entry_ids:
+            await session.configure_fork_context(fork_entry_ids)
+        return session
+
+    async def input_accepted(self, record, input_id):
+        try:
+            store = await build_session_repository(child_config(self.config, record)).open(
+                record["session_id"]
+            )
+        except StorageError as error:
+            if error.code in {"session_not_found", "session_missing", "session_quarantined"}:
+                return False
+            raise
+        try:
+            return any(
+                entry.message is not None and entry.message.id == input_id
+                for entry in (await store.snapshot()).entries
+            )
+        finally:
+            await store.aclose()
+
+
+async def build_team(config, providers, catalog, store, consumers, event_journal, plans):
+    snapshot = await store.snapshot()
+    identifier = "team-" + hashlib.sha256(snapshot.header.session_id.encode()).hexdigest()[:32]
+    ledger = await build_session_repository(config).open(identifier, create=True)
+    try:
+        await ledger.claim_writer()
+        layout = StorageLayout(config.workspace, config.user_data)
+        child_settings = replace(
+            config, request_database=config.request_database or layout.runtime_database
+        )
+        worktrees = build_worktree_manager(config)
+        try:
+            _, git_status = await asyncio.to_thread(
+                worktrees.git, ["rev-parse", "--show-toplevel"], allowed=(0, 128)
+            )
+        except OSError:
+            git_status = 128
+        if git_status != 0:
+            worktrees = None
+        return AgentTeam(
+            ledger,
+            store,
+            ConfiguredChildSessions(child_settings, providers, catalog),
+            worktrees,
+            EventStream(snapshot.header.session_id, "team", consumers, journal=event_journal),
+            max_agents=config.team_max_agents,
+            plans=plans,
+            lead_read_only=config.read_only,
+        )
+    except BaseException:
+        await ledger.aclose()
+        raise
 
 
 def build_session_view(

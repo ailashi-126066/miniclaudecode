@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 
+from pycode.adapters.sandbox.seatbelt import RequiredSandbox
 from pycode.adapters.tools.process_runner import run_process
 from pycode.adapters.tools.workspace_path import resolve_workspace_path
 from pycode.core.messages import ToolResult
@@ -59,7 +60,12 @@ class PythonSkillTool:
             "-I",
             str(Path(__file__).with_name("python_worker.py")),
         )
-        argv = await self._sandbox.launch(argv, context.workspace, self._settings)
+        sandbox = self._sandbox
+        if isinstance(sandbox, RequiredSandbox):
+            # The catalog verified this activation before granting its exact Skill root
+            # read access. Other user data and all writes outside the worktree stay denied.
+            sandbox = sandbox.for_skill(Path(self._activation["path"]).parent)
+        argv = await sandbox.launch(argv, context.workspace, self._settings)
         writer = await self._outputs.begin(context, "head")
         return await run_process(
             argv,

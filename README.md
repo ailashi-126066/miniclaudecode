@@ -191,7 +191,28 @@ TUI 使用 `/memory`、`/memory edit ID 正文`、`/memory delete ID`、`/memory
 编辑和删除也可在末尾加 `--scope user|project`。
 `undo` 撤销最近一次自动整理；之后被手动改过的条目会拒绝撤销。旧版 `memory move` 已移除。
 
-多 Agent 将在后续阶段以进程内方式重新实现。
+多 Agent 在同一进程通过 asyncio 运行，lead 使用 `spawn_agent` 按需派出
+`readonly`（只读当前工作区）或 `worker`（独立 Git worktree）子 Agent。
+`--max-agents 1..4` 设置同时活动上限（默认 4，等待审批也占槽）；角色说明只描述职责。
+使用 `send_message`、`wait_agents`、`cancel_agent`、`list_agents` 通信和收拢，
+`create_task`、`claim_task`、`update_task`、`list_tasks` 管理有依赖的任务板。
+TUI `/agents` 查看团队和保留路径，`/agents cancel ID` 取消某个子 Agent。
+消息在下一次模型调用前注入，子 Agent 完成时会唤醒空闲 lead；取消 lead 会取消全部子 Agent。
+
+worker 从当前 HEAD 开始，不带 lead 的未提交改动；非 Git 仓库只能使用 readonly。
+worker 文件写入限于自己的 worktree，Bash/Python 必须逐次审批并使用严格 OS 沙箱；
+沙箱不可用的平台仍可用 worker 原生文件工具，命令会明确拒绝。子 Agent 不运行 MCP 或 command Hook。
+已校验的用户 Python Skill 仅获得自身源码目录只读权限，其他用户数据继续隔离。
+子审批转发到主 TUI，显示 agent ID 和角色，可在 lead 执行期间答复。
+非交互 CLI 显示待审批来源后退出 2 并收拢子 Agent；不跨进程恢复审批。
+
+worker 完成后先 `review_agent` 查看包括新文件在内的差异，再 `merge_agent`。
+每次合并独立审批，审批绑定源代码树和目标 HEAD，Auto Plan 也不能跳过。
+合并目标需干净工作区；冲突会先中止 lead 的合并并保留 worker，可用
+`merge_agent(action="prepare_resolution")` 经新审批把冲突留在 worker，
+由子 Agent 用文件工具解决后重新 review/merge。无法解决时询问用户。
+成功后自动清理已集成 worktree/分支；Git hooks 与现有 WorktreeManager 一样禁用，审批详情明确展示。
+团队任务/通信保存在独立 JSONL，子会话有单独 JSONL 和 lead 链接；进程重启只标中断，不自动续跑。
 `worktree inspect ID` 查看保留路径与差异；完成集成后使用
 `worktree confirm-integration ID --validated --worker-stopped`。
 该命令重新核对目标分支包含关系及干净状态，再删除工作区和对应分支。

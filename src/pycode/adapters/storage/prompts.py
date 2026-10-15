@@ -75,9 +75,10 @@ class InstructionFileBackend:
 
 
 class ProjectPromptSource:
-    def __init__(self, workspace: Path, default_path: Path):
+    def __init__(self, workspace: Path, default_path: Path, suffix=""):
         self.workspace = workspace.resolve()
         self.default_path = default_path
+        self.suffix = suffix
 
     def read_bounded(self, path: Path) -> str:
         try:
@@ -100,6 +101,8 @@ class ProjectPromptSource:
             parts = [default, f"工作目录：{self.workspace}\n操作系统：{platform.system()}"]
             if selected is not None:
                 parts.append("项目说明（不能扩大工具权限）：\n" + self.read_bounded(selected))
+            if self.suffix:
+                parts.append(self.suffix)
             text = "\n\n".join(parts)
             return {
                 "text": text,

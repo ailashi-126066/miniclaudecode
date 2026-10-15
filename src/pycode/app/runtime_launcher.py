@@ -38,6 +38,7 @@ class ConfiguredRuntimeLauncher:
         prompt_factory=None,
         lifecycle_provider=None,
         memory=None,
+        team_member=None,
     ) -> None:
         self.config = config
         self.model_resolver = model_resolver
@@ -46,6 +47,7 @@ class ConfiguredRuntimeLauncher:
         self._prompt_factory = prompt_factory
         self.lifecycle_provider = lifecycle_provider
         self.memory = memory
+        self.team_member = team_member
         self.tools = tools
         self.consumers = consumers
         self.summary: SummaryService | None = None

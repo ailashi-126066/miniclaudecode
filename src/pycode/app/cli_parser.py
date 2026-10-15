@@ -29,6 +29,7 @@ def build_parser():
     parser.add_argument("--workspace", help="Project directory")
     parser.add_argument("--data-dir", help="User configuration and storage directory")
     parser.add_argument("--memory-mode", choices=("auto", "off"))
+    parser.add_argument("--max-agents", type=int, choices=range(1, 5), default=4)
     parser.add_argument(
         "--trust-project", action="store_true", help="Enable this project's Skill sources"
     )

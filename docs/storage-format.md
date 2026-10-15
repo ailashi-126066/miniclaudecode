@@ -111,3 +111,19 @@ another session cannot change a record between the check and restore. Repeated w
 entry within a pass are logged as its original `before` and final `after` state. If a disk
 error prevents restoring a later scope, changes already published are logged with
 `attempted_undo`; `undoes` is recorded only after every affected scope has been restored.
+
+## Local team records
+
+The lead project contains a hidden `team-<lead hash>` session ledger with its own writer lease.
+Each `team_transition` atomically stores complete `agents`, `tasks` and `messages` snapshots;
+replay applies the last record per ID and skips malformed transitions as a whole.
+Lead history contains `team_agent` child links, and each child history starts with `team_parent`.
+Child histories use their own workspace's StorageLayout outside the Git worktree and share
+the lead runtime request database, so cleanup preserves conversations and usage accounting.
+
+Message delivery uses pending/delivering/delivered/dropped plus receiver run/input IDs.
+Successful wait_agents results carry `details.team_message_ids`; interrupted or synthetic results
+do not acknowledge delivery. Idle wake inputs record message IDs and retain sender/kind text.
+On restart active children become interrupted, unfinished claims reopen, old child messages
+are dropped, and notifications wait for the next user-started run. No child or lead auto-runs.
+Worktree recovery flags are inspected and shown without automatically merging, aborting or cleaning.

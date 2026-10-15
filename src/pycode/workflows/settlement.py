@@ -462,6 +462,8 @@ class ToolSettlementMiddleware(AgentMiddleware):
                 saved_call.name,
                 agent_id=context.agent_id,
             )
+            if context.team is not None:
+                await context.team.settle_tool(saved_result, accepted=True)
             await context.executor.completed(saved_context, saved_call, saved_result)
             if saved_result.details.get("critical_hook_failure"):
                 raise StorageError(

@@ -34,3 +34,38 @@ class MemoryToolGate:
         if spec.source == "memory" and self.grants.get(spec.name) == spec:
             return
         await self.parent.authorize(context, spec, call)
+
+
+class NoOpToolGate:
+    async def authorize(self, context, spec, call):
+        return None
+
+
+class WorkerBoundaryGate:
+    """Hard child limits wrap Plan and embedding gates, preserving parent denials."""
+
+    def __init__(self, constraints, mandatory, *, readonly=False, sandbox=None, settings=None):
+        self.constraints = constraints
+        self.mandatory = mandatory
+        self.readonly = readonly
+        self.sandbox, self.settings = sandbox, settings
+
+    async def authorize(self, context, spec, call):
+        if self.readonly and spec.category != "read":
+            raise ToolError("readonly_tool_denied", "Read-only child cannot perform effects")
+        if spec.source.startswith("mcp") or spec.source.startswith("hook:"):
+            raise ToolError("worker_tool_denied", "Child cannot execute unisolated external tools")
+        await self.constraints.authorize(context, spec, call)
+        if spec.category == "read" or spec.name in {"write_file", "edit_file"}:
+            return
+        if spec.name == "Bash" or spec.source.startswith("skill:"):
+            if self.sandbox is not None:
+                status = await self.sandbox.status(self.settings)
+                if not status.available or not status.enabled:
+                    raise ToolError(
+                        "worker_sandbox_unavailable",
+                        "Worker commands require an available OS sandbox",
+                    )
+            await self.mandatory.authorize(context, spec, call)
+            return
+        raise ToolError("worker_tool_denied", "External effects are unavailable to workers")

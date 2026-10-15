@@ -17,6 +17,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message as UIMessage
 from textual.widgets import Button, Footer, Input, Markdown, Select, Static, Tree
 
+from pycode.adapters.ui.agents import AgentsPanel
 from pycode.adapters.ui.approval import ApprovalPanel
 from pycode.adapters.ui.chat_input import ChatInput
 from pycode.adapters.ui.commands import CommandRegistry
@@ -124,6 +125,8 @@ class PyApp(App):
         self.ready = asyncio.Event()
         self.last_error = None
         self._memory_report = None
+        self._show_agents = False
+        self._team_tasks = set()
         self._operation = None
         self._closed = False
         self._live_text = ""
@@ -229,7 +232,11 @@ class PyApp(App):
         event = message.event
         if self._closed or event.session_id != self.session_id:
             return
-        if event.kind == "message_start" and event.data.get("role") == "assistant":
+        if event.kind == "team":
+            await self.refresh_state()
+            if event.data.get("type") == "wake":
+                self.maybe_wake_team()
+        elif event.kind == "message_start" and event.data.get("role") == "assistant":
             self._live_text = self._live_thinking = ""
             self.query_one("#live-text", Static).update("")
             self.query_one("#live-thinking", Static).update("")
@@ -399,6 +406,13 @@ class PyApp(App):
             nodes[entry["id"]] = parent.add(label, data=entry["id"], expand=True)
         await self.query_one("#pending", Vertical).remove_children()
         pending = self.state["pending"]
+        child_source = None
+        team = self.state.get("team") or {}
+        if team.get("degraded"):
+            self.notice("Team persistence failed; reopen the session to recover", "error")
+        if not pending and team.get("approvals"):
+            child_source = team["approvals"][0]
+            pending = child_source["pending"]
         if pending:
             payload = pending[0]
             if payload["kind"] == "permission":
@@ -415,6 +429,10 @@ class PyApp(App):
                             ensure_ascii=False,
                             indent=2,
                         ),
+                        agent_id=child_source["agent_id"] if child_source else None,
+                        source=(child_source["agent_id"] + " · " + child_source["role"][:80])
+                        if child_source
+                        else "",
                     )
                 )
             elif payload["kind"] == "plan":
@@ -434,6 +452,8 @@ class PyApp(App):
             )
         elif self._pending_plan is not None:
             await self.query_one("#pending", Vertical).mount(RevertPanel(self._pending_plan))
+        elif not pending and self._show_agents:
+            await self.query_one("#pending", Vertical).mount(AgentsPanel(self.state.get("team")))
         elif not pending and self._memory_report is not None:
             await self.query_one("#pending", Vertical).mount(MemoryPanel(self._memory_report))
         self.query_one("#chat-input", ChatInput).disabled = bool(
@@ -486,6 +506,17 @@ class PyApp(App):
         finally:
             if not self._closed:
                 await self.refresh_state()
+                self.call_later(self.maybe_wake_team)
+
+    def maybe_wake_team(self):
+        if (
+            self.session is not None
+            and not self._closed
+            and not self.busy
+            and not (self.state or {}).get("pending_run_id")
+            and getattr(self.session, "team_wake_pending", lambda: False)()
+        ):
+            self.start_operation(self.session.wake_team)
 
     async def wait_idle(self):
         if self._operation is not None:
@@ -535,7 +566,21 @@ class PyApp(App):
     def on_approval_panel_responded(self, event):
         event.stop()
         self.query_one("#perm-inline", ApprovalPanel).disabled = True
-        self.respond(event.answer)
+        if event.agent_id is not None:
+            task = asyncio.create_task(self.answer_child(event.agent_id, event.answer))
+            self._team_tasks.add(task)
+            task.add_done_callback(self._team_tasks.discard)
+        else:
+            self.respond(event.answer)
+
+    async def answer_child(self, agent_id, answer):
+        try:
+            await self.session.answer_agent(agent_id, answer)
+        except DomainError as error:
+            self.notice(str(error), "error")
+        finally:
+            if not self._closed:
+                await self.refresh_state()
 
     def respond(self, answer):
         self.start_operation(self.session.resume, answer)
@@ -598,6 +643,9 @@ class PyApp(App):
             return
         self._closed = True
         await self.stop_active()
+        for task in tuple(self._team_tasks):
+            task.cancel()
+        await asyncio.gather(*self._team_tasks, return_exceptions=True)
         if self.session is not None:
             await self.session.aclose()
 
@@ -726,6 +774,17 @@ class PyApp(App):
 
     async def command_plan(self, args):
         self.start_operation(self.enter_plan, " ".join(args))
+
+    async def command_agents(self, args):
+        if not args:
+            self._show_agents = not self._show_agents
+            await self.refresh_state()
+            return True
+        if len(args) == 2 and args[0] == "cancel":
+            await self.session.cancel_agent(args[1])
+            await self.refresh_state()
+            return True
+        return False
 
     async def command_usage(self, args):
         self.push_screen(UsageScreen(await self.session.usage()))

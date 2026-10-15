@@ -18,6 +18,15 @@ class ConsoleOutput:
     async def consume(self, event):
         if self._format == "stream-json":
             self.write_json({"type": event.kind, **plain_data(event)})
+        elif event.kind == "team":
+            if event.data.get("type") == "approval":
+                self.write_json({"agent_needs_input": event.data})
+            elif self._format == "text" and event.data.get("type") == "agent":
+                self._stream.write(
+                    f"[team] {event.data['agent_id']} ({event.data['role'][:80]}): "
+                    f"{event.data['status']}\n"
+                )
+                self._stream.flush()
         elif self._format == "text" and event.kind == "tool_execution_update":
             self._stream.write(event.data["text"])
             self._stream.flush()

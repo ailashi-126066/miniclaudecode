@@ -81,6 +81,7 @@ class RunContext:
     interrupted_calls: set[str] = field(default_factory=set)
     duplicate_calls: asyncio.Condition = field(default_factory=asyncio.Condition)
     dispatched_calls: set[str] = field(default_factory=set)
+    team: Any = None
     hooks: Any = None
     mcp: Any = None
     mcp_config_hash: str = ""

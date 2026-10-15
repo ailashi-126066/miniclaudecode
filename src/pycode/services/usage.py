@@ -30,10 +30,8 @@ class UsageService:
         records = await self._records.list_requests(snapshot.header.session_id)
         child_sessions = {}
         for entry in snapshot.entries:
-            if entry.type == "team_delegate":
+            if entry.type == "team_agent":
                 child_sessions[entry.data["session_id"]] = entry.run_id
-            elif entry.type == "team_task":
-                child_sessions["worker-" + entry.data["thread_id"]] = entry.run_id
         team_records = []
         for session_id in child_sessions:
             team_records.extend(await self._records.list_requests(session_id))
