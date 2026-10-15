@@ -3,7 +3,7 @@
 from langgraph.func import task
 from langgraph.types import interrupt
 
-from pycode.core.command_policy import denied_command
+from pycode.core.command_policy import auto_approvable, denied_command
 from pycode.core.errors import StorageError, ToolError
 from pycode.core.operations import operation_spec_hash
 from pycode.core.sandbox import SandboxSettings
@@ -41,7 +41,8 @@ class InterruptToolGate:
             and self._settings.mode == "on-auto"
             and self._sandbox is not None
         ):
-            if status.auto_approve:
+            # Only allow-listed read-only commands skip approval inside the sandbox.
+            if status.auto_approve and auto_approvable(call.arguments.get("command", "")):
                 return
         question = {
             "kind": "permission",

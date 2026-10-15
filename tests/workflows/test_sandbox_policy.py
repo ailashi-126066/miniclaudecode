@@ -33,6 +33,37 @@ async def test_auto_policy_allows_only_sandbox_ready_builtin_bash_and_retains_so
         assert error.value.code == "command_denied"
 
 
+@pytest.mark.parametrize(
+    ("command", "automatic"),
+    [
+        ("ls -la", True),
+        ("git status && git diff", True),
+        ("rg -n TODO src | head", True),
+        ("printf x > file.txt", False),
+        ("ls && touch x", False),
+        ("echo $(id)", False),
+        ("sudo ls", False),
+        ("find . -delete", False),
+    ],
+)
+async def test_auto_policy_approves_only_read_only_allow_list(monkeypatch, command, automatic):
+    import pycode.workflows.permissions as permissions
+
+    questions = []
+
+    async def answer(question):
+        questions.append(question)
+        return {"operation_id": question["operation_id"], "decision": "approve"}
+
+    monkeypatch.setattr(permissions, "permission_answer", answer)
+    gate = InterruptToolGate(ContractBackend(), SandboxSettings("on-auto"))
+    context = ToolContext("s", "r", "op", "/project")
+    await gate.authorize(context, Bash.spec, ToolCall("call", "Bash", {"command": command}))
+    assert (not questions) is automatic
+    if questions:
+        assert questions[0]["sandbox"]["auto_approve"] is True
+
+
 async def test_current_unsupported_host_still_requires_explicit_approval_even_when_auto_requested(
     tmp_path, monkeypatch
 ):

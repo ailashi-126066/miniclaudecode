@@ -58,6 +58,12 @@ cross-file transaction claim. LegacyMemoryRecovery only finishes existing old tr
 before one-way migration; no runtime Markdown reader, writer or candidate approval remains.
 GC marks all durable references and
 live/uncertain writers before 30-day quarantine/purge. Worktree integration/cleanup stays separate.
+Seatbelt profiles deny by default: reads cover the workspace, system directories, temp,
+the running interpreter's prefixes/import roots and git global config; later rules deny
+~/.ssh, ~/.aws, ~/.gnupg, ~/.config, ~/.pycode and every .env/.env.* except .env.example.
+Writes stay in the workspace outside .git/.pycode/.env. `on-auto` approves only commands whose
+every segment passes the pure core allow list (`core/command_policy.auto_approvable`); others
+use the ordinary approval interrupt. Deny patterns are defence in depth ahead of both.
 Evaluation runs the same harness in isolated declared-file workspaces and tests independently.
 
 Build/tests operate here without initializing the project Git directory. Reference projects

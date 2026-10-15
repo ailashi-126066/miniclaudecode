@@ -1,5 +1,8 @@
 import asyncio
 import json
+import os
+import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -15,7 +18,7 @@ from pycode.core.sandbox import SandboxSettings
 def test_profile_preserves_source_read_network_and_quoted_path_rules(tmp_path):
     root = str(tmp_path / 'quoted"path')
     profile = build_profile(root, False)
-    assert '(allow file-read* (subpath "/"))' in profile
+    assert '(allow file-read* (subpath "/"))' not in profile
     assert json.dumps(str(Path(root).resolve()), ensure_ascii=False) in profile
     assert "(deny network*)" in profile and ".git" in profile and ".pycode" in profile
     assert "(deny file-write-unlink" in profile
@@ -74,3 +77,131 @@ def test_sandbox_configuration_is_part_of_operation_identity():
     enclosed = Bash("bash", None, settings=SandboxSettings("on"))
     automatic = Bash("bash", None, settings=SandboxSettings("on-auto"))
     assert len({operation_spec_hash(tool.spec) for tool in (plain, enclosed, automatic)}) == 3
+
+
+def test_profile_denies_private_home_state_after_workspace_and_temp_allows(tmp_path):
+    home = tmp_path / "home"
+    profile = build_profile(tmp_path / "ws", False, home=home)
+    lines = profile.splitlines()
+    workspace_allow = lines.index(
+        f"(allow file-read* (subpath {json.dumps(str((tmp_path / 'ws').resolve()))}))"
+    )
+    private = next(i for i, line in enumerate(lines) if ".ssh" in line)
+    dotenv = next(i for i, line in enumerate(lines) if "\\.env(" in line)
+    assert lines[private].startswith("(deny file-read*")
+    for name in (".ssh", ".aws", ".gnupg", ".config", ".pycode"):
+        assert json.dumps(str(home.resolve() / name)) in lines[private]
+    assert private < workspace_allow < dotenv
+    assert "(allow file-read-metadata)" in lines
+
+
+def test_workspace_containing_home_keeps_private_directories_denied(tmp_path):
+    profile = build_profile(tmp_path, False, home=tmp_path)
+    lines = profile.splitlines()
+    workspace_allow = lines.index(
+        f"(allow file-read* (subpath {json.dumps(str(tmp_path.resolve()))}))"
+    )
+    assert any(".ssh" in line and line.startswith("(deny") for line in lines[workspace_allow:])
+
+
+async def run_sandboxed(workspace, command, home):
+    # The fake HOME is passed explicitly; the real user HOME is never touched.
+    profile = build_profile(workspace, False, home=home)
+    argv = ("/usr/bin/sandbox-exec", "-p", profile, "/bin/bash", "-c", command)
+    environment = {**os.environ, "HOME": str(home)}
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(workspace),
+        env=environment,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    async with asyncio.timeout(15):
+        stdout, stderr = await process.communicate()
+    return process.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+
+
+@pytest.fixture
+def fake_layout(tmp_path):
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    for directory in (".ssh", ".aws", ".gnupg", ".config/git", ".pycode"):
+        (home / directory).mkdir(parents=True)
+    (home / ".ssh/id_rsa").write_text("fake-private-key-marker")
+    (home / ".aws/credentials").write_text("fake-aws-marker")
+    (home / ".gnupg/secring.gpg").write_text("fake-gpg-marker")
+    (home / ".config/git/credentials").write_text("fake-git-credential-marker")
+    (home / ".pycode/providers.json").write_text("fake-provider-marker")
+    workspace.mkdir()
+    outside.mkdir()
+    (workspace / "readme.txt").write_text("workspace-content")
+    (workspace / ".env").write_text("fake-dotenv-marker")
+    (workspace / ".env.local").write_text("fake-dotenv-local-marker")
+    (workspace / ".env.example").write_text("EXAMPLE=1")
+    (outside / ".env").write_text("fake-outside-dotenv-marker")
+    return home, workspace, outside
+
+
+physical = pytest.mark.skipif(sys.platform != "darwin", reason="Physical Seatbelt requires macOS")
+
+
+@physical
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "home/.ssh/id_rsa",
+        "home/.aws/credentials",
+        "home/.gnupg/secring.gpg",
+        "home/.config/git/credentials",
+        "home/.pycode/providers.json",
+        "workspace/.env",
+        "workspace/.env.local",
+        "outside/.env",
+    ],
+)
+async def test_physical_seatbelt_denies_reading_fake_sensitive_files(fake_layout, relative):
+    home, workspace, _ = fake_layout
+    target = home.parent / relative
+    code, stdout, stderr = await run_sandboxed(workspace, "cat " + shlex.quote(str(target)), home)
+    assert code != 0 and "marker" not in stdout
+    assert "Operation not permitted" in stderr
+
+
+@physical
+async def test_physical_seatbelt_denies_listing_fake_private_directory(fake_layout):
+    home, workspace, _ = fake_layout
+    code, stdout, _ = await run_sandboxed(workspace, "ls " + shlex.quote(str(home / ".ssh")), home)
+    assert code != 0 and "id_rsa" not in stdout
+
+
+@physical
+async def test_physical_seatbelt_reads_workspace_and_env_example(fake_layout):
+    home, workspace, _ = fake_layout
+    code, stdout, stderr = await run_sandboxed(workspace, "cat readme.txt .env.example", home)
+    assert code == 0, stderr
+    assert stdout == "workspace-contentEXAMPLE=1"
+
+
+@physical
+async def test_physical_seatbelt_starts_bash_python_and_git(fake_layout):
+    home, workspace, _ = fake_layout
+    (home / ".gitconfig").write_text("[user]\n\tname = Sandbox Test\n")
+    git = shutil.which("git") or "/usr/bin/git"
+    # .git is write-protected inside the sandbox, so the repository is created outside it.
+    initialized = await asyncio.create_subprocess_exec(
+        git, "init", "-q", str(workspace), env={**os.environ, "HOME": str(home)}
+    )
+    assert await initialized.wait() == 0
+    command = " && ".join(
+        (
+            "echo bash-ok",
+            shlex.quote(sys.executable) + " -c 'import json, pycode; print(\"python-ok\")'",
+            shlex.quote(git) + " config user.name",
+            shlex.quote(git) + " status --short",
+        )
+    )
+    code, stdout, stderr = await run_sandboxed(workspace, command, home)
+    assert code == 0, stderr
+    assert "bash-ok" in stdout and "python-ok" in stdout and "Sandbox Test" in stdout
+    assert "readme.txt" in stdout
