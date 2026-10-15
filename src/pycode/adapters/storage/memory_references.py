@@ -9,7 +9,8 @@ from pycode.adapters.storage.json_memory import (
     encode,
     reject_duplicate_keys,
 )
-from pycode.adapters.storage.memory_migration import safe_relative, verify_migration_backup
+from pycode.adapters.storage.memory_migration import verify_migration_backup
+from pycode.adapters.storage.path_io import safe_relative
 from pycode.core.errors import StorageError
 from pycode.core.memory_schema import MemoryMigrationReceipt
 

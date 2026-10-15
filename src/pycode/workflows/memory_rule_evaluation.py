@@ -6,13 +6,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory_evaluation import (
     EvaluationAnswer,
     EvaluationCase,
     EvaluationJudgment,
     MemoryRuleEvaluation,
 )
-from pycode.core.summary_source import data_hash
 from pycode.core.values import json_dumps, plain_data
 from pycode.services.memory_commit import deduplicate
 

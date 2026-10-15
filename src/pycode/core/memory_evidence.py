@@ -4,9 +4,9 @@ import re
 from dataclasses import dataclass, field
 
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory import SECRET_PATTERNS, content_hash
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.values import freeze_value, plain_data
 
 

@@ -17,8 +17,8 @@ from pathlib import Path, PurePosixPath
 from pycode.adapters.skills.parser import parse_skill
 from pycode.adapters.skills.resources import parse_resource_tools
 from pycode.core.errors import ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.skills import SkillIndex
-from pycode.core.summary_source import data_hash
 
 MAX_SKILL_BYTES = 256 * 1024
 

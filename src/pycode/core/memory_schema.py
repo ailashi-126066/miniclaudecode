@@ -264,7 +264,7 @@ class MemorySnapshot(BaseModel):
         uuid_keys = [identity for identity in identities if identity is not None]
         if len(uuid_keys) != len(set(uuid_keys)):
             raise ValueError("Memory UUID aliases cannot identify duplicate records")
-        from pycode.core.summary_source import data_hash
+        from pycode.core.hashing import data_hash
 
         for identity, receipt in self.tool_receipts.items():
             expected = data_hash(

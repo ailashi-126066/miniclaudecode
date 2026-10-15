@@ -5,7 +5,6 @@ import json
 import math
 import re
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
 
 from pycode.adapters.storage.json_memory import (
     encode,
@@ -13,7 +12,7 @@ from pycode.adapters.storage.json_memory import (
     normalize_value,
     reject_duplicate_keys,
 )
-from pycode.adapters.storage.path_io import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, owned_io, safe_relative
 from pycode.core.errors import StorageError, ToolError
 from pycode.core.memory import CATEGORIES, content_hash
 from pycode.core.memory_schema import MemorySnapshot
@@ -111,23 +110,6 @@ def convert_record(metadata, body, scope):
         "created_at": timestamp(metadata["created_at"]),
         "updated_at": timestamp(metadata["updated_at"]),
     }
-
-
-def safe_relative(base, name):
-    relative = PurePosixPath(name)
-    if not name or relative.is_absolute() or ".." in relative.parts or "\\" in name:
-        raise StorageError(
-            "memory_migration_corrupt", "Migration manifest contains an invalid path"
-        )
-    path = base.joinpath(*relative.parts)
-    if not path.resolve().is_relative_to(base.resolve()):
-        raise StorageError("memory_path_invalid", "Migration path escapes its backup root")
-    for ancestor in [path, *path.parents]:
-        if ancestor == base:
-            break
-        if ancestor.is_symlink():
-            raise StorageError("memory_path_invalid", "Migration file path contains a symlink")
-    return path
 
 
 def migration_backup_path(root, receipt):

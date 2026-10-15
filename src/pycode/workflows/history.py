@@ -12,7 +12,8 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from pycode.core.errors import ModelError
-from pycode.core.summary_source import data_hash
+from pycode.core.hashing import data_hash
+from pycode.core.turn_policy import next_turn
 from pycode.core.values import plain_data
 from pycode.workflows.boundaries import (
     deliver_input,
@@ -24,6 +25,20 @@ from pycode.workflows.boundaries import (
 from pycode.workflows.messages import from_assistant, to_framework
 from pycode.workflows.model_requests import model_request_step
 from pycode.workflows.state import PycodeState
+
+
+def take_queued(context):
+    # The agent loop has already settled with no tool calls. Queued input is delivered after
+    # any completed loop, so no stop reason is applied here.
+    decision = next_turn(
+        None,
+        (),
+        steering_pending=context.inputs.has("steer"),
+        follow_up_pending=context.inputs.has("follow_up"),
+    )
+    if decision.queue is None:
+        return None, ()
+    return decision.queue, context.inputs.take(decision.queue, one_at_a_time=context.one_at_a_time)
 
 
 class HistoryMiddleware(AgentMiddleware):
@@ -222,16 +237,14 @@ class HistoryMiddleware(AgentMiddleware):
             await context.summary.prepare(wait_for_capacity=False)
         if context.durable_inputs is not None:
             context.inputs = await context.durable_inputs.pending(context.run_id)
-        kind = "steer" if context.inputs.has("steer") else "follow_up"
-        pending = context.inputs.take(kind, one_at_a_time=context.one_at_a_time)
+        kind, pending = take_queued(context)
         if not pending:
             await run_hook(
                 context, "session_end", context.run_id, message=state.get("final_text", "")
             )
             if context.durable_inputs is not None:
                 context.inputs = await context.durable_inputs.finish_boundary(context.run_id)
-                kind = "steer" if context.inputs.has("steer") else "follow_up"
-                pending = context.inputs.take(kind, one_at_a_time=context.one_at_a_time)
+                kind, pending = take_queued(context)
         if pending:
             framework = []
             for message in pending:

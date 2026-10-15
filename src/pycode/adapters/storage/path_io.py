@@ -3,8 +3,10 @@
 import asyncio
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
+
+from pycode.core.errors import StorageError
 
 
 def io_path(path):
@@ -17,6 +19,23 @@ def io_path(path):
     if name.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + name[2:])
     return Path("\\\\?\\" + name)
+
+
+def safe_relative(base, name):
+    relative = PurePosixPath(name)
+    if not name or relative.is_absolute() or ".." in relative.parts or "\\" in name:
+        raise StorageError(
+            "memory_migration_corrupt", "Migration manifest contains an invalid path"
+        )
+    path = base.joinpath(*relative.parts)
+    if not path.resolve().is_relative_to(base.resolve()):
+        raise StorageError("memory_path_invalid", "Migration path escapes its backup root")
+    for ancestor in [path, *path.parents]:
+        if ancestor == base:
+            break
+        if ancestor.is_symlink():
+            raise StorageError("memory_path_invalid", "Migration file path contains a symlink")
+    return path
 
 
 def file_sha256(path):

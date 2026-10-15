@@ -1,10 +1,10 @@
 """Automatic group validation and publication through the sole job-owned JSON update view."""
 
 from pycode.core.errors import ModelError, StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory import content_hash
 from pycode.core.memory_evidence import MemoryCommitReport
 from pycode.core.memory_schema import resolve_memory_key, validate_memory_value
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 
 

@@ -56,6 +56,7 @@ def search_response(root=False):
     return response
 
 
+@pytest.mark.requires_rg
 @pytest.mark.parametrize("root", [False, True])
 async def test_public_agent_executes_parallel_read_searches_without_approval_and_pairs_outputs(
     tmp_path, monkeypatch, root

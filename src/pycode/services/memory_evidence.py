@@ -1,9 +1,9 @@
 """Capture immutable sources from the original branch and checked output readback."""
 
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory_evidence import MemoryEvidenceSnapshot, MemoryEvidenceText
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 from pycode.services.memory_output import output_window
 

@@ -11,10 +11,10 @@ import asyncio
 import contextvars
 
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.hooks import HookContext
 from pycode.core.messages import ToolCall, ToolResult
 from pycode.core.session import EntryDraft
-from pycode.core.summary_source import data_hash
 from pycode.core.tools import ToolContext, ToolSpec
 from pycode.core.values import clone_value, plain_data
 from pycode.ports.hooks import HookActions
@@ -98,7 +98,6 @@ class HookEngine:
         )
         self._tasks = owned_tasks if owned_tasks is not None else {}
         self._locks = {}
-        self.configuration_hash = data_hash([plain_data(hook) for hook in hooks])
 
     async def fire(self, context):
         for hook in self._hooks:

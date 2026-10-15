@@ -7,7 +7,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from pycode.core.summary_source import data_hash
+from pycode.core.hashing import data_hash
 from pycode.core.values import json_dumps
 
 

@@ -3,10 +3,10 @@
 import asyncio
 
 from pycode.core.errors import ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.mcp import active_mcp, catalog_hash, choose_tools
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.values import clone_value
 from pycode.ports.mcp import MCPConnections
 

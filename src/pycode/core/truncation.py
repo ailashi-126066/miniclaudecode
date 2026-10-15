@@ -18,7 +18,6 @@ class Truncation:
     total_bytes: int
     output_lines: int
     output_bytes: int
-    truncated_by: Literal["lines", "bytes"] | None = None
     partial_line: bool = False
     first_line_exceeds_limit: bool = False
 
@@ -42,13 +41,10 @@ def truncate(
     if text.endswith("\n"):
         lines.pop()
     if mode == "head" and len(lines[0].encode()) > max_bytes:
-        return Truncation(
-            "", True, total_lines, total_bytes, 0, 0, "bytes", first_line_exceeds_limit=True
-        )
+        return Truncation("", True, total_lines, total_bytes, 0, 0, first_line_exceeds_limit=True)
     candidates = lines if mode == "head" else reversed(lines)
     selected = []
     size = 0
-    reason = "lines"
     partial = False
     for line in candidates:
         if len(selected) == max_lines:
@@ -56,7 +52,6 @@ def truncate(
         encoded = line.encode("utf-8")
         needed = len(encoded) + (1 if selected else 0)
         if size + needed > max_bytes:
-            reason = "bytes"
             if mode == "tail" and not selected:
                 start = len(encoded) - max_bytes
                 while start < len(encoded) and encoded[start] & 0xC0 == 0x80:
@@ -67,8 +62,6 @@ def truncate(
             break
         selected.append(line)
         size += needed
-    if len(selected) >= max_lines and size <= max_bytes:
-        reason = "lines"
     if mode == "tail":
         selected.reverse()
     preview = "\n".join(selected)
@@ -79,6 +72,5 @@ def truncate(
         total_bytes,
         len(selected),
         len(preview.encode()),
-        reason,
         partial,
     )

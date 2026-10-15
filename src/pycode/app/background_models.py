@@ -80,8 +80,8 @@ class ConfiguredMemoryUpdater:
         evaluations=None,
         evaluation_checkpoint=None,
     ):
+        from pycode.core.hashing import data_hash
         from pycode.core.memory_evidence import MemoryEvidencePolicy, MemoryWritePermit
-        from pycode.core.summary_source import data_hash
         from pycode.services.memory_commit import MemoryCommitService
         from pycode.services.memory_evidence import capture_memory_evidence
         from pycode.services.memory_retry import retry_plan
@@ -222,11 +222,11 @@ class ConfiguredMemoryUpdater:
         output_reader=None,
         arguments_sha256=None,
     ):
+        from pycode.core.hashing import data_hash
         from pycode.core.memory import snapshot_record
         from pycode.core.memory_evidence import MemoryEvidencePolicy, MemoryWritePermit
         from pycode.core.memory_tool_receipt import receipt_id, receipt_metadata
         from pycode.core.messages import ToolResult
-        from pycode.core.summary_source import data_hash
         from pycode.core.values import json_dumps
         from pycode.services.memory_commit import MemoryCommitService
         from pycode.services.memory_evidence import capture_memory_evidence

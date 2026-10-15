@@ -12,10 +12,11 @@ from uuid import uuid4
 
 from pycode.core.context_meter import ContextMeter
 from pycode.core.errors import DomainError, ModelError, StorageError
+from pycode.core.hashing import data_hash
 from pycode.core.session import EntryDraft, SessionEntry
 from pycode.core.session_tree import SessionTree
 from pycode.core.summaries import SummaryCheck, SummaryObject, SummaryReport, SummarySettings
-from pycode.core.summary_source import capture_source, data_hash, valid_source
+from pycode.core.summary_source import capture_source, valid_source
 from pycode.core.values import clone_value, plain_data
 from pycode.ports.events import EventSink
 from pycode.ports.history import SessionStore

@@ -77,6 +77,7 @@ from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
 from pycode.core.context_budget import InputBudget
 from pycode.core.errors import ModelError, StorageError
 from pycode.core.execution_recovery import pending_run_entry
+from pycode.core.hashing import data_hash
 from pycode.core.mcp import choose_tools
 from pycode.core.messages import Purpose
 from pycode.core.models import ProviderConfig, model_selection
@@ -87,7 +88,6 @@ from pycode.core.session_tree import SessionTree
 from pycode.core.skill_selection import SkillSelection
 from pycode.core.skills import skill_tool_specs
 from pycode.core.summaries import SummarySettings
-from pycode.core.summary_source import data_hash
 from pycode.core.tool_eviction import EvictionBudget
 from pycode.core.tools import ToolSpec
 from pycode.core.values import plain_data

@@ -4,8 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from pycode.core.hashing import data_hash
 from pycode.core.memory_schema import Identity, MemoryValue
-from pycode.core.summary_source import data_hash
 
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 CASE_IDS = (

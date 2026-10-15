@@ -10,7 +10,6 @@ import os
 import re
 from dataclasses import replace
 from pathlib import Path
-from uuid import uuid4
 
 from pydantic import TypeAdapter
 
@@ -513,24 +512,18 @@ class StreamingOutputWriter:
         artifact_digest = None
         if artifact:
             target = directory / f"{self._id}.artifact.json"
-            temporary = target.with_name(f".{uuid4().hex}.partial")
-            try:
-                with temporary.open("x", encoding="utf-8") as output:
-                    json.dump(
-                        {
-                            "structured_content": result.structured_content,
-                            "details": result.details,
-                        },
-                        output,
-                        ensure_ascii=False,
-                    )
-                    output.flush()
-                    os.fsync(output.fileno())
-                os.replace(temporary, target)
-                with target.open("rb") as source:
-                    artifact_digest = hashlib.file_digest(source, "sha256").hexdigest()
-            finally:
-                temporary.unlink(missing_ok=True)
+            atomic_write(
+                target,
+                json.dumps(
+                    {
+                        "structured_content": result.structured_content,
+                        "details": result.details,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+            )
+            with target.open("rb") as source:
+                artifact_digest = hashlib.file_digest(source, "sha256").hexdigest()
         if storage == "file":
             os.replace(self._temporary, directory / f"{self._id}.txt")
         else:

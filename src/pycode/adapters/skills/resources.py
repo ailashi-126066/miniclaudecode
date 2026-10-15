@@ -12,7 +12,7 @@ import re
 
 from pycode.adapters.tools.schema import JsonSchemaValidator
 from pycode.core.errors import ToolError
-from pycode.core.summary_source import data_hash
+from pycode.core.hashing import data_hash
 
 
 def parse_resource_tools(raw, entry, files):

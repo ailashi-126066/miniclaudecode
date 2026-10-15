@@ -14,13 +14,13 @@ from tests.workflows.test_skills_http import skill_reply
 from pycode.app.config import AppConfig
 from pycode.app.container import build_background_model
 from pycode.core.errors import ModelError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory_evidence import (
     MemoryBehaviorFeedback,
     MemoryEvidenceDecision,
     MemoryEvidencePolicy,
 )
 from pycode.core.requests import RetryPolicy
-from pycode.core.summary_source import data_hash
 from pycode.services.memory_commit import MemoryCommitService
 from pycode.services.memory_evidence import capture_memory_evidence
 from pycode.workflows.memory_rules import MemoryRuleOptimizer

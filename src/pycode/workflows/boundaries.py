@@ -5,11 +5,11 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import StructuredTool
 
 from pycode.core.errors import ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.hooks import HookContext
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
 from pycode.core.skills import skill_scope
-from pycode.core.summary_source import data_hash
 from pycode.core.token_estimate import estimate_text
 from pycode.core.tools import ToolContext, ToolSpec
 from pycode.core.values import plain_data

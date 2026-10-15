@@ -1,6 +1,6 @@
 """A tool receipt binds its original operation and arguments without copying memory bodies."""
 
-from pycode.core.summary_source import data_hash
+from pycode.core.hashing import data_hash
 
 
 def receipt_id(namespace, context, name):

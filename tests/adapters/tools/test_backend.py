@@ -43,6 +43,7 @@ async def test_workspace_paths_and_readonly_backend(tmp_path):
     assert not (tmp_path / "new").exists()
 
 
+@pytest.mark.requires_rg
 async def test_rg_honors_gitignore_without_git_and_excludes_internal_files(tmp_path):
     (tmp_path / ".gitignore").write_text("generated/\n")
     (tmp_path / "generated").mkdir()
@@ -64,6 +65,7 @@ async def test_rg_honors_gitignore_without_git_and_excludes_internal_files(tmp_p
     assert invalid.error and "search_incomplete" in invalid.error
 
 
+@pytest.mark.requires_rg
 async def test_rg_limits_are_explicit_and_missing_rg_is_an_error(tmp_path):
     (tmp_path / "main.py").write_text("hit\nhit\nhit\n")
     backend = PycodeBackend(tmp_path)
@@ -74,6 +76,7 @@ async def test_rg_limits_are_explicit_and_missing_rg_is_an_error(tmp_path):
     assert "rg_unavailable" in (await backend.agrep("hit")).error
 
 
+@pytest.mark.requires_rg
 async def test_uncreated_plan_namespace_is_empty_without_masking_missing_workspace(tmp_path):
     root = tmp_path / "plans"
     backend = PlanBackend(root)

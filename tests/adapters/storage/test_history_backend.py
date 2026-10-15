@@ -1,9 +1,12 @@
+import pytest
 from deepagents.backends import CompositeBackend
 from tests.services.test_model_control import store_for
 
 from pycode.adapters.storage.history_backend import ConversationHistoryBackend
 from pycode.adapters.tools.backend import PycodeBackend
 from pycode.core.messages import Message
+
+pytestmark = pytest.mark.requires_rg
 
 
 async def test_root_discovery_merges_workspace_and_active_history_without_abstract_method_error(

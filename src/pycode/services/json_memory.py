@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from pycode.core.errors import ModelError, StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory import snapshot_record
 from pycode.core.memory_evidence import (
     MemoryEvidenceDecision,
@@ -18,7 +19,6 @@ from pycode.core.memory_tool_receipt import receipt_id
 from pycode.core.messages import Message, ToolCall, ToolResult
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 from pycode.services.memory_commit import MemoryCommitService, observed_targets
 from pycode.services.memory_evidence import capture_memory_evidence

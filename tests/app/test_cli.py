@@ -16,6 +16,16 @@ def test_diagnostics_use_shared_application(tmp_path, capsys):
     assert not (tmp_path / ".git").exists()
 
 
+def test_doctor_reports_external_tools_with_install_hints(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    assert main(["--workspace", str(tmp_path), "doctor", "--json"]) == 0
+    tools = {tool["name"]: tool for tool in json.loads(capsys.readouterr().out)["tools"]}
+    assert {"rg", "git", "bash"} <= tools.keys()
+    assert tools["rg"]["path"] is None and "ripgrep" in tools["rg"]["install"]
+    assert main(["--workspace", str(tmp_path), "doctor"]) == 0
+    assert "rg: missing (glob and grep search tools)" in capsys.readouterr().out
+
+
 def test_missing_workspace_is_a_reported_failure(tmp_path, capsys):
     assert main(["--workspace", str(tmp_path / "missing"), "doctor", "--json"]) == 1
     assert not json.loads(capsys.readouterr().out)["workspace"]["exists"]

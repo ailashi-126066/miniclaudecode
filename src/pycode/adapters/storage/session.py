@@ -12,6 +12,7 @@ from types import MappingProxyType
 from uuid import uuid4
 
 from pycode.adapters.storage.file_lease import FileLease
+from pycode.adapters.storage.path_io import atomic_write
 from pycode.adapters.storage.session_codec import (
     decode_entry,
     decode_header,
@@ -46,7 +47,6 @@ class JsonlSessionStore:
         self._closed = False
         self._fingerprint = None
         self._position_fingerprint = None
-        self.load_scans = 0
         self._lease = FileLease(directory / "writer.lock")
         self._lock = asyncio.Lock()
 
@@ -77,7 +77,6 @@ class JsonlSessionStore:
         if not self._log.exists():
             self._loaded = True
             return
-        self.load_scans += 1
         entries = []
         physical = []
         index = {}
@@ -368,17 +367,9 @@ class JsonlSessionStore:
             "revision": self._revision,
             "log_offset": self._offset,
         }
-        temporary = self._position.with_name(f"position.{uuid4().hex}.partial")
-        try:
-            with temporary.open("w", encoding="utf-8") as output:
-                json.dump(data, output, sort_keys=True)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, self._position)
-            current = self._position.stat()
-            self._position_fingerprint = (current.st_mtime_ns, current.st_size)
-        finally:
-            temporary.unlink(missing_ok=True)
+        atomic_write(self._position, json.dumps(data, sort_keys=True).encode("utf-8"))
+        current = self._position.stat()
+        self._position_fingerprint = (current.st_mtime_ns, current.st_size)
 
     def repair_log(self) -> None:
         if not self._persisted:

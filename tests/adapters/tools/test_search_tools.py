@@ -9,6 +9,7 @@ import pytest
 
 from pycode.adapters.tools.backend import PycodeBackend
 
+pytestmark = pytest.mark.requires_rg
 VECTORS = json.loads((Path(__file__).parents[2] / "fixtures/search-baselines.json").read_bytes())
 
 

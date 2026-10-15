@@ -18,6 +18,7 @@ from uuid import uuid4
 from pydantic import TypeAdapter
 
 from pycode.adapters.storage.file_lease import FileLease
+from pycode.adapters.storage.path_io import atomic_write
 from pycode.core.errors import SnapshotError, StorageError
 from pycode.core.snapshots import (
     FileChange,
@@ -194,16 +195,7 @@ class GitSnapshotStore:
             if path.read_text(encoding="utf-8") != envelope:
                 raise SnapshotError("snapshot_identity_conflict", "Snapshot record changed")
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f".{uuid4().hex}.partial")
-        try:
-            with temporary.open("x", encoding="utf-8") as output:
-                output.write(envelope)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        atomic_write(path, envelope.encode("utf-8"))
 
     def read_json(self, path: Path, kind):
         envelope = json.loads(path.read_bytes())

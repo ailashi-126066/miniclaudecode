@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -94,9 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     container = build_container(config)
     status = container.application.status()
     isolation = asyncio.run(sandbox_status(config))
+    tools = external_tools()
     if args.json:
         print(
-            json_dumps({**plain_data(status), "sandbox": plain_data(isolation)}, ensure_ascii=False)
+            json_dumps(
+                {**plain_data(status), "sandbox": plain_data(isolation), "tools": tools},
+                ensure_ascii=False,
+            )
         )
     else:
         print(f"{status.name} {status.version}")
@@ -106,7 +111,38 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"File snapshots: {availability}")
         print(isolation.reason)
+        for tool in tools:
+            if tool["path"]:
+                print(f"{tool['name']}: {tool['path']}")
+            else:
+                print(f"{tool['name']}: missing ({tool['purpose']}); {tool['install']}")
     return 0 if status.workspace.exists else 1
+
+
+def external_tools():
+    # Missing tools are reported, not fatal: each only disables the feature that needs it.
+    darwin = sys.platform == "darwin"
+    required = [
+        (
+            "rg",
+            "glob and grep search tools",
+            "brew install ripgrep" if darwin else "install ripgrep and put rg on PATH",
+        ),
+        (
+            "git",
+            "file snapshots and revert",
+            "xcode-select --install or brew install git" if darwin else "install git",
+        ),
+        ("bash", "Bash tool and command hooks", "install bash and put it on PATH"),
+    ]
+    if darwin:
+        required.append(
+            ("/usr/bin/sandbox-exec", "Seatbelt sandbox", "ships with macOS; restore the OS file")
+        )
+    return [
+        {"name": name, "path": shutil.which(name), "purpose": purpose, "install": install}
+        for name, purpose, install in required
+    ]
 
 
 async def model_command(args, config, catalog, providers) -> int:

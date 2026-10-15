@@ -6,8 +6,8 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from pycode.core.hashing import data_hash
 from pycode.core.messages import ToolResult
-from pycode.core.summary_source import data_hash
 from pycode.core.tools import ToolSpec
 from pycode.core.values import json_dumps
 

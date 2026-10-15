@@ -3,8 +3,8 @@
 # Adaptation: extracted existing phase-5 estimator for identical runtime/UI accounting.
 """One pure context estimator, with provenance rather than fabricated live counts."""
 
+from pycode.core.hashing import data_hash
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.token_estimate import estimate_messages, estimate_text
 from pycode.core.values import clone_value, json_dumps, plain_data
 

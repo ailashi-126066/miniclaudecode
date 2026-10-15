@@ -45,7 +45,7 @@ def model_request_step(requests, handler, *, logical_id):
 class ModelRequestRunner:
     @property
     def model_signature(self):
-        from pycode.core.summary_source import data_hash
+        from pycode.core.hashing import data_hash
 
         return data_hash(plain_data(self._selection))
 

@@ -16,9 +16,9 @@ from pathlib import Path
 
 from pycode.adapters.tools.process_runner import run_process
 from pycode.core.errors import ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.messages import ToolResult
 from pycode.core.sandbox import SandboxSettings
-from pycode.core.summary_source import data_hash
 from pycode.core.tools import ToolContext, ToolSpec
 from pycode.core.values import plain_data
 from pycode.ports.outputs import ToolOutputStore

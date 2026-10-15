@@ -4,6 +4,7 @@ import asyncio
 
 from pycode.core.errors import ToolError
 from pycode.core.execution_recovery import pending_run_entry
+from pycode.core.hashing import data_hash
 from pycode.core.revert_state import pending_revert
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
@@ -11,7 +12,6 @@ from pycode.core.skills import (
     skill_entry,
     skill_scope,
 )
-from pycode.core.summary_source import data_hash
 from pycode.core.token_estimate import estimate_text
 from pycode.core.values import plain_data
 from pycode.ports.history import SessionStore

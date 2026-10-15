@@ -15,8 +15,8 @@ from contextlib import asynccontextmanager
 from pycode.adapters.mcp.connection import MCPAdapterConnection
 from pycode.adapters.tools.schema import JsonSchemaValidator
 from pycode.core.errors import DomainError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.mcp import result_from_mcp, tool_name
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 
 

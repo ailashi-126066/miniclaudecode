@@ -3,8 +3,8 @@
 import os
 import re
 
-from pycode.adapters.storage.memory_migration import read_json, safe_relative
-from pycode.adapters.storage.path_io import atomic_write
+from pycode.adapters.storage.memory_migration import read_json
+from pycode.adapters.storage.path_io import atomic_write, safe_relative
 from pycode.core.errors import StorageError
 from pycode.core.memory import content_hash
 from pycode.core.values import json_dumps

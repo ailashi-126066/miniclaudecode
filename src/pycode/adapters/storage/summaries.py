@@ -9,8 +9,8 @@ from pydantic import TypeAdapter
 
 from pycode.adapters.storage.path_io import atomic_write
 from pycode.core.errors import StorageError
+from pycode.core.hashing import data_hash
 from pycode.core.summaries import SummaryObject, SummarySource
-from pycode.core.summary_source import data_hash
 from pycode.core.values import json_dumps, plain_data
 
 

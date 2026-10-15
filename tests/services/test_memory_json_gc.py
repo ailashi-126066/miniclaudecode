@@ -124,8 +124,8 @@ async def test_pending_job_references_protect_sources_before_memory_publication(
 
 
 async def test_prepared_scope_move_protects_sources_before_target_publication(tmp_path):
+    from pycode.core.hashing import data_hash
     from pycode.core.memory_schema import validate_memory_value
-    from pycode.core.summary_source import data_hash
 
     store, gc, _, workspace, _, _, entry_id = await setup_memory_objects(tmp_path)
     identity = {

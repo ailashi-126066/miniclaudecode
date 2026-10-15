@@ -15,9 +15,9 @@ from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.mcp import result_from_mcp
 from pycode.core.messages import Message, ToolCall, ToolResult
-from pycode.core.summary_source import data_hash
 from pycode.core.tools import ToolContext, ToolSpec, batch_execution_mode
 from pycode.core.values import json_dumps
 from pycode.workflows.boundaries import make_framework_tool, run_hook, save_message

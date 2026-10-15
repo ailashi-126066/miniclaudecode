@@ -37,7 +37,7 @@ def content_hash(content):
 def snapshot_record(namespace, key, record, scope):
     from datetime import datetime
 
-    from pycode.core.summary_source import data_hash
+    from pycode.core.hashing import data_hash
 
     value = record["value"]
     content = value["content"]

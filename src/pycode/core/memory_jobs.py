@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from pycode.core.hashing import data_hash
 from pycode.core.memory_evaluation import MemoryRuleEvaluation
 from pycode.core.memory_schema import (
     Identity,
@@ -12,7 +13,6 @@ from pycode.core.memory_schema import (
     MemoryValue,
     SourceCursor,
 )
-from pycode.core.summary_source import data_hash
 
 REORGANIZE_ERRORS = frozenset(
     {

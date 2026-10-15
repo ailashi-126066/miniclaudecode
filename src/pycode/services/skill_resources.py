@@ -1,10 +1,10 @@
 """Validate selected Python resources; SkillsMiddleware owns their disclosure."""
 
 from pycode.core.errors import ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.session import EntryDraft
 from pycode.core.session_tree import SessionTree
 from pycode.core.skills import active_skills
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 from pycode.ports.skills import SkillCatalog, SkillResourceToolFactory
 

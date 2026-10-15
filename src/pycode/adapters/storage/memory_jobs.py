@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 
 from pycode.adapters.storage.json_memory import encode, memory_lease, reject_duplicate_keys
-from pycode.adapters.storage.memory_migration import safe_relative
-from pycode.adapters.storage.path_io import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, owned_io, safe_relative
 from pycode.core.errors import StorageError
 from pycode.core.memory_jobs import MemoryJob
 

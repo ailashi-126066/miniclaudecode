@@ -8,8 +8,8 @@ from langmem import Prompt, create_multi_prompt_optimizer, create_prompt_optimiz
 from pydantic import ValidationError
 
 from pycode.core.errors import ModelError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory_schema import validate_memory_value
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 
 RULE_INSTRUCTIONS = (

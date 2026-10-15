@@ -2,7 +2,11 @@
 
 import tracemalloc
 
+import pytest
+
 from pycode.adapters.tools.backend import PycodeBackend
+
+pytestmark = pytest.mark.requires_rg
 
 
 async def test_rg_large_line_is_bounded_even_when_regex_has_millions_of_matches(tmp_path):

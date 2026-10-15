@@ -4,20 +4,14 @@
 # Adaptation: canonical projected entry IDs, config/checkpoint hashes and paired native cuts.
 """Capture and validate a fixed summary prefix independently of appended tail messages."""
 
-import hashlib
-
 from pycode.core.compaction import find_cut_point
+from pycode.core.hashing import data_hash
 from pycode.core.models import ModelSelection
 from pycode.core.session import ProjectedContext, SessionSnapshot
 from pycode.core.session_boundaries import valid_kept_boundary
 from pycode.core.session_tree import SessionTree
 from pycode.core.summaries import SummarySource
-from pycode.core.values import clone_value, json_dumps, plain_data
-
-
-def data_hash(value) -> str:
-    encoded = json_dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode()).hexdigest()
+from pycode.core.values import clone_value, plain_data
 
 
 def capture_source(

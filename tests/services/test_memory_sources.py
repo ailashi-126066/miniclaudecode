@@ -5,9 +5,9 @@ from tests.services.test_memory_evidence import setup
 
 from pycode.adapters.tools.output_store import FileToolOutputStore
 from pycode.core.errors import StorageError
+from pycode.core.hashing import data_hash
 from pycode.core.messages import Message, ToolCall, ToolResult
 from pycode.core.session_tree import SessionTree
-from pycode.core.summary_source import data_hash
 from pycode.core.tools import ToolContext
 from pycode.core.values import plain_data
 from pycode.services.memory_evidence import capture_memory_evidence

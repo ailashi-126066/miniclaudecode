@@ -22,8 +22,9 @@ from langgraph.store.base import (
 )
 
 from pycode.adapters.storage.file_lease import FileLease
-from pycode.adapters.storage.path_io import atomic_write, owned_io
+from pycode.adapters.storage.path_io import atomic_write, owned_io, safe_relative
 from pycode.core.errors import StorageError, ToolError
+from pycode.core.hashing import data_hash
 from pycode.core.memory_evidence import PreparedMemoryUpdate
 from pycode.core.memory_schema import (
     MemoryGroupReceipt,
@@ -34,7 +35,6 @@ from pycode.core.memory_schema import (
     resolve_memory_key,
     validate_memory_value,
 )
-from pycode.core.summary_source import data_hash
 from pycode.core.token_estimate import estimate_text
 
 OPERATORS = {"$eq", "$ne", "$gt", "$gte", "$lt", "$lte"}
@@ -538,7 +538,6 @@ class JsonMemoryStore(BaseStore):
 
     async def tool_receipt_snapshot(self, namespace, identity):
         def read():
-            from pycode.adapters.storage.memory_migration import safe_relative
 
             state = self.read(namespace)
             receipt = state["tool_receipts"].get(identity)

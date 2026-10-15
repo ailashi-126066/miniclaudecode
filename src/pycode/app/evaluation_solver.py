@@ -4,8 +4,8 @@ import asyncio
 from dataclasses import replace
 from uuid import uuid4
 
+from pycode.core.hashing import data_hash
 from pycode.core.messages import Message
-from pycode.core.summary_source import data_hash
 from pycode.core.values import plain_data
 
 
