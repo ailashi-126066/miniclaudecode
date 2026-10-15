@@ -5,8 +5,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from pycode.core.errors import ToolError
-from pycode.core.session_tree import SessionTree
+from pycode.kernel import SessionTree, ToolError
 
 
 def child_config(config, record):

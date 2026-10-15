@@ -8,11 +8,11 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
+from pycode.app.composition import build_model_catalog, build_runtime
 from pycode.app.config import AppConfig
-from pycode.app.container import build_model_catalog, build_runtime
-from pycode.core.messages import Message, ToolResult
-from pycode.core.models import ProviderConfig
-from pycode.core.tools import ToolSpec
+from pycode.kernel.contracts.messages import Message, ToolResult
+from pycode.kernel.contracts.tools import ToolSpec
+from pycode.models.domain.models import ProviderConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 

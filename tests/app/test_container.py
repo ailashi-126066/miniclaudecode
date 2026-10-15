@@ -1,5 +1,5 @@
+from pycode.app.composition import build_container
 from pycode.app.config import AppConfig
-from pycode.app.container import build_container
 
 
 def test_explicit_container_has_no_filesystem_write(tmp_path):

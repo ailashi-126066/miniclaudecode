@@ -5,12 +5,13 @@ import os
 import sys
 from pathlib import Path
 
-from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.tools.output_store import FileToolOutputStore
+from pycode.app.composition import open_agent_session
 from pycode.app.config import AppConfig
-from pycode.app.container import open_agent_session
-from pycode.core.messages import Message
-from pycode.core.models import ProviderConfig
+from pycode.kernel.contracts.messages import Message
+from pycode.models.domain.models import ProviderConfig
+from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
+from pycode.session.adapters.storage.layout import StorageLayout
+from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.support.recovery_tools import WritingEcho
 
 
@@ -67,7 +68,11 @@ class CrashTool(WritingEcho):
         if self._boundary in {"output_published", "stream_output_published"}:
             workspace = Path(context.workspace)
             outputs = FileToolOutputStore(
-                StorageLayout(workspace, workspace / "data").sessions, context.session_id
+                StorageLayout(workspace, workspace / "data").sessions,
+                context.session_id,
+                header_reader=FileSessionHeaderReader(
+                    StorageLayout(workspace, workspace / "data").sessions
+                ),
             )
             if self._boundary == "output_published":
                 await outputs.prepare(context, result, "head")

@@ -7,8 +7,8 @@ import platform
 import sys
 from pathlib import Path
 
-from pycode.app.container import build_sandbox
-from pycode.core.sandbox import SandboxSettings
+from pycode.app.composition import build_sandbox
+from pycode.sandbox.domain.sandbox import SandboxSettings
 
 
 async def verify(args, root):

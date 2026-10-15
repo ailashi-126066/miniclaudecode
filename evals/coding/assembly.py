@@ -11,11 +11,11 @@ from evals.coding.runner import EvaluationRunner
 from evals.coding.solver import ConfiguredEvaluationSolver
 from evals.coding.workspaces import EvaluationWorkspaces
 from evals.quality.langfuse import LangfuseEvaluationSummary
-from pycode.adapters.storage.layout import StorageLayout
-from pycode.app.container import build_sandbox, open_agent_session
-from pycode.core.errors import StorageError
-from pycode.core.hashing import data_hash
-from pycode.core.sandbox import SandboxSettings
+from pycode.app.composition import build_sandbox, open_agent_session
+from pycode.kernel.errors import StorageError
+from pycode.kernel.hashing import data_hash
+from pycode.sandbox.domain.sandbox import SandboxSettings
+from pycode.session.adapters.storage.layout import StorageLayout
 
 
 def build_evaluation_runner(config, providers, manifest, cache, work, results, *, langfuse=False):

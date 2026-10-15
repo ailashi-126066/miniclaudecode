@@ -13,11 +13,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from evals.coding.tasks import EvaluationTask
-from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
-from pycode.adapters.tools.process_runner import run_process
-from pycode.core.errors import StorageError
-from pycode.core.messages import ToolResult
-from pycode.core.values import json_dumps
+from pycode.kernel.contracts.messages import ToolResult
+from pycode.kernel.errors import StorageError
+from pycode.kernel.io.path_io import atomic_write, file_sha256, owned_io
+from pycode.kernel.values import json_dumps
+from pycode.sandbox.adapters.tools.process_runner import run_process
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_LOG_BYTES = 2 * 1024 * 1024

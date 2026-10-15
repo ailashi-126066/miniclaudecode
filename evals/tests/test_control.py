@@ -7,9 +7,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
+from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider
 from tests.support.http_provider import HTTPResponse, chat_completion, protocol_server
-from tests.workflows.test_skills_http import skill_reply
 
 from evals.coding.assembly import build_evaluation_solver
 from evals.coding.runner import EvaluationRunner

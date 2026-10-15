@@ -33,43 +33,43 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
 固定来源清单和作者授权保持不变。以下说明当前复用边界；真实命令、源码摘要及结果以
 `archive/verification/deepagents-migration.json` 为准，历史阶段报告不证明当前版本。
 
-- `workflows/agent.py`：Deep Agents 0.7.23 公共 create_deep_agent，唯一主 harness；
-  `state.py`、`history.py`、`boundaries.py`、`settlement.py` 保存 Pi 的原始消息、顺序、
+- `agent/adapters/agent.py`：Deep Agents 0.7.23 公共 create_deep_agent，唯一主 harness；
+  `agent/adapters/state.py`、`agent/adapters/history.py`、`agent/adapters/boundaries.py`、`tools/adapters/settlement.py` 保存 Pi 的原始消息、顺序、
   重复失败与产品事实边界，删除旧调度循环、操作表及 after-model 调度。
   中断不阻塞后续完成工具；结算、事件和 Hook 始终使用对应 operation_id。
-- `adapters/tools/backend.py`：复用既有 workspace 范围、精确编辑、哈希和 atomic write；
+- `tools/adapters/backend.py`：复用既有 workspace 范围、精确编辑、哈希和 atomic write；
   原生 FilesystemMiddleware 入口及实际 rg 搜索替换旧 Read/Write/Edit/Grep/Glob 和 Python
   regex worker。巨型读／搜索结果保留到唯一输出对象；原字段与真实接口差异由迁移测试验证。
-- `adapters/storage/session.py`、`core/session_tree.py`、`services/context_projector.py`：
+- `session/adapters/storage/session.py`、`kernel/history_tree.py`、`context/services/context_projector.py`：
   Pi JSONL 会话树、OpenCode 工具驱逐、原始与模型两种视图；immutable entry、单一 ID 索引、
   active-path IDs 和 revision cache 为本项目优化。无主聊天磁盘 checkpoint。
-- `services/summary.py`、`workflows/summary.py`：MewCode 两阶段后台摘要与 Pi 保留边界；
+- `context/services/summary.py`、`context/adapters/summary.py`：MewCode 两阶段后台摘要与 Pi 保留边界；
   阈值 80%，使用实际 native/dynamic schema 与系统提示 footprint。Deep Agents 摘要禁用。
-- `adapters/snapshot/git_tree.py`：固定 OpenCode tree 思路，独立裸仓库、路径预览与补偿事务；
+- `snapshot/adapters/git_tree.py`：固定 OpenCode tree 思路，独立裸仓库、路径预览与补偿事务；
   不使用用户 index/refs/stash 作为快照存储。旧恢复测试改为 JSONL 边界。
-- `services/skills.py`、`adapters/skills/*`、`workflows/skills.py`：MewCode 声明、可信来源、
+- `skills/services/skills.py`、`skills/adapters/*`、`skills/adapters/skills.py`：MewCode 声明、可信来源、
   GitHub staging/backup 和 Python 资源验证保留；runtime 加载与披露只属于 native
   SkillsMiddleware。目录分层只是预算边界，Python 每次审批；fork 经 native task。
-- `adapters/mcp/*`、`services/mcp*.py`：MewCode 产品命名/目录策略，LangChain MCPAdapter
+- `mcp/adapters/*`、`mcp/services/mcp*.py`：MewCode 产品命名/目录策略，LangChain MCPAdapter
   唯一连接及协议实现；stdio/HTTP、direct/dispatch、资源/提示和错误经过同一结算边界。
   不保留直接协议 SDK 客户端或额外 adapter 包。
-- `services/hooks.py`、`adapters/hooks/*`：MewCode 条件、模板、command/prompt 复用（HTTP 动作已删除）；
+- `hooks/services/hooks.py`、`hooks/adapters/*`：MewCode 条件、模板、command/prompt 复用（HTTP 动作已删除）；
   JSONL once/结果、owned background、真实只读 Agent 动作和 Plan/权限边界为本项目接入。
-- `services/plans.py`、`adapters/storage/plans.py`、`workflows/plans.py`：精确 Markdown 路径，
+- `plans/services/plans.py`、`plans/adapters/storage/plans.py`、`plans/adapters/plans.py`：精确 Markdown 路径，
   当前进程审批、批准内容 hash、反馈与重启过期语义。AskUser 使用同样 live interrupt。
-- `services/memory.py`、`workflows/memory_update.py`、`workflows/memory_tools.py`、
-  `adapters/storage/json_memory.py`：官方 LangMem Store Manager 与 manage/search 工具直接
+- `memory/services/memory.py`、`memory/adapters/memory_update.py`、`memory/adapters/memory_tools.py`、
+  `memory/adapters/storage/json_memory.py`：官方 LangMem Store Manager 与 manage/search 工具直接
   作用于每作用域一个 `memory.json` 的 BaseStore；本项目只接入存储位置、触发时机、写入过滤、
   变更日志与撤销。AGENTS.md 由 Deep Agents `MemoryMiddleware` 加载。旧的证据审查、分组提交、
   作业／来源游标、作用域移动流水线已删除，规则比较代码存档于 `evals/memory_rules/`。
-- `services/team.py`、`adapters/team/worktrees.py`：任务存储、依赖校验与并发策略，以及
-  worktree 和安全集成清理，留待进程内多 Agent 复用；`team serve`／Agent Protocol 已删除。
-  没有独立 Worker 消息队列／已消费游标；同步只读子任务和 fork Skill 使用 native task。
-- `services/storage_gc.py`、`adapters/storage/objects.py`：引用标记、30 天隔离/恢复、会话显式
+- `team/services/team.py`、`team/adapters/worktrees.py`：任务存储、依赖校验与并发策略，以及
+  worktree 和安全集成清理，进程内 AgentTeam 已直接复用；`team serve`／Agent Protocol 已删除。
+  独立团队 JSONL 保存受限收件箱和投递确认；只读/worker、Hook delegate 和 fork Skill 共用进程内协调器。
+- `session/services/storage_gc.py`、`session/adapters/storage/objects.py`：引用标记、30 天隔离/恢复、会话显式
   删除及审计；保护全部分支、fork、summary/Plan/memory/team。快照 Git GC 与 worktree 分开。
-- `app/runtime_launcher.py`、`app/background_models.py`：显式注入的生命周期编排；具体
-  adapter 构造仍在唯一 `app/container.py`。没有 import 注册、全局服务定位或 monkey patch。
-- `adapters/ui/*`、`app/cli*.py`：MewCode Textual/CLI 设计；当前品牌 pycode、原始历史
+- `app/runtime_launcher.py`、`app/composition/context.py` and `app/composition/memory.py`：显式注入的生命周期编排；具体
+  adapter 构造分到唯一组合根 `app/composition/` 的功能装配模块。没有 import 注册、全局服务定位或 monkey patch。
+- `ui/adapters/*`、`app/cli*.py`：MewCode Textual/CLI 设计；当前品牌 pycode、原始历史
   增量组件、折叠/对象回读、live/expired 等待、Plan/memory/team、可读名称和 UTF-8 输出。
   `commands.py`、`completion.py` 参考只读 `code-python/mewcode/commands/{registry,parser,completion}.py`；
   仅注册本项目既有入口。原候选思路适配为 Textual OptionList，点击选择实际行，Enter 分开补全和提交。

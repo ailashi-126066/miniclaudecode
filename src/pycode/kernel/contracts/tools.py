@@ -1,0 +1,48 @@
+# Source: https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/agent/src/types.ts
+# Adaptation: explicit tool classification and workspace execution identifiers.
+"""Tool declarations and pure execution barrier selection."""
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any, Literal, Protocol
+
+from pycode.kernel.contracts.messages import ToolResult
+
+ExecutionMode = Literal["parallel", "sequential"]
+ToolCategory = Literal["read", "write", "command", "external"]
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    category: ToolCategory = "external"
+    execution_mode: ExecutionMode = "sequential"
+    source: str = "builtin"
+    implementation_hash: str | None = None
+    waits_for_user: bool = False
+    policy_hash: str | None = None
+    model_visible: bool = True
+    approval_details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    session_id: str
+    run_id: str
+    operation_id: str
+    workspace: str
+    call_id: str = ""
+    tool_name: str = ""
+    attempt: int = 0
+    agent_id: str = "lead"
+    progress: Callable[[str], Awaitable[None]] | None = field(
+        default=None, compare=False, repr=False, metadata={"serialize": False}
+    )
+
+
+class ExecutableTool(Protocol):
+    @property
+    def spec(self) -> ToolSpec: ...
+    async def execute(self, context: ToolContext, arguments: dict[str, Any]) -> ToolResult: ...

@@ -6,9 +6,9 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+from pycode.app.composition import open_agent_session
 from pycode.app.config import AppConfig
-from pycode.app.container import open_agent_session
-from pycode.core.messages import Message
+from pycode.kernel.contracts.messages import Message
 from tests.support.execution import provider
 
 

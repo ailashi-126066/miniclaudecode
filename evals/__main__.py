@@ -9,10 +9,10 @@ from pathlib import Path
 
 from evals.coding.assembly import build_evaluation_runner
 from pycode.app.cli_commands import read_providers
+from pycode.app.composition import build_console_output
 from pycode.app.config import load_config
-from pycode.app.container import build_console_output
-from pycode.core.errors import DomainError
-from pycode.core.values import json_dumps
+from pycode.kernel.errors import DomainError
+from pycode.kernel.values import json_dumps
 
 QUALITY_SCRIPTS = """quality evaluations (run from the repository root; each accepts --help):
   python evals/scripts/run_output_quality.py

@@ -2,10 +2,10 @@ import json
 from dataclasses import asdict
 
 import pytest
-from tests.adapters.models.test_factory import configuration
 
 from pycode.app.config import load_providers
-from pycode.core.errors import DomainError
+from pycode.kernel.errors import DomainError
+from tests.models.adapters.test_factory import configuration
 
 
 def write_config(tmp_path, data):

@@ -1,1 +1,0 @@
-"""Isolated Git worktree boundaries."""

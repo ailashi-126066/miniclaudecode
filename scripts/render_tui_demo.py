@@ -6,10 +6,10 @@ from pathlib import Path
 
 from tests.support.execution import provider
 from tests.support.http_provider import protocol_server
-from tests.workflows.test_questions import question_response
+from tests.tools.adapters.test_questions import question_response
 
+from pycode.app.composition import build_tui
 from pycode.app.config import AppConfig
-from pycode.app.container import build_tui
 
 
 async def main(project):

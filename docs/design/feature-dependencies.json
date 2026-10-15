@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "baseline": "main@ac40d4f",
+  "direction": "importer -> imported public API",
+  "allowed_dependencies": {
+    "kernel": [],
+    "sandbox": [
+      "kernel"
+    ],
+    "snapshot": [
+      "kernel"
+    ],
+    "models": [
+      "kernel"
+    ],
+    "mcp": [
+      "kernel"
+    ],
+    "skills": [
+      "kernel",
+      "sandbox"
+    ],
+    "plans": [
+      "kernel",
+      "sandbox"
+    ],
+    "context": [
+      "kernel",
+      "models",
+      "mcp",
+      "skills"
+    ],
+    "memory": [
+      "kernel",
+      "context"
+    ],
+    "tools": [
+      "kernel",
+      "sandbox",
+      "snapshot",
+      "skills",
+      "plans"
+    ],
+    "hooks": [
+      "kernel",
+      "sandbox"
+    ],
+    "agent": [
+      "kernel",
+      "models",
+      "context",
+      "tools",
+      "skills",
+      "plans",
+      "hooks",
+      "mcp"
+    ],
+    "team": [
+      "kernel",
+      "snapshot",
+      "tools",
+      "plans"
+    ],
+    "session": [
+      "kernel",
+      "context",
+      "models",
+      "skills",
+      "snapshot",
+      "tools",
+      "memory",
+      "team"
+    ],
+    "ui": [
+      "kernel",
+      "tools",
+      "plans",
+      "team"
+    ],
+    "app": [
+      "kernel",
+      "sandbox",
+      "snapshot",
+      "models",
+      "mcp",
+      "skills",
+      "plans",
+      "context",
+      "memory",
+      "tools",
+      "hooks",
+      "agent",
+      "team",
+      "session",
+      "ui"
+    ]
+  }
+}

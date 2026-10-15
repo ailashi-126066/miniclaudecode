@@ -7,8 +7,8 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from pycode.adapters.snapshot.git_tree import GitSnapshotStore
-from pycode.core.snapshots import RestorePlan, RestoreRecord
+from pycode.snapshot.adapters.git_tree import GitSnapshotStore
+from pycode.snapshot.domain.snapshots import RestorePlan, RestoreRecord
 
 
 class CrashStore(GitSnapshotStore):

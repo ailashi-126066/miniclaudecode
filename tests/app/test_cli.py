@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 from pycode.app.cli import main
 from pycode.app.cli_commands import command
 from pycode.app.config import AppConfig
-from pycode.core.runtime import RunResult
+from pycode.kernel.contracts.completion import RunResult
 
 
 def test_diagnostics_use_shared_application(tmp_path, capsys):

@@ -1,0 +1,2181 @@
+{
+  "baseline": "ac40d4f",
+  "module_count": 320,
+  "module_cycles": [],
+  "feature_cycles": [],
+  "module_edges": {
+    "pycode.__main__": [
+      "pycode.app.cli",
+      "pycode.session.adapters.storage.workspace"
+    ],
+    "pycode.agent": [
+      "pycode.agent.domain.turn_policy",
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context"
+    ],
+    "pycode.agent.adapters.agent": [
+      "pycode.agent.adapters.bindings",
+      "pycode.agent.adapters.boundaries",
+      "pycode.agent.adapters.history",
+      "pycode.agent.adapters.state",
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context",
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.tools",
+      "pycode.tools.domain.approvals"
+    ],
+    "pycode.agent.adapters.bindings": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity"
+    ],
+    "pycode.agent.adapters.boundaries": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.skills",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.agent.adapters.history": [
+      "pycode.agent.adapters.boundaries",
+      "pycode.agent.adapters.state",
+      "pycode.agent.domain.turn_policy",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.values"
+    ],
+    "pycode.agent.domain.turn_policy": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.agent.ports": [
+      "pycode.agent.ports.runtime"
+    ],
+    "pycode.agent.ports.runtime": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.models",
+      "pycode.models.domain.models"
+    ],
+    "pycode.agent.services.context": [
+      "pycode.agent.ports",
+      "pycode.agent.ports.runtime",
+      "pycode.context",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction",
+      "pycode.hooks",
+      "pycode.hooks.services.hooks",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.ports.events",
+      "pycode.mcp",
+      "pycode.mcp.services.mcp_bindings",
+      "pycode.plans",
+      "pycode.plans.services.plans",
+      "pycode.skills",
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.services.skill_resources",
+      "pycode.tools",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.app.cli": [
+      "pycode.app.cli_commands",
+      "pycode.app.cli_parser",
+      "pycode.app.composition",
+      "pycode.app.composition.models",
+      "pycode.app.config",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.models.adapters.directory",
+      "pycode.sandbox",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.workspace",
+      "pycode.ui.adapters.console",
+      "pycode.ui.adapters.tui"
+    ],
+    "pycode.app.cli_commands": [
+      "pycode.app.composition",
+      "pycode.app.config",
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.models.adapters.directory",
+      "pycode.session",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.objects",
+      "pycode.session.domain.revert",
+      "pycode.ui.adapters.console"
+    ],
+    "pycode.app.cli_parser": [
+      "pycode"
+    ],
+    "pycode.app.composition": [
+      "pycode.agent.adapters.agent",
+      "pycode.agent.adapters.bindings",
+      "pycode.app.composition.capabilities",
+      "pycode.app.composition.context",
+      "pycode.app.composition.memory",
+      "pycode.app.composition.models",
+      "pycode.app.composition.runtime",
+      "pycode.app.composition.session",
+      "pycode.app.composition.team",
+      "pycode.app.composition.ui",
+      "pycode.context.adapters.summary",
+      "pycode.hooks.adapters.actions",
+      "pycode.mcp.adapters.tools",
+      "pycode.models.adapters.directory",
+      "pycode.models.adapters.metered_model",
+      "pycode.models.adapters.observation",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.objects",
+      "pycode.session.adapters.storage.workspace",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.python_tool",
+      "pycode.tools.adapters.artifacts_backend",
+      "pycode.tools.adapters.output_store",
+      "pycode.tools.adapters.read_tool_result",
+      "pycode.ui.adapters.console",
+      "pycode.ui.adapters.tui"
+    ],
+    "pycode.app.composition.capabilities": [
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.hooks.adapters.actions",
+      "pycode.mcp",
+      "pycode.mcp.adapters.tools",
+      "pycode.mcp.services.mcp",
+      "pycode.mcp.services.mcp_bindings",
+      "pycode.plans.adapters.tools.plans",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.sandbox.adapters.tools.bash",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.session",
+      "pycode.session.adapters.storage.header_reader",
+      "pycode.session.adapters.storage.history_backend",
+      "pycode.session.domain.guards",
+      "pycode.skills",
+      "pycode.skills.adapters.backend",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.install",
+      "pycode.skills.adapters.python_tool",
+      "pycode.skills.adapters.tools.skills",
+      "pycode.skills.services.skills",
+      "pycode.tools.adapters.artifacts_backend",
+      "pycode.tools.adapters.ask_user",
+      "pycode.tools.adapters.backend",
+      "pycode.tools.adapters.output_store",
+      "pycode.tools.adapters.read_tool_result",
+      "pycode.tools.adapters.schema"
+    ],
+    "pycode.app.composition.context": [
+      "pycode.app.composition.models",
+      "pycode.context.adapters.summary",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.adapters.observation",
+      "pycode.models.adapters.storage.requests",
+      "pycode.session.adapters.storage.layout"
+    ],
+    "pycode.app.composition.memory": [
+      "pycode.app.composition.models",
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.kernel",
+      "pycode.kernel.io.timing",
+      "pycode.memory",
+      "pycode.memory.adapters.memory_query",
+      "pycode.memory.adapters.memory_update",
+      "pycode.memory.adapters.storage.json_memory",
+      "pycode.memory.domain.namespaces",
+      "pycode.memory.services.memory",
+      "pycode.models",
+      "pycode.models.adapters.metered_model",
+      "pycode.models.adapters.observation",
+      "pycode.models.domain.requests",
+      "pycode.session.adapters.storage.layout"
+    ],
+    "pycode.app.composition.models": [
+      "pycode.app.config",
+      "pycode.context",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.io.timing",
+      "pycode.kernel.services.event_journal",
+      "pycode.kernel.services.events",
+      "pycode.models",
+      "pycode.models.adapters.directory",
+      "pycode.models.adapters.factory",
+      "pycode.models.adapters.failures",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.adapters.observation",
+      "pycode.models.adapters.storage.catalog",
+      "pycode.models.adapters.storage.requests",
+      "pycode.models.domain.models",
+      "pycode.models.domain.requests",
+      "pycode.models.services.model_catalog",
+      "pycode.models.services.model_control",
+      "pycode.session.adapters.storage.layout"
+    ],
+    "pycode.app.composition.runtime": [
+      "pycode.agent",
+      "pycode.agent.adapters.agent",
+      "pycode.agent.adapters.bindings",
+      "pycode.agent.adapters.boundaries",
+      "pycode.agent.services.context",
+      "pycode.app.composition.capabilities",
+      "pycode.app.composition.context",
+      "pycode.app.composition.models",
+      "pycode.app.config",
+      "pycode.app.team_runtime",
+      "pycode.context",
+      "pycode.context.adapters.storage.prompts",
+      "pycode.context.adapters.storage.summaries",
+      "pycode.context.adapters.summary",
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.tool_eviction",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction",
+      "pycode.hooks",
+      "pycode.hooks.adapters.actions",
+      "pycode.hooks.services.hooks",
+      "pycode.hooks.services.lifecycle",
+      "pycode.hooks.services.tool_bridge",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.io.timing",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.services.event_journal",
+      "pycode.kernel.services.events",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.values",
+      "pycode.mcp",
+      "pycode.mcp.adapters.tools",
+      "pycode.mcp.domain.mcp",
+      "pycode.memory.adapters.memory_tools",
+      "pycode.models",
+      "pycode.models.adapters.calibration",
+      "pycode.models.adapters.factory",
+      "pycode.models.adapters.failures",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.metered_model",
+      "pycode.models.adapters.model_fallback",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.adapters.observation",
+      "pycode.models.adapters.storage.requests",
+      "pycode.models.adapters.tool_selection",
+      "pycode.models.domain.models",
+      "pycode.models.domain.requests",
+      "pycode.models.domain.selection",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.sandbox.adapters.tools.bash",
+      "pycode.session",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.ports.history",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.input_queue",
+      "pycode.session.services.sessions",
+      "pycode.skills",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.python_tool",
+      "pycode.skills.adapters.skills",
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.services.skill_resources",
+      "pycode.snapshot.adapters.git_tree",
+      "pycode.team.adapters.team_tools",
+      "pycode.tools",
+      "pycode.tools.adapters.artifacts_backend",
+      "pycode.tools.adapters.backend",
+      "pycode.tools.adapters.framework_tool",
+      "pycode.tools.adapters.output_store",
+      "pycode.tools.adapters.permissions",
+      "pycode.tools.adapters.questions",
+      "pycode.tools.adapters.read_tool_result",
+      "pycode.tools.adapters.schema",
+      "pycode.tools.adapters.settlement",
+      "pycode.tools.adapters.tool_errors",
+      "pycode.tools.services.hook_gate",
+      "pycode.tools.services.permissions",
+      "pycode.tools.services.plan_gate",
+      "pycode.tools.services.skill_gate",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.app.composition.session": [
+      "pycode",
+      "pycode.app.composition.capabilities",
+      "pycode.app.composition.memory",
+      "pycode.app.composition.models",
+      "pycode.app.composition.runtime",
+      "pycode.app.composition.team",
+      "pycode.app.config",
+      "pycode.app.runtime_launcher",
+      "pycode.context",
+      "pycode.context.adapters.storage.prompts",
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.summaries",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.prompts",
+      "pycode.hooks",
+      "pycode.hooks.adapters.config",
+      "pycode.hooks.services.configuration",
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.hashing",
+      "pycode.kernel.io.timing",
+      "pycode.kernel.services.event_journal",
+      "pycode.kernel.values",
+      "pycode.mcp",
+      "pycode.mcp.adapters.config",
+      "pycode.mcp.adapters.manager",
+      "pycode.mcp.adapters.tools",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.services.configuration",
+      "pycode.models",
+      "pycode.models.adapters.directory",
+      "pycode.models.adapters.storage.requests",
+      "pycode.models.domain.models",
+      "pycode.models.services.usage",
+      "pycode.plans",
+      "pycode.plans.adapters.plans",
+      "pycode.plans.adapters.storage.plans",
+      "pycode.plans.adapters.tools.plans",
+      "pycode.plans.services.plans",
+      "pycode.session",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.objects",
+      "pycode.session.adapters.storage.session_repository",
+      "pycode.session.adapters.storage.workspace",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.guards",
+      "pycode.session.domain.revert_state",
+      "pycode.session.services.agent_session",
+      "pycode.session.services.application",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.session.services.sessions",
+      "pycode.session.services.storage_gc",
+      "pycode.skills",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.domain.skills",
+      "pycode.snapshot.adapters.git_tree",
+      "pycode.tools",
+      "pycode.tools.adapters.backend",
+      "pycode.tools.adapters.output_store",
+      "pycode.tools.adapters.questions",
+      "pycode.tools.adapters.read_tool_result",
+      "pycode.tools.adapters.schema",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.app.composition.team": [
+      "pycode.app.team_runtime",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.services.events",
+      "pycode.session.adapters.storage.layout",
+      "pycode.snapshot.adapters.git_tree",
+      "pycode.team",
+      "pycode.team.adapters.worktrees",
+      "pycode.team.domain.team",
+      "pycode.team.services.team"
+    ],
+    "pycode.app.composition.ui": [
+      "pycode.app.composition.capabilities",
+      "pycode.app.composition.session",
+      "pycode.models.adapters.directory",
+      "pycode.sandbox.adapters.seatbelt",
+      "pycode.session.adapters.storage.layout",
+      "pycode.ui.adapters.console",
+      "pycode.ui.adapters.tui"
+    ],
+    "pycode.app.config": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.models.domain.network",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.app.runtime_launcher": [
+      "pycode.app.config",
+      "pycode.context",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.summary",
+      "pycode.hooks",
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.values",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.session",
+      "pycode.session.ports.history"
+    ],
+    "pycode.app.team_runtime": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree"
+    ],
+    "pycode.context": [
+      "pycode.context.domain.context_budget",
+      "pycode.context.domain.context_meter",
+      "pycode.context.domain.retention",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.tool_eviction",
+      "pycode.context.ports.summaries",
+      "pycode.context.services.context_projector",
+      "pycode.context.services.prompts",
+      "pycode.context.services.summary",
+      "pycode.context.services.tool_eviction"
+    ],
+    "pycode.context.adapters.storage.prompts": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.path_io"
+    ],
+    "pycode.context.adapters.storage.summaries": [
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values"
+    ],
+    "pycode.context.adapters.summary": [
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.tool_text",
+      "pycode.kernel.values",
+      "pycode.models",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.context.domain.compaction": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.tool_text",
+      "pycode.kernel.values"
+    ],
+    "pycode.context.domain.context_meter": [
+      "pycode.kernel",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.values"
+    ],
+    "pycode.context.domain.retention": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history"
+    ],
+    "pycode.context.domain.summaries": [
+      "pycode.context.domain.context_budget",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.context.domain.summary_source": [
+      "pycode.context.domain.compaction",
+      "pycode.context.domain.summaries",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_boundaries",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values"
+    ],
+    "pycode.context.domain.tool_eviction": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.tool_text"
+    ],
+    "pycode.context.ports.summaries": [
+      "pycode.context.domain.summaries"
+    ],
+    "pycode.context.services.context_projector": [
+      "pycode.context.domain.retention",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.tool_pairing",
+      "pycode.kernel.values",
+      "pycode.mcp",
+      "pycode.mcp.domain.mcp",
+      "pycode.skills",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.context.services.prompts": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.history_tree"
+    ],
+    "pycode.context.services.summary": [
+      "pycode.context.domain.context_meter",
+      "pycode.context.domain.summaries",
+      "pycode.context.domain.summary_source",
+      "pycode.context.ports.summaries",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.values"
+    ],
+    "pycode.context.services.tool_eviction": [
+      "pycode.context.domain.tool_eviction",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.token_estimate"
+    ],
+    "pycode.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.hooks",
+      "pycode.hooks.ports.lifecycle",
+      "pycode.hooks.ports.runtime",
+      "pycode.hooks.services.configuration",
+      "pycode.hooks.services.hooks",
+      "pycode.hooks.services.lifecycle",
+      "pycode.hooks.services.tool_bridge"
+    ],
+    "pycode.hooks.adapters.actions": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.process"
+    ],
+    "pycode.hooks.adapters.config": [
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.hooks.domain.hooks": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.hooks.ports.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.hooks.ports.lifecycle": [
+      "pycode.hooks.domain.hooks"
+    ],
+    "pycode.hooks.ports.runtime": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.hooks.services.configuration": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors"
+    ],
+    "pycode.hooks.services.hooks": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.hooks",
+      "pycode.hooks.ports.runtime",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.values"
+    ],
+    "pycode.hooks.services.lifecycle": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.ports.lifecycle"
+    ],
+    "pycode.hooks.services.tool_bridge": [
+      "pycode.hooks.domain.hooks",
+      "pycode.hooks.services.hooks",
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel": [
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_boundaries",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.io.timing",
+      "pycode.kernel.io.workspace_path",
+      "pycode.kernel.path_policy",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.redaction",
+      "pycode.kernel.services.event_journal",
+      "pycode.kernel.services.events",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.tool_pairing",
+      "pycode.kernel.tool_text",
+      "pycode.kernel.truncation",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.contracts.completion": [
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.kernel.contracts.history": [
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity"
+    ],
+    "pycode.kernel.contracts.history_ports": [
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.kernel.contracts.messages": [
+      "pycode.kernel.contracts.model_identity"
+    ],
+    "pycode.kernel.contracts.tools": [
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.kernel.hashing": [
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.history_boundaries": [
+      "pycode.kernel.contracts.history"
+    ],
+    "pycode.kernel.history_tree": [
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.io.file_lease": [
+      "pycode.kernel.errors"
+    ],
+    "pycode.kernel.io.path_io": [
+      "pycode.kernel.errors"
+    ],
+    "pycode.kernel.io.workspace_path": [
+      "pycode.kernel.errors",
+      "pycode.kernel.path_policy"
+    ],
+    "pycode.kernel.ports.events": [
+      "pycode.kernel.events"
+    ],
+    "pycode.kernel.services.event_journal": [
+      "pycode.kernel.errors",
+      "pycode.kernel.events",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.services.events": [
+      "pycode.kernel.errors",
+      "pycode.kernel.events",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.token_estimate": [
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.tool_text",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.tool_pairing": [
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.values"
+    ],
+    "pycode.kernel.tool_text": [
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.truncation"
+    ],
+    "pycode.mcp": [
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.mcp",
+      "pycode.mcp.ports.schema",
+      "pycode.mcp.services.configuration",
+      "pycode.mcp.services.mcp",
+      "pycode.mcp.services.mcp_bindings"
+    ],
+    "pycode.mcp.adapters.config": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.mcp.adapters.connection": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.mcp.adapters.manager": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.values",
+      "pycode.mcp.adapters.connection",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.schema"
+    ],
+    "pycode.mcp.adapters.tools": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.mcp.domain.mcp"
+    ],
+    "pycode.mcp.domain.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.hashing",
+      "pycode.kernel.values"
+    ],
+    "pycode.mcp.ports.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.mcp.services.configuration": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors"
+    ],
+    "pycode.mcp.services.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.mcp.domain.mcp",
+      "pycode.mcp.ports.mcp"
+    ],
+    "pycode.memory": [
+      "pycode.memory.domain.namespaces",
+      "pycode.memory.ports.memory",
+      "pycode.memory.services.memory"
+    ],
+    "pycode.memory.adapters.memory_query": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values"
+    ],
+    "pycode.memory.adapters.memory_tools": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.adapters.storage.json_memory": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.domain.memory": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.redaction",
+      "pycode.kernel.values"
+    ],
+    "pycode.memory.domain.namespaces": [
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.ports.memory": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.memory.domain.memory"
+    ],
+    "pycode.memory.services.memory": [
+      "pycode.context",
+      "pycode.context.domain.retention",
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.memory.domain.memory",
+      "pycode.memory.ports.memory"
+    ],
+    "pycode.models": [
+      "pycode.models.domain.models",
+      "pycode.models.domain.network",
+      "pycode.models.domain.requests",
+      "pycode.models.domain.selection",
+      "pycode.models.ports.context",
+      "pycode.models.ports.models",
+      "pycode.models.services.model_catalog",
+      "pycode.models.services.model_control",
+      "pycode.models.services.usage"
+    ],
+    "pycode.models.adapters.calibration": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.models.ports.context"
+    ],
+    "pycode.models.adapters.directory": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.errors",
+      "pycode.models.domain.models",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.adapters.factory": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.errors",
+      "pycode.models.adapters.anthropic",
+      "pycode.models.adapters.observation",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.failures": [
+      "pycode.kernel",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.values",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.adapters.messages": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.tool_text",
+      "pycode.kernel.values"
+    ],
+    "pycode.models.adapters.metered_model": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.values",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.model_requests"
+    ],
+    "pycode.models.adapters.model_fallback": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.models.adapters.messages",
+      "pycode.models.adapters.model_requests",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.model_requests": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.values",
+      "pycode.models.adapters.messages",
+      "pycode.models.domain.requests",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.adapters.observation": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.values"
+    ],
+    "pycode.models.adapters.storage.catalog": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.adapters.storage.requests": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.adapters.tool_selection": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.values"
+    ],
+    "pycode.models.domain.models": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.values"
+    ],
+    "pycode.models.domain.requests": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.models.domain.selection": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.models.domain.models"
+    ],
+    "pycode.models.domain.usage": [
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.ports.context": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.models.ports.models": [
+      "pycode.models.domain.models",
+      "pycode.models.domain.requests"
+    ],
+    "pycode.models.services.model_catalog": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.errors",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.values",
+      "pycode.models.domain.models",
+      "pycode.models.ports.models"
+    ],
+    "pycode.models.services.model_control": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.values",
+      "pycode.models.domain.models",
+      "pycode.models.ports.context",
+      "pycode.models.services.model_catalog"
+    ],
+    "pycode.models.services.usage": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.models.domain.usage",
+      "pycode.models.ports.context",
+      "pycode.models.ports.models"
+    ],
+    "pycode.plans": [
+      "pycode.plans.ports.plans",
+      "pycode.plans.services.plans"
+    ],
+    "pycode.plans.adapters.plans": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.plans.adapters.storage.plans": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.path_io",
+      "pycode.plans.domain.plans"
+    ],
+    "pycode.plans.adapters.tools.plans": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.plans.ports.plans": [
+      "pycode.plans.domain.plans"
+    ],
+    "pycode.plans.services.plans": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.plans.domain.plans",
+      "pycode.plans.ports.plans"
+    ],
+    "pycode.sandbox": [
+      "pycode.sandbox.domain.command_policy",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.process",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.sandbox.adapters.seatbelt": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.sandbox.adapters.tools.bash": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.values",
+      "pycode.sandbox.adapters.tools.process_runner",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.output",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.sandbox.adapters.tools.process_runner": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.sandbox.adapters.tools.windows_job"
+    ],
+    "pycode.sandbox.ports.output": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.truncation"
+    ],
+    "pycode.sandbox.ports.process": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.sandbox.ports.output"
+    ],
+    "pycode.sandbox.ports.sandbox": [
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.session": [
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.guards",
+      "pycode.session.domain.revert",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.session.ports.runtime",
+      "pycode.session.ports.sessions",
+      "pycode.session.ports.storage",
+      "pycode.session.ports.workspace",
+      "pycode.session.services.agent_session",
+      "pycode.session.services.application",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.input_queue",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.session.services.sessions",
+      "pycode.session.services.storage_gc"
+    ],
+    "pycode.session.adapters.storage.header_reader": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.session.adapters.storage.session_codec"
+    ],
+    "pycode.session.adapters.storage.history_backend": [
+      "pycode.kernel",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.truncation",
+      "pycode.kernel.values"
+    ],
+    "pycode.session.adapters.storage.objects": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values",
+      "pycode.session.adapters.storage.layout",
+      "pycode.session.adapters.storage.session_codec",
+      "pycode.session.domain.storage"
+    ],
+    "pycode.session.adapters.storage.session": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_boundaries",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.ports.timing",
+      "pycode.kernel.values",
+      "pycode.session.adapters.storage.session_codec",
+      "pycode.session.domain.execution_recovery"
+    ],
+    "pycode.session.adapters.storage.session_codec": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.values"
+    ],
+    "pycode.session.adapters.storage.session_repository": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.ports.timing",
+      "pycode.session.adapters.storage.session",
+      "pycode.session.adapters.storage.session_codec"
+    ],
+    "pycode.session.adapters.storage.workspace": [
+      "pycode.session.domain.workspace"
+    ],
+    "pycode.session.domain.execution_recovery": [
+      "pycode.kernel",
+      "pycode.kernel.history_tree"
+    ],
+    "pycode.session.domain.guards": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.revert_state"
+    ],
+    "pycode.session.domain.inputs": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.history_tree"
+    ],
+    "pycode.session.domain.revert": [
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.session.domain.revert_state": [
+      "pycode.session.domain.revert",
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.session.domain.session_names": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.session.ports.history": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history_ports"
+    ],
+    "pycode.session.ports.runtime": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.messages",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.session.ports.history"
+    ],
+    "pycode.session.ports.sessions": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.session.ports.history"
+    ],
+    "pycode.session.ports.storage": [
+      "pycode.session.domain.storage"
+    ],
+    "pycode.session.ports.workspace": [
+      "pycode.session.domain.workspace"
+    ],
+    "pycode.session.services.agent_session": [
+      "pycode.context",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.models",
+      "pycode.models.domain.models",
+      "pycode.models.services.model_control",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.inputs",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.session.ports.runtime",
+      "pycode.session.services.durable_inputs",
+      "pycode.session.services.restart",
+      "pycode.session.services.revert",
+      "pycode.session.services.session_view",
+      "pycode.session.services.sessions",
+      "pycode.skills",
+      "pycode.skills.services.skills",
+      "pycode.team",
+      "pycode.team.domain.team"
+    ],
+    "pycode.session.services.application": [
+      "pycode.session.domain.workspace",
+      "pycode.session.ports.workspace"
+    ],
+    "pycode.session.services.durable_inputs": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.session.domain.inputs",
+      "pycode.session.ports.history",
+      "pycode.session.services.input_queue"
+    ],
+    "pycode.session.services.input_queue": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.values",
+      "pycode.session.domain.inputs"
+    ],
+    "pycode.session.services.restart": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.history_tree",
+      "pycode.session.domain.inputs"
+    ],
+    "pycode.session.services.revert": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.session.domain.revert",
+      "pycode.session.domain.revert_state",
+      "pycode.session.ports.history",
+      "pycode.snapshot",
+      "pycode.snapshot.ports.snapshots"
+    ],
+    "pycode.session.services.session_view": [
+      "pycode.context",
+      "pycode.context.domain.context_meter",
+      "pycode.context.services.context_projector",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.services.events",
+      "pycode.kernel.values",
+      "pycode.models",
+      "pycode.models.services.usage",
+      "pycode.session.domain.execution_recovery",
+      "pycode.session.domain.revert_state",
+      "pycode.session.domain.session_names",
+      "pycode.session.ports.history"
+    ],
+    "pycode.session.services.sessions": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.session.domain.session_names",
+      "pycode.session.ports.sessions"
+    ],
+    "pycode.session.services.storage_gc": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.session.domain.storage",
+      "pycode.session.ports.storage"
+    ],
+    "pycode.skills": [
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard",
+      "pycode.skills.ports.sandbox",
+      "pycode.skills.ports.skills",
+      "pycode.skills.services.skill_resources",
+      "pycode.skills.services.skills"
+    ],
+    "pycode.skills.adapters.backend": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.path_io"
+    ],
+    "pycode.skills.adapters.catalog": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.skills.adapters.parser",
+      "pycode.skills.adapters.resources",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard"
+    ],
+    "pycode.skills.adapters.github_source": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.skills.adapters.install": [
+      "pycode",
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values",
+      "pycode.skills.adapters.catalog",
+      "pycode.skills.adapters.github_source",
+      "pycode.skills.adapters.parser"
+    ],
+    "pycode.skills.adapters.parser": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.adapters.python_tool": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.io.workspace_path",
+      "pycode.kernel.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.subprocess_env",
+      "pycode.sandbox.ports.process",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.sandbox"
+    ],
+    "pycode.skills.adapters.python_worker": [
+      "pycode.kernel",
+      "pycode.kernel.values"
+    ],
+    "pycode.skills.adapters.resources": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.skills.ports.guard"
+    ],
+    "pycode.skills.adapters.tools.skills": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.values",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.skills.domain.skill_selection": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.skills.domain.skills": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.skills.ports.guard": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history"
+    ],
+    "pycode.skills.ports.sandbox": [
+      "pycode.sandbox",
+      "pycode.sandbox.ports.sandbox"
+    ],
+    "pycode.skills.ports.skills": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.skills.services.skill_resources": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.values",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.skills.services.skills": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.token_estimate",
+      "pycode.kernel.values",
+      "pycode.skills.domain.skills",
+      "pycode.skills.ports.guard",
+      "pycode.skills.ports.skills"
+    ],
+    "pycode.snapshot": [
+      "pycode.snapshot.domain.snapshots",
+      "pycode.snapshot.ports.snapshots"
+    ],
+    "pycode.snapshot.adapters.git_tree": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.snapshot.ports.snapshots": [
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.team": [
+      "pycode.team.domain.team",
+      "pycode.team.ports.team",
+      "pycode.team.services.team",
+      "pycode.team.services.team_tasks"
+    ],
+    "pycode.team.adapters.team_tools": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values"
+    ],
+    "pycode.team.adapters.worktrees": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.io.file_lease",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.values"
+    ],
+    "pycode.team.domain.team": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.team.ports.team": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.messages",
+      "pycode.snapshot",
+      "pycode.snapshot.domain.snapshots"
+    ],
+    "pycode.team.services.team": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.team.domain.team",
+      "pycode.team.services.team_inbox",
+      "pycode.team.services.team_tasks",
+      "pycode.tools",
+      "pycode.tools.domain.approvals"
+    ],
+    "pycode.team.services.team_inbox": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.team.domain.team"
+    ],
+    "pycode.team.services.team_tasks": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.team.domain.team"
+    ],
+    "pycode.tools": [
+      "pycode.tools.domain.approvals",
+      "pycode.tools.domain.questions",
+      "pycode.tools.ports.dispatch",
+      "pycode.tools.ports.hooks",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.ports.publication",
+      "pycode.tools.ports.questions",
+      "pycode.tools.ports.tools",
+      "pycode.tools.services.hook_gate",
+      "pycode.tools.services.permissions",
+      "pycode.tools.services.plan_gate",
+      "pycode.tools.services.skill_gate",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.tools.adapters.artifacts_backend": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.truncation",
+      "pycode.tools.adapters.output_store"
+    ],
+    "pycode.tools.adapters.ask_user": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools.domain.questions",
+      "pycode.tools.ports.questions"
+    ],
+    "pycode.tools.adapters.backend": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.path_policy",
+      "pycode.kernel.truncation",
+      "pycode.tools.adapters.read_range",
+      "pycode.tools.adapters.rg_stream"
+    ],
+    "pycode.tools.adapters.framework_tool": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.tools.adapters.output_store": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history_ports",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.kernel.io.path_io",
+      "pycode.kernel.truncation",
+      "pycode.kernel.values",
+      "pycode.tools.adapters.read_range",
+      "pycode.tools.domain.outputs",
+      "pycode.tools.ports.outputs"
+    ],
+    "pycode.tools.adapters.permissions": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.command_policy",
+      "pycode.sandbox.domain.sandbox",
+      "pycode.sandbox.ports.sandbox",
+      "pycode.tools.domain.operations"
+    ],
+    "pycode.tools.adapters.read_range": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.tools.domain.outputs"
+    ],
+    "pycode.tools.adapters.read_tool_result": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.truncation",
+      "pycode.kernel.values",
+      "pycode.tools.ports.outputs"
+    ],
+    "pycode.tools.adapters.rg_stream": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.truncation"
+    ],
+    "pycode.tools.adapters.schema": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.tools.adapters.settlement": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.model_identity",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.hashing",
+      "pycode.kernel.ports.events",
+      "pycode.kernel.values",
+      "pycode.plans",
+      "pycode.plans.services.plans",
+      "pycode.skills",
+      "pycode.skills.domain.skill_selection",
+      "pycode.skills.services.skill_resources",
+      "pycode.tools",
+      "pycode.tools.adapters.framework_tool",
+      "pycode.tools.adapters.state",
+      "pycode.tools.domain.execution",
+      "pycode.tools.ports.outputs",
+      "pycode.tools.ports.publication",
+      "pycode.tools.services.tool_executor",
+      "pycode.tools.services.tool_registry"
+    ],
+    "pycode.tools.adapters.tool_errors": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools.domain.tool_failures"
+    ],
+    "pycode.tools.domain.approvals": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.tools.domain.questions"
+    ],
+    "pycode.tools.domain.execution": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.tools.domain.operations": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.values"
+    ],
+    "pycode.tools.domain.outputs": [
+      "pycode.kernel",
+      "pycode.kernel.truncation"
+    ],
+    "pycode.tools.domain.questions": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.tools.domain.tool_failures": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.redaction"
+    ],
+    "pycode.tools.domain.turn_guard": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.tools.ports.dispatch": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.tools.ports.hooks": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.tools.ports.outputs": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.history",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.truncation",
+      "pycode.tools.domain.outputs"
+    ],
+    "pycode.tools.ports.publication": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages"
+    ],
+    "pycode.tools.ports.tools": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools"
+    ],
+    "pycode.tools.services.hook_gate": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.tools.services.permissions": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors"
+    ],
+    "pycode.tools.services.plan_gate": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.command_policy"
+    ],
+    "pycode.tools.services.skill_gate": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.history_tree",
+      "pycode.skills",
+      "pycode.skills.domain.skills"
+    ],
+    "pycode.tools.services.tool_executor": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools.domain.tool_failures",
+      "pycode.tools.domain.turn_guard",
+      "pycode.tools.ports.hooks",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.tools.services.tool_registry": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.tools",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools.ports.dispatch",
+      "pycode.tools.ports.tools"
+    ],
+    "pycode.ui": [
+      "pycode.ui.ports.ui"
+    ],
+    "pycode.ui.adapters.console": [
+      "pycode.kernel",
+      "pycode.kernel.values"
+    ],
+    "pycode.ui.adapters.mcp": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools",
+      "pycode.tools.domain.approvals"
+    ],
+    "pycode.ui.adapters.questions": [
+      "pycode.kernel",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.tools",
+      "pycode.tools.domain.questions"
+    ],
+    "pycode.ui.adapters.tool_output": [
+      "pycode.kernel",
+      "pycode.kernel.errors"
+    ],
+    "pycode.ui.adapters.tui": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.messages",
+      "pycode.kernel.errors",
+      "pycode.kernel.values",
+      "pycode.ui.adapters.agents",
+      "pycode.ui.adapters.approval",
+      "pycode.ui.adapters.chat_input",
+      "pycode.ui.adapters.commands",
+      "pycode.ui.adapters.completion",
+      "pycode.ui.adapters.mcp",
+      "pycode.ui.adapters.memory",
+      "pycode.ui.adapters.plans",
+      "pycode.ui.adapters.questions",
+      "pycode.ui.adapters.recovery",
+      "pycode.ui.adapters.theme",
+      "pycode.ui.adapters.tool_output",
+      "pycode.ui.adapters.usage",
+      "pycode.ui.ports.ui"
+    ],
+    "pycode.ui.ports.ui": [
+      "pycode.kernel",
+      "pycode.kernel.contracts.completion",
+      "pycode.kernel.contracts.messages"
+    ]
+  },
+  "feature_edges": {
+    "agent": [
+      "context",
+      "hooks",
+      "kernel",
+      "mcp",
+      "models",
+      "plans",
+      "skills",
+      "tools"
+    ],
+    "app": [
+      "agent",
+      "context",
+      "hooks",
+      "kernel",
+      "mcp",
+      "memory",
+      "models",
+      "plans",
+      "sandbox",
+      "session",
+      "skills",
+      "snapshot",
+      "team",
+      "tools",
+      "ui"
+    ],
+    "context": [
+      "kernel",
+      "mcp",
+      "models",
+      "skills"
+    ],
+    "hooks": [
+      "kernel",
+      "sandbox"
+    ],
+    "kernel": [],
+    "mcp": [
+      "kernel"
+    ],
+    "memory": [
+      "context",
+      "kernel"
+    ],
+    "models": [
+      "kernel"
+    ],
+    "plans": [
+      "kernel"
+    ],
+    "sandbox": [
+      "kernel"
+    ],
+    "session": [
+      "context",
+      "kernel",
+      "models",
+      "skills",
+      "snapshot",
+      "team"
+    ],
+    "skills": [
+      "kernel",
+      "sandbox"
+    ],
+    "snapshot": [
+      "kernel"
+    ],
+    "team": [
+      "kernel",
+      "snapshot",
+      "tools"
+    ],
+    "tools": [
+      "kernel",
+      "plans",
+      "sandbox",
+      "skills"
+    ],
+    "ui": [
+      "kernel",
+      "tools"
+    ]
+  },
+  "source_sha256": {
+    "pycode": "9e61be4f685eb8c9a495cb31dcaa932173184db7cf401dd78016def68031d358",
+    "pycode.__main__": "7ff1486d91f9e2d450c14764f6ddd5d4f8ce3c1c4430c5d06eb6094b668c962e",
+    "pycode.agent": "81a75f3f9ea697adf02215fc28d481cd7cf1d64f3699d4ef7b4e244322b1a8d0",
+    "pycode.agent.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.agent.adapters.agent": "3c6c91f668bbccdab09011e839c5441e207fad56740ae2454b8762b04eba5683",
+    "pycode.agent.adapters.bindings": "dee2aafe2a0abf2fc167067adcf5a729e9c77da1db58e6ccb0775b1e3957f3d4",
+    "pycode.agent.adapters.boundaries": "053afbd1e6a89c4fc0288f31b678ad712162a3a88036a2afec096f929ba193d3",
+    "pycode.agent.adapters.history": "fc3dd47cabc5dd4816f27ddd7dc80c45096173739851f48990d87253b87526be",
+    "pycode.agent.adapters.state": "84f2b51216678b7c9033e377fadccd551c12bdefb6f39f802177126878736355",
+    "pycode.agent.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.agent.domain.turn_policy": "42fb95873c624a9197b0ef5f17c150ddea417250e0ba7c3f3d6503ee0fc3bbab",
+    "pycode.agent.ports": "1768fb9210817a21cb098972389f1da0cf608ea38b36a7fef3f2bbeeadd42f32",
+    "pycode.agent.ports.runtime": "932550eca38bab43f1cde4b684c5a3ec077a983f8c72d4f81c4972e3a474c41a",
+    "pycode.agent.services": "c3749c07603eddb80082125d08f60930c3c09069c2cea152385478dd8806e40e",
+    "pycode.agent.services.context": "68274caed780c762be8350cb1166a01ebd76914930806cedc75b7c404a4e5e1c",
+    "pycode.app": "3619089ee95dee894260ddcbadd9b2c3876c22d95710d52413f5da8fc57b66df",
+    "pycode.app.cli": "db4f80f184b739bfc0516089f0fa3992b468d82ae5c0d0179e5da55366ab6af9",
+    "pycode.app.cli_commands": "36668ea0151ad066cb22b5da714483001efca694f52a4ea3c7aabf7d1aa0d759",
+    "pycode.app.cli_parser": "30a977d4393a8c105e47552b0f8c7da63c7d58b2b5604ebe769e7c86855b24fa",
+    "pycode.app.composition": "fa78874b483218f2fea3654311b36b593227c27c0119dea0bf1d3804bc2a2e85",
+    "pycode.app.composition.capabilities": "af824344e3304a31af611139fed55567a2a14c658caf9c9c326ba2e725da1539",
+    "pycode.app.composition.context": "3f787a7ac141170f2966095afc042ae3865cbb9e6921f0a6261bb7a0c21a688e",
+    "pycode.app.composition.memory": "05b790d4559fa119835a83cd78f35c02394f4ec6cea626e6816f7dd9d1e3cae1",
+    "pycode.app.composition.models": "43fecd7963f2263ca824d96b55908fe658434e9f233bed60c6d3b2d3609f3676",
+    "pycode.app.composition.runtime": "ae0885582692f1a45c99abda4f668ad3b14bfc162d01470f4006f5751e137419",
+    "pycode.app.composition.session": "097fb7f47652abe87307362495e9a82c2012986427a96e5bd08e09fc7b334c9a",
+    "pycode.app.composition.team": "ae01b03730e74ccd397fc5bb7b4267439c576a3086f4e6397055b3af942f3844",
+    "pycode.app.composition.ui": "c2692630906e802e645227ce3803713bbde2940a8655c774664f491f176bf1f1",
+    "pycode.app.config": "d1ba3097b6dc197aba582e379ee00f0b0f48d78466f1e3062f08cf255a5b496b",
+    "pycode.app.runtime_launcher": "887e4f88aa8f71362c5c119fa5d286ba0d71efe4786122be45fb89d4a3d7fd31",
+    "pycode.app.team_runtime": "14650a695f76e4bd58db944b0d92adee757693f6337954fc3e1b71f48710df25",
+    "pycode.context": "fa90e08b06534faad29c7ae4998bef1a226be2300f38190a77115ae9a8dd0b2a",
+    "pycode.context.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.context.adapters.storage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.context.adapters.storage.prompts": "1d6a5560d12fe0436f12d1ac595b1be2fa5e0a16f435b576e645df4d07e7d982",
+    "pycode.context.adapters.storage.summaries": "2d5f3e52d92f32824cf3afc97eda9e4cce71b8e99fc1746774058db3d77069ff",
+    "pycode.context.adapters.summary": "2766de74006bb31fb88c8b7aab2763623aedc0c6146552ca2fabedac9cb78c6a",
+    "pycode.context.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.context.domain.compaction": "13fd43c1054327d7574df607f78cea198f6e6624f385c272d9616993963b3017",
+    "pycode.context.domain.context_budget": "71f26cd316914b55eb9dd31f1f24a192e207e0a2d38e27d0f3caf65af85046ae",
+    "pycode.context.domain.context_meter": "69da3eab1889c6aa85f628b1f6d6953a7a5cafe2cd43fc6de71f1bdd6cee376b",
+    "pycode.context.domain.retention": "fe23ffed3f74808ffd650e53f86cc2907bb78aecf8ab946ccce91bf216661984",
+    "pycode.context.domain.summaries": "6d876e20079262af9da55d7c360f556d56f3e1aaf842eed5e54834fab4e195c7",
+    "pycode.context.domain.summary_source": "d1d3d554af8a7504cf321c0ab3079be3486990a03ce0d0b09774881c6715b670",
+    "pycode.context.domain.tool_eviction": "840aaddaaf0b4276fa9a8e7f42fdbcd466f2c281bbadc4555851b6161e0248f7",
+    "pycode.context.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.context.ports.summaries": "4b0410f49f837681fc43071c982b7adee867a214a1ebfe3af4a7a763b84ac6d2",
+    "pycode.context.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.context.services.context_projector": "7b8fea74f2e8df43c3d59b2852e67f36f4df6ca78e55931d5702c5a1874158bb",
+    "pycode.context.services.prompts": "4f5560cebb984db4eddf60b2d71daed53ed37838c4f7b5d1b737e441294d87c2",
+    "pycode.context.services.summary": "49e1618c3b396b010ced7223a1dfbebf2bb5cc06379831dedeeabf3cfaf6124b",
+    "pycode.context.services.tool_eviction": "56afbcc47cf1865c7db00a4515806724c0980b47666fbb460a305edeb922b91e",
+    "pycode.hooks": "de3b0cee9a3a04029c841817849686d09530d444aa76f7505328a2444d2c2a79",
+    "pycode.hooks.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.hooks.adapters.actions": "4a048a46cc1026cc7e2e42327435c6912c7ef3780de1d0d69417417a903861db",
+    "pycode.hooks.adapters.condition_worker": "d3098c6c4e19f375fc94952d6441870c98d93860982a65013d13fdb656241486",
+    "pycode.hooks.adapters.config": "2494b50a75436cc473f92c349fd6f7518ad9a8d004a9eecbda90ec3f8a9f4a78",
+    "pycode.hooks.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.hooks.domain.hooks": "b88a16f205dce4b4bb9deeab30bc9825c2bed9e3a7c9ba27ee3a990ef5281fca",
+    "pycode.hooks.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.hooks.ports.hooks": "5349593a88aca8498bc84ffc05f66c4a71396afe31e7ee1ac2a07e2103872720",
+    "pycode.hooks.ports.lifecycle": "8f65878d6ccfc1a9bb99980c62784a9f1b526a87410a2595e09d84ec83d26ff8",
+    "pycode.hooks.ports.runtime": "c76ba8b7513d4fb4ebbdaaf10e08594f97f537d2e98241edabb60c98ed29a30b",
+    "pycode.hooks.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.hooks.services.configuration": "498c3e26f20df9c21ae9c687abb348ae513fc402713d295c0c920c5b7a50bedc",
+    "pycode.hooks.services.hooks": "d57fccec16960342b2bab91d9595c7203cc662cdb6313c8ea38cd0e04ee5b04e",
+    "pycode.hooks.services.lifecycle": "b49a1e6f14b27fb6c4e950a169bb71f4e493dbd8faa714f63089fcff18fafa82",
+    "pycode.hooks.services.tool_bridge": "83e3bf064a442fe2dcdd9d32ba42260bd75d3287f30bd62097167ffb5762d23e",
+    "pycode.kernel": "8f8b8516ec736431d0986f0749927229d2cf727458c57e45230b57d0e5360388",
+    "pycode.kernel.contracts": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.kernel.contracts.completion": "95c8e3e72ce0a7bf93c268aebd0719e149acbd3af16517186ad81c8c23b0cd9b",
+    "pycode.kernel.contracts.history": "32dcb5695b21c7b44781e11163a8185341cd0496557317c046e624449a81db56",
+    "pycode.kernel.contracts.history_ports": "274a4b51e8149b324f5a5e7610e3e913da5f52e61a48c12cb6668c97465e680e",
+    "pycode.kernel.contracts.messages": "060c9fc0dc3fc272e80152eccd6828d3a85f2fd5b9a26c74752a13463b538440",
+    "pycode.kernel.contracts.model_identity": "ec874ae613170ecc544954b85485502c64526cf003aa48f65bfc2751b187ee20",
+    "pycode.kernel.contracts.tools": "cd4705599493fa5cefa5ed8a52f74bfce5b9e95eb7365f90a8a22fadfec4a47c",
+    "pycode.kernel.errors": "7bcac640f95fcfdd90663cd75b21fe5a5cc3e62b5a48bf90edaaf1174c2c61fa",
+    "pycode.kernel.events": "30880bf2861dae9c082514daee45a1f0ccd5d70dabee8c6519db11bb28a9011c",
+    "pycode.kernel.hashing": "8a7e695bc65ac169d8ef7454e0c2bdc2f4ec780e7545db2af1bb37424d1d579a",
+    "pycode.kernel.history_boundaries": "6098997b90c5d6556d92ae6bd07880df84fbb906cba55e8e72fa2d441f6c0a5a",
+    "pycode.kernel.history_tree": "1465268e3a20a014b285ee2cff98c7c7b266e357ea9c43142530d6ed7ada88de",
+    "pycode.kernel.io": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.kernel.io.file_lease": "655892a5fb71d545b9faa7f90e0f4fdc2e9fd37b686eb61b8662672f28213d23",
+    "pycode.kernel.io.path_io": "635bc2cbc3afa78e5b94074112d75cd2e641a888da30fc2dd9af72395f27655d",
+    "pycode.kernel.io.timing": "b0c414f877817bc477787f3cbd5038b90b39b59f878340b68a5be484c5bc55b2",
+    "pycode.kernel.io.workspace_path": "f4ea56c98cb6196d73c11dd0e18388b62ab07f466b7d3a0f79203aa870ca39e0",
+    "pycode.kernel.path_policy": "956a0e4aed28f9812d4be7ef14dc12b3d2e2d195ad5e48cf8a10ff87ff7187be",
+    "pycode.kernel.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.kernel.ports.events": "7e75b43936ae52fb1b618661cb99cb49af6f0fdf0ee8f671ae73de1556cc26e5",
+    "pycode.kernel.ports.timing": "a6b8e51facb2e48f83899550e227e587b820be9066176a6e73300cb2accd7777",
+    "pycode.kernel.redaction": "9d9ef6cb4634bdc95988306e10cb9fe94bd343319169dc92829bd928907e104b",
+    "pycode.kernel.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.kernel.services.event_journal": "4d7aecb34f2f91be0a92d28accf702102bb29bc3b1ea649b3029a6be3fc23952",
+    "pycode.kernel.services.events": "aa4221271d92737fa956ce58858200cc2d11b711e1267723c6844f5f70eaffb6",
+    "pycode.kernel.token_estimate": "30442c629fc5b453c7da4ddf7ec134a89f026063e47da0d04f8d8d7f70e64a43",
+    "pycode.kernel.tool_pairing": "39fd741165f505ef9f468f25826eabdecb06604f8eece8fe9342b75edce91c09",
+    "pycode.kernel.tool_text": "c857e43b0855712a63a29b376f64649ab998930a4795d6b0e5823139e1a8db77",
+    "pycode.kernel.truncation": "3fd929c0e50337153b986f1e1202433406ef81164b1e19c2ee7088682b58ee03",
+    "pycode.kernel.values": "adddf60f20f111a3a5de332d50dd29b3f90c1e9f39d730f025351720d7f62e92",
+    "pycode.mcp": "0f0c327519cff2ad039b3177f254ff638fdfd2991e15830b6bf4d6f935a8a762",
+    "pycode.mcp.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.mcp.adapters.config": "88317e730c1adde79e1e0cfa9ec06e75d056497079186ee00ac8d785281d04e2",
+    "pycode.mcp.adapters.connection": "f8cd39cc97d046f016bb7a4ce0c869235fdca82fe1f353b861a2086b964e8364",
+    "pycode.mcp.adapters.manager": "c3d3267e4fd7b84a9643425fb19fb2f982ca388d40f645d35d603d45151e1d50",
+    "pycode.mcp.adapters.tools": "91575981ec02dc15e6023797aa9cd8277c93107305a3b4c274bd82d0b7e1cd46",
+    "pycode.mcp.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.mcp.domain.mcp": "2f1aa53bb454c747dda9517e4779380e6ecda77fbe9d6dfe4bc85af61ddaa534",
+    "pycode.mcp.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.mcp.ports.mcp": "facdd4b472e1abd361f5857ac5d8b0ac8580d627f6e8d18f9a040e0896950bbb",
+    "pycode.mcp.ports.schema": "42ade048358bff14dfd7077f04cde938f5acd7d0f56b02df421b1b79815c50c6",
+    "pycode.mcp.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.mcp.services.configuration": "a38ff9f21d45f26ef788cc739c7ae0913df874893f0c267b723979ec7c83ae4c",
+    "pycode.mcp.services.mcp": "7f1f477a7ead9d48d3239b051db33bcaaac54442f10ce50332d26c2e17d19d87",
+    "pycode.mcp.services.mcp_bindings": "ac16c8538aaaeaf90a0af42e6fa3a738c5c83d9723c6140ebe2cea7440ce3eb6",
+    "pycode.memory": "5aa3735c18673268d2d9178939d426b9bda7d2ce11fe25c848540f4624a553d8",
+    "pycode.memory.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.memory.adapters.memory_query": "7d8cbb114cf4974e985197b45f7eec3c88cfc8f1bbd1a6828a2c4c4ae4972c6c",
+    "pycode.memory.adapters.memory_tools": "3ab55143b0d41334b2a86ad5fd63ebeec41511447c80291bb6bc33e113a8f498",
+    "pycode.memory.adapters.memory_update": "34f8dafffa0a7a255819c4bde0cfc6913c821fd4ea22490b46638e704e2fc442",
+    "pycode.memory.adapters.storage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.memory.adapters.storage.json_memory": "d8c68f28ab7eb80c320d02defaed8796168182ec258ec7c8bebd21a91f47284f",
+    "pycode.memory.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.memory.domain.memory": "33f9d21d9958d0c93848687bc3a5bbf19ee8e06aebe7c9023057acbe79e0104a",
+    "pycode.memory.domain.namespaces": "a2a162197b14d204adc1ae5205d74fc61972abe356279ff5a8105103db95188e",
+    "pycode.memory.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.memory.ports.memory": "46080f7fad8bcd8ec649c06e31353936f548e1ec5b9fe1107ae45a55d72ba7a2",
+    "pycode.memory.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.memory.services.memory": "6be5253ece352b433f368e90c6859d6e5094731779b373d3fb6e9819d310f496",
+    "pycode.models": "7a1a6a0a4e1212d2d8834d38a1067a0868d4b64865e5da9acea339f208decc7b",
+    "pycode.models.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.models.adapters.anthropic": "0f8ee09a8740389d6d3116bdcf84a24ba4598b1eaaacb9ff55a767a0d39a95ea",
+    "pycode.models.adapters.calibration": "cf80d60ac7fe12806b8401369b4ab49a466976a483131279bf612f6949c9b40a",
+    "pycode.models.adapters.directory": "e6f40ec171b82ea002d91f61246cdce199f6592af1b011f9d89ead1ed894e384",
+    "pycode.models.adapters.factory": "ee407194d626d59f359ee1d27834da95e51b447ae69f4333fb38a02ee6d7031f",
+    "pycode.models.adapters.failures": "6aac09ce5e8dde0d5445f1ed313d0f6a7ccc0a8d5bb4d77b4b70963edc11d84b",
+    "pycode.models.adapters.messages": "defbdf9a92cffabec60d85c072092054e89ac7b67b082ec0a11cc68f5be03cf4",
+    "pycode.models.adapters.metered_model": "276516f1947107f9106b212196bcbcd1c4a6b680c57956c1cb198fbabd753849",
+    "pycode.models.adapters.model_fallback": "0694ae3cfe9c6e4154f2057978166508e8ca95fc71427dc8db67abcc55351f4b",
+    "pycode.models.adapters.model_requests": "9a78a4993e55487bf61214fc05a1e455c2388df4e4f950a846d8d55c1f8b8eb6",
+    "pycode.models.adapters.observation": "c2be5e8d9933ac95f9a58278d175ecd8ffab239964a0370f54c136842eda9023",
+    "pycode.models.adapters.storage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.models.adapters.storage.catalog": "6f0e10ae52535331b52e254476f45cdf9890f55a9d9e7000587db6e14d328742",
+    "pycode.models.adapters.storage.requests": "c92cb5244f2811bf818695a43f6658ab61c2b81be60ff9f02914c8f3583b434e",
+    "pycode.models.adapters.tool_selection": "72e6560d9e1be11d634a7cf25f617e2573a7b36226c78544b87c2ade38285b90",
+    "pycode.models.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.models.domain.models": "2b89b83fd86c6f894356f3db7594542622df2ee13368b8dc68c31b7061eae29c",
+    "pycode.models.domain.network": "9972af27022fd1ecb08293ef80d697ad940fb9a60b1a2d5793742213b27905e1",
+    "pycode.models.domain.requests": "c9c9ed4df05e508ebc6645034ac356235af32303e715433812a063b1aa36241d",
+    "pycode.models.domain.selection": "dc226b7875d7b3ebfe4d309d0f7a59f03511667cc3cb6901e15d4763376d0425",
+    "pycode.models.domain.usage": "e96c6073c3dd21a785c17461353938b34fc4ff1126f6344535c088ab4dc1a0a2",
+    "pycode.models.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.models.ports.context": "5e6b2e8eb59b7b826a6659bc723fa4f97a972e91fbde1fc9ce45d88dc58b548f",
+    "pycode.models.ports.models": "7563a00d21e7384e93065a7455d026494c4ed33b3d5572e1e0d9d1a409a090b7",
+    "pycode.models.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.models.services.model_catalog": "ec2cecbd3834688669397010799797e637479ca089807ad907740db7cb0dcbbd",
+    "pycode.models.services.model_control": "c0e563227b88a3dc92fac30149422965c82bfe3335bbb5cca7ef57a875d129ce",
+    "pycode.models.services.usage": "1e16e05e3f45f5f1f0c716a583eaa8e11d39bad3924a3dbc264a9603b2621128",
+    "pycode.plans": "ea923e038b681b598c37c6994b9ad50e521fdf3469f0db6d24b0c2f366a7e93d",
+    "pycode.plans.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.adapters.plans": "39637ec0ba07c7abe310b20f936c99e2b4e0a90da44ccd9463740120a25ef2d0",
+    "pycode.plans.adapters.storage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.adapters.storage.plans": "a513e9822a6ce2437963a2536fccee9888769c93f76f436e783d57f8e4b74847",
+    "pycode.plans.adapters.tools": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.adapters.tools.plans": "ded1dcb003d98e46ca98fb35f808460cf0ba0803a92b3e355db4b5fc30a77731",
+    "pycode.plans.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.domain.plans": "910b86fdcf8c025c055c41a13a265f639618741d4d221fea53cd6097d021394c",
+    "pycode.plans.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.ports.plans": "e0d7498fc031a374ab7590ed379428866b537061a20081ec2af6fc32e9ca6c3f",
+    "pycode.plans.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.plans.services.plans": "fdab3f004889ec91f778b5ea29d0afb2d9be0ec3fb467c0f5f5e82a7ae21e8dc",
+    "pycode.sandbox": "665a4bbfe036b256b2aada51668585df7a62a85bb81642c80357725642c293ec",
+    "pycode.sandbox.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.sandbox.adapters.seatbelt": "e3fdc822d22a90b45ac502fba691c8bfb30b5ac1e68c267e8b926e5cf0478821",
+    "pycode.sandbox.adapters.tools": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.sandbox.adapters.tools.bash": "532dc843c288f5f9803319d6efd17122b27d23cd5dbc0c2cc8228ae74cedca02",
+    "pycode.sandbox.adapters.tools.process_runner": "91bf64ea8492c33ae827ce019a4ee609b89df3a3f1d3898ded507571d611e081",
+    "pycode.sandbox.adapters.tools.windows_job": "b8c3920868c475509bf601eb52bcb4605119763875372509badb9879dc9fd46b",
+    "pycode.sandbox.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.sandbox.domain.command_policy": "6d37bd5b088d25f350f4bbb671ef2e617b25576d4701111cfe06bcd5afb12432",
+    "pycode.sandbox.domain.sandbox": "d6f103c5bf0b0fa71b12a0b56682df6f372ad1fc8293d51282081ebf6da641c8",
+    "pycode.sandbox.domain.subprocess_env": "e8277007abd557478cdb87055d7fb5ff9f33336f4bbe3c84f09afd03ea1996ec",
+    "pycode.sandbox.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.sandbox.ports.output": "7915e4fa401a76cc1f100bc26b67c60c9d9578e3cbdc6c6762913a3862b78ecf",
+    "pycode.sandbox.ports.process": "04deffba3f20ed2425e17d30b72b59ae5f70372f17eb7100fe278cdb096e2971",
+    "pycode.sandbox.ports.sandbox": "1b1fb9a6544c45dae2beb772eeb88546cdabe899966aef4507520f3f9c210525",
+    "pycode.session": "d54a26fc51aa04fcbab209b1bee667da511dd3ef12da3204e96e841b91f198ba",
+    "pycode.session.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.session.adapters.storage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.session.adapters.storage.header_reader": "b4176a013af4e7c16a9d8db3ceba1a98efdd472ca471e670411084c983384ee0",
+    "pycode.session.adapters.storage.history_backend": "3b428d5b7e7bb35ae98ce9dfb96cad24fabb96f070e69b30e338c191d85551ff",
+    "pycode.session.adapters.storage.layout": "edfa3bc206803716744d837ff8e206856701c2f800757c833af1bf2b990a9020",
+    "pycode.session.adapters.storage.objects": "24579b33810132e793d588821b97bb2f946bd784ad626232eed96d880afe2e4d",
+    "pycode.session.adapters.storage.session": "46a0fd1ed4924701739b81e78758e2742cc325093b538793d29c1238b656e669",
+    "pycode.session.adapters.storage.session_codec": "ee0a46e891ba0a97c94176f7bcbdd0ede7a71dac6abbe1903605bb19a6bde651",
+    "pycode.session.adapters.storage.session_repository": "460a8b4bc882d8d520e97b68b9746f7d00c8201137dfd339ddba92d085b15658",
+    "pycode.session.adapters.storage.workspace": "95945b36737f055da2d67b92fb4758bf90a7a48425030f8eb1c289ffd8700ac3",
+    "pycode.session.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.session.domain.execution_recovery": "e15d4ad53f4ebda4dd41b3536cac6e1c67f017e1cf0ad18b2549d6d1648a4b6d",
+    "pycode.session.domain.guards": "5af6ff63101f596bdeb645adba63fa2ac9bff074ecb08de187a11d62291c4efc",
+    "pycode.session.domain.inputs": "f1b29947a495b30fc918c973be73de57dc6e08e7a4bb535ecf19d2c4c6821e33",
+    "pycode.session.domain.revert": "5bd6f03cd2019b311d1b0b6dedd5eb67be6921ded48d760224fd992bd5db3457",
+    "pycode.session.domain.revert_state": "9ac2a25f4a4f9f5ca36032c5f1408af211817862cffc34ac4e87681cede41678",
+    "pycode.session.domain.session_names": "50c3b8abfaa72f12790ddf7ec5ff5432ada22b0fb2f5708d942436cb9f7e6bc3",
+    "pycode.session.domain.storage": "d4ac58ce03c7396e521b68d1b7bbdd0a3892182be61756ae4e134ea3ac2fc622",
+    "pycode.session.domain.workspace": "6e1cc1fa0dcefa8f2356fca79a73fc676c6edb3dd42ab0720990675304ec0dfa",
+    "pycode.session.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.session.ports.history": "1a9793bd6d419ebabcf85f4b057ae75083c948d3ce590402bc83143c98f77955",
+    "pycode.session.ports.runtime": "60b38841a74c1605f72b5137129853e68fa2534453a8fadf1376b6a9eba4730e",
+    "pycode.session.ports.sessions": "878a23681bd8ca4af05697ed11a414bf9f4b340bb56f6c26ab9f2b2ee6eea639",
+    "pycode.session.ports.storage": "c2173ba17d5c7814ff54bbbeff39261cf305db78115c30bec0391dd5101e3707",
+    "pycode.session.ports.workspace": "797601c30efd27430ccad474aa232bebc26d2d2098efad71823baa6458de3d54",
+    "pycode.session.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.session.services.agent_session": "b7805165ec35d4cdebf322379c1033a1a31c05988e375dfa0849643a1bc283f0",
+    "pycode.session.services.application": "e2d8d4de4bb6f88ec1b09a95518680250fbe877f559a990ed98ac8784aef9c11",
+    "pycode.session.services.durable_inputs": "a4fbf1dff1c60b35788710e249fe0654e1b2ef5ac1b1a0cdd9e152807dc0fe85",
+    "pycode.session.services.input_queue": "26b972c1260c23afdd04061cfdf4c1cb91ce073610058ef03be58a6b6e7980e1",
+    "pycode.session.services.restart": "55bbc5714bddd5fdabab063bea31e77f11e4d309399bdd6f5fa6eb34bb74746f",
+    "pycode.session.services.revert": "7622f731efbbba79821e5ef44eb8b8ab85ebb68fc331bfa0930a84399545d517",
+    "pycode.session.services.session_view": "8aa70bfcfb219ff27b6dc96a7aba550b9f5dfd7fc064c4bcf2ee6b59613183b9",
+    "pycode.session.services.sessions": "3b47b8446866016daaee74e0a4e9385084dfd33cac7deb6db54b69efede45d66",
+    "pycode.session.services.storage_gc": "b8cda7602a6ab1e430855adfcc6463c80ef9262ca8296ded67dcbbe7d914c8d5",
+    "pycode.skills": "90c48752e69feebbd6a289fc1662d1e894591843a07f050919724c65d3f34aea",
+    "pycode.skills.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.skills.adapters.backend": "aaf0b97f7debfdf2b955b5a3313757e196fa966470da0e1fd773af3e339c3bf5",
+    "pycode.skills.adapters.catalog": "0a1331f7abc20f2047768ed7627734eb39684168ca7ff6a36821b235346d55e9",
+    "pycode.skills.adapters.github_source": "bbcd04fd66ad1ad69a96c61191524c12c388b593eaaaf9dda1718210d4afc7e4",
+    "pycode.skills.adapters.install": "5de985e79b4429ddf1bb6b0857d5be35995698a4f5b84ce21adba810cbda1525",
+    "pycode.skills.adapters.parser": "8b782fef04cf3cb0f74ab3b2133dd3206ab2d0279fa007abd62b5d20d3c3d1f2",
+    "pycode.skills.adapters.python_tool": "c0afe50c767b7eaacf182889ac72eb77678dc1560dd68d2aa351dbc271a91493",
+    "pycode.skills.adapters.python_worker": "7dbf0a7be76fa1cd734cac80818886344688e1656b1305a280c87e8bd2192ba4",
+    "pycode.skills.adapters.resources": "0ccb7ee307f2fdec205bb193ea9f7dff0440d370aae459be8139e0a950e4376b",
+    "pycode.skills.adapters.skills": "69afd854f2fb145e8a3cb2bc3e919dcc3cf9d9ef6e5eec9157e684ac924458da",
+    "pycode.skills.adapters.tools": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.skills.adapters.tools.skills": "13d714b760d5503b958f78a69766d69613da1e12525416e6ffe24d57002f1e4f",
+    "pycode.skills.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.skills.domain.skill_selection": "979b54d3f7f169eab3c2fd69bd1a8aeeaf4820209905e397cd3eca0817693aac",
+    "pycode.skills.domain.skills": "09c36bd401e317e3678f0ec17dddad47df0b25326c4ef8051e137fb70d619add",
+    "pycode.skills.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.skills.ports.guard": "638d542733edfefe6951bed052c0658f0e67bd3366dcdc2d943739d048e46d3a",
+    "pycode.skills.ports.sandbox": "57539e3e316085a825daf94703f69d9e98dc8cde4eabc28351718f031cdf39d6",
+    "pycode.skills.ports.skills": "e73648f0bebac9d75068cf064a02c33317980911b5add9dff2171ba27c698cb9",
+    "pycode.skills.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.skills.services.skill_resources": "6dcbb0e2418377c235744eda84bc3418674933a987869de73a793854dd80fd57",
+    "pycode.skills.services.skills": "ce7256b1479541c2cfe4a01c07f4dc76efd915010e5b038864f5999423545fc6",
+    "pycode.snapshot": "40fd24d8cf1de804f186954d943b9021d66e56b6e6344148bc8268a0483b7518",
+    "pycode.snapshot.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.snapshot.adapters.git_tree": "89fb43e37b45ecde549554a2897a527d96ff5513a0552293526b0673bc36b75c",
+    "pycode.snapshot.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.snapshot.domain.snapshots": "291d3d4a4c0d2b0490fafeac3c34c5ea784942f560c71ed4caaa5877c09a0ba4",
+    "pycode.snapshot.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.snapshot.ports.snapshots": "17c319034cba20dabf511b5de61c022d12e5cece7ecfb5cfcac51b5b5e235e94",
+    "pycode.team": "85053457c09ad53eb4dfcb47eccf89cb344f696022bbed4786507c3416d4f4a9",
+    "pycode.team.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.team.adapters.team_tools": "b39dda69ceb99d0a8f6e2d326c146634c1f88fac4a1e8c7046491160c2713d38",
+    "pycode.team.adapters.worktrees": "6486437de6f5634ef5f61e1d952363a581020ca5f94cc7d0a53518fcc2bdebb3",
+    "pycode.team.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.team.domain.team": "7f2b4fad1db9ecc580afb77a480e0c4a00e39f3c85b1ad1071603c4a11827e12",
+    "pycode.team.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.team.ports.team": "e9fb26367f613e166a77ce51d6476703749f958b8efa2f86dc88489b58bb431f",
+    "pycode.team.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.team.services.team": "c78b671841a06418a9276af499481957bd53801a04683dd019bd126c5d94cdec",
+    "pycode.team.services.team_inbox": "d0c779c3538888af62855061d9bce91f00496b0aa91ad08c949b6ac15868e994",
+    "pycode.team.services.team_tasks": "ce4d42f62aee51a284b3f87cb4c9cf4d35a41046e2b588c3613b32e45f523271",
+    "pycode.tools": "b9f10b64f7552a92e263fa60f52708e4f495122a76c7bfd59a1af5863d5fbdc7",
+    "pycode.tools.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.tools.adapters.artifacts_backend": "59907a31247dc5f031a7ba31dc65c04e224d960c7c4ceb39c834802c33510750",
+    "pycode.tools.adapters.ask_user": "6f5016e1f0243f744b1c0ce6729f31f9eeab70e96039a09758fb793123906987",
+    "pycode.tools.adapters.backend": "d9c2dbfe1a4521887a8eb11ccfe5b7e5b9249b66c621baccdad065a893741b10",
+    "pycode.tools.adapters.framework_tool": "47826a8c3e51fb76de288f254d7b08ffadb815569465461ccbea5ba6f490b2fe",
+    "pycode.tools.adapters.output_store": "b096b002c2a2d5ad427c591170ba70c5cc2dbc0a7726d056f583b974ec7b07e4",
+    "pycode.tools.adapters.permissions": "8d70025114b1e0a61df2d67e41cd7019aadfd9cdf8e707775b127ee17d3eaa27",
+    "pycode.tools.adapters.questions": "31c5bdddefd1fccfeaecc7e7009d7bb79e5fc461588abf205746814841810b6f",
+    "pycode.tools.adapters.read_range": "58c27e28ee05c7ba0a311643e278bfc765aff6e3bede9fbed6b4f477c60fb9f8",
+    "pycode.tools.adapters.read_tool_result": "631fa502091241f6f26bbd36fdc5c9715d4ced4febf10e2ca40afc793089d0f1",
+    "pycode.tools.adapters.rg_stream": "0266a717e80860bd4975f89cbf8dfe84c2d5546f6d43f4d481a33bbfbcd02d44",
+    "pycode.tools.adapters.schema": "2edb22b5173bbca8bb28421f9c568fde5f695b45c90273c80406a50bc981d9f6",
+    "pycode.tools.adapters.settlement": "f46c22ecbcc0a715994eb759196aaae1203d60601849a573745d00ecaf25bc0c",
+    "pycode.tools.adapters.state": "5a8a121e1b6e74436ceb6010640ed8d28b259d238f0fef850835f7f0a8797460",
+    "pycode.tools.adapters.tool_errors": "8554ea71a659f46597f7b404ffdb268c1e68f1be40e9eaa95907450f63c260b9",
+    "pycode.tools.domain": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.tools.domain.approvals": "d35dc565cad4acff5434b1388c71f969a50e62e41b816fe2c3561167836f88f1",
+    "pycode.tools.domain.execution": "9405003ac20f78e0ba7f1cb9dc1a73e8fd553f59f08e82b7295511b997ce9e01",
+    "pycode.tools.domain.operations": "b1ca2c9b82be1261dcad03924d3f522386d6c8b85de423cef5c905b49c78e743",
+    "pycode.tools.domain.outputs": "618a56ba2e2d56c30b6b7d6525b0edd7148a0b475e8b4e439a6e9fb55886b1e2",
+    "pycode.tools.domain.questions": "bdcafd5ece4728b9bb4932b142e56c661610f7eab89854bc26bb8bb509997762",
+    "pycode.tools.domain.tool_failures": "40188a3dc1080fb57dea48cc7f8858f387a5700f11c3e9d7b13f723bc7574a68",
+    "pycode.tools.domain.turn_guard": "80c6cbf02b18dc1eab0af8d1166e4d4a3f22ba023431b3cdbda1f24764758dfb",
+    "pycode.tools.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.tools.ports.dispatch": "440edf06647a23061c0eb5bc6ebbfc8b6a718c6fc53d3f3c6a8a4a9398a52890",
+    "pycode.tools.ports.hooks": "b0f27c2d018e2f4ce1dab73901d95df4ffab3f791bfdd97fbb0fa007b59d6c80",
+    "pycode.tools.ports.outputs": "aade33418e69a52bcfbec13f59991127262c81b4befcaac5bbd94e969c199925",
+    "pycode.tools.ports.publication": "ae52c6b24be91d60883ab0d2e8a7cce5a202d344621d3f5d1aee3e32c26fddba",
+    "pycode.tools.ports.questions": "2c20d43d3ac497aa9b030529c94c2eb329a2da2dd874bc7ef4ee83cca8bd8e8a",
+    "pycode.tools.ports.tools": "1b9fc4c1ff6d8a60f42f6bd2af4b3e2366b90b40d09e395934aa79331e0eea02",
+    "pycode.tools.services": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.tools.services.hook_gate": "1b1260b7af7c18430017ec8e9f298f152785c45743c7b6fedf91a78eca3c2ade",
+    "pycode.tools.services.permissions": "0ea8f805aff0fd77862b10cfa603d4302a80f44120c1f0a57280d43426f844d8",
+    "pycode.tools.services.plan_gate": "5cc46c11adfeee25ff851ecc63dffcaa184aa92d7e46292e619819557f8d12b6",
+    "pycode.tools.services.skill_gate": "147c981579f216870adee5c1a6578d74b12e5bd2705e8259a6ee6cf9b170b1e0",
+    "pycode.tools.services.tool_executor": "a1237d7ec9fc6a26567c0f89e87240d32e74a2437c9adaf0743888013b30591f",
+    "pycode.tools.services.tool_registry": "6640b5b083358ba459df8845500bc6bfd89300d5f4e6e1a11362a7e379718f82",
+    "pycode.ui": "e1bb2cb5d534a631c53ed58850ff67969ac26b04f13ea76caa163191e4a964be",
+    "pycode.ui.adapters": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.ui.adapters.agents": "ab2adc7347526f7c4b2d2a4058c276d94848f9e7a4e6739b5617a10a6eefda0b",
+    "pycode.ui.adapters.approval": "7862476f0014336f13f56d86230f210d4e2a6e09ceda5b7e446e33ea3ea1d4c6",
+    "pycode.ui.adapters.chat_input": "4a1ddb624c128ed0ff5f2b3861ac696268e47e7de83a8e3b563d5a4bdde33096",
+    "pycode.ui.adapters.commands": "4167d3018caed4a5a66d5ac0c1ea54ba0ad0c571a30d2c6dfefaa5af9711b0c4",
+    "pycode.ui.adapters.completion": "bbc0bf968ab27b1c2d53edf51bfe2fe926ccd686f5ab18aa14ce9cd551b6476e",
+    "pycode.ui.adapters.console": "4439f2a9c168d6c5bfabd25be87c9f203bcb3cfc4aeaf31a125c64ec2a1ebc3a",
+    "pycode.ui.adapters.mcp": "27eccb5cfbf92bf03cc9669df8f047d9f2dedf961ef19bab11314e8891e8d1b2",
+    "pycode.ui.adapters.memory": "553ba3a00dd33f0cef43442e5077ec1fcf625ddb5bae374936ac9513463bd59b",
+    "pycode.ui.adapters.plans": "f1a7408272cb92d3e05c223f7cba357cf058aa577233d64ecad8921f5a4a060c",
+    "pycode.ui.adapters.questions": "06bdb11a7247b8278888050dcbcd86e71a36bb5cd50278badf8e51367314a24c",
+    "pycode.ui.adapters.recovery": "76b01151032be5b84e1ce10a106be3a5de22d45727357faaca66c7ee1b4ca5b4",
+    "pycode.ui.adapters.theme": "aeb22b17b01d67986063041dba506e076e4623d4372d38af37d0a707ea42f76a",
+    "pycode.ui.adapters.tool_output": "3cf4387744ae2c69f32335934249212c8e51dcbf2562e2bbf44048a409a73cca",
+    "pycode.ui.adapters.tui": "320766b34bf937893fd4173a9a7026fde4c0022c427d91ed20c428a87a51b8d3",
+    "pycode.ui.adapters.usage": "5ae7df9542ae907727933f01e81ce301f682d09f959a0d3974c5c8eb6f2b8d83",
+    "pycode.ui.ports": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pycode.ui.ports.ui": "c8c65fe074f8abcd5478efd56524fe6bc54c174bc7abd76284fb279fa54031ef"
+  }
+}

@@ -1,0 +1,385 @@
+{
+  "baseline": "stage-four implementation",
+  "ports": [
+    {
+      "port": "pycode.agent.ports.runtime.InputQueue",
+      "implementation": "pycode.session.services.input_queue.PendingInputs",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.DurableInputDelivery",
+      "implementation": "pycode.session.services.durable_inputs.DurableInputs",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.HistoryProjector",
+      "implementation": "pycode.context.services.context_projector.ContextProjector",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.RequestTracking",
+      "implementation": "pycode.models.adapters.model_requests.ModelRequestRunner",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.TeamMailbox",
+      "implementation": "pycode.team.services.team.TeamMember",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.TitleAssignment",
+      "implementation": "pycode.app.composition.runtime.BoundTitleAssignment",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.WorkspaceReadback",
+      "implementation": "pycode.tools.adapters.backend.PycodeBackend",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.FallbackControl",
+      "implementation": "pycode.models.adapters.model_fallback.ModelFallback",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.agent.ports.runtime.SelectorSettingsView",
+      "implementation": "pycode.models.adapters.tool_selection.ToolSelector",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.context.ports.summaries.SummaryGenerator",
+      "implementation": "pycode.app.composition.context.ConfiguredSummaryGenerator",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.context.ports.summaries.SummaryStore",
+      "implementation": "pycode.context.adapters.storage.summaries.FileSummaryStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.hooks.HookActions",
+      "implementation": "pycode.hooks.adapters.actions.ConfiguredHookActions",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.lifecycle.LifecycleHooks",
+      "implementation": "pycode.hooks.services.hooks.HookEngine",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.lifecycle.LifecycleContext",
+      "implementation": "pycode.agent.services.context.RunContext",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.runtime.HookExecution",
+      "implementation": "pycode.tools.services.tool_executor.ToolExecutor",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.runtime.HookPlanGuard",
+      "implementation": "pycode.plans.services.plans.PlanService",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.hooks.ports.runtime.HookExecutorFactory",
+      "implementation": "pycode.app.composition.runtime.build_hook_engine",
+      "kind": "factory"
+    },
+    {
+      "port": "pycode.kernel.contracts.history_ports.MessageJournal",
+      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.contracts.history_ports.HistoryReader",
+      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.contracts.history_ports.HistoryJournal",
+      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.contracts.tools.ExecutableTool",
+      "implementation": "pycode.sandbox.adapters.tools.bash.Bash",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.ports.events.EventConsumer",
+      "implementation": "pycode.ui.adapters.console.ConsoleOutput",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.ports.events.EventSink",
+      "implementation": "pycode.kernel.services.events.EventStream",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.ports.events.EventJournal",
+      "implementation": "pycode.kernel.services.event_journal.MemoryEventJournal",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.kernel.ports.timing.Timing",
+      "implementation": "pycode.kernel.io.timing.SystemTiming",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.mcp.ports.mcp.MCPConnections",
+      "implementation": "pycode.mcp.adapters.manager.MCPAdapterConnections",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.mcp.ports.schema.SchemaChecker",
+      "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.memory.ports.memory.MemoryUpdater",
+      "implementation": "pycode.app.composition.memory.ConfiguredMemoryUpdater",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.Projector",
+      "implementation": "pycode.context.services.context_projector.ContextProjector",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.RunOwnership",
+      "implementation": "pycode.session.domain.guards.SessionRunOwnership",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.RegistryLookup",
+      "implementation": "pycode.tools.services.tool_registry.ToolRegistry",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.ResourceLookup",
+      "implementation": "pycode.skills.services.skill_resources.SkillResources",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.CalibrationReport",
+      "implementation": "pycode.context.domain.summaries.SummaryReport",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.SummaryBudget",
+      "implementation": "pycode.context.services.summary.SummaryService",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.context.CalibrationContext",
+      "implementation": "pycode.agent.services.context.RunContext",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.models.ModelFailureClassifier",
+      "implementation": "pycode.models.adapters.failures.ProviderFailureClassifier",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.models.RequestStore",
+      "implementation": "pycode.models.adapters.storage.requests.SQLiteRequestStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.models.ModelObservation",
+      "implementation": "pycode.models.adapters.observation.ProviderObservation",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.models.ModelDirectory",
+      "implementation": "pycode.models.adapters.directory.SDKModelDirectory",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.models.ports.models.CatalogStore",
+      "implementation": "pycode.models.adapters.storage.catalog.FileCatalogStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.plans.ports.plans.PlanFiles",
+      "implementation": "pycode.plans.adapters.storage.plans.FilePlanStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.plans.ports.plans.QuestionPrompt",
+      "implementation": "pycode.plans.adapters.plans.InterruptPlanPrompt",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.sandbox.ports.output.StreamWriter",
+      "implementation": "pycode.tools.adapters.output_store.StreamingOutputWriter",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.sandbox.ports.output.OutputSink",
+      "implementation": "pycode.tools.adapters.output_store.FileToolOutputStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.sandbox.ports.process.ProcessRunner",
+      "implementation": "pycode.sandbox.adapters.tools.process_runner.run_process",
+      "kind": "function"
+    },
+    {
+      "port": "pycode.sandbox.ports.sandbox.SandboxBackend",
+      "implementation": "pycode.sandbox.adapters.seatbelt.RequiredSandbox",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.session.ports.history.SessionStore",
+      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.session.ports.runtime.RuntimeLauncher",
+      "implementation": "pycode.app.runtime_launcher.ConfiguredRuntimeLauncher",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.session.ports.sessions.SessionRepository",
+      "implementation": "pycode.session.adapters.storage.session_repository.JsonlSessionRepository",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.session.ports.storage.StorageObjects",
+      "implementation": "pycode.session.adapters.storage.objects.FileStorageObjects",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.session.ports.workspace.WorkspaceInspector",
+      "implementation": "pycode.session.adapters.storage.workspace.FileWorkspaceInspector",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.skills.ports.guard.CatalogWriteGuard",
+      "implementation": "pycode.session.domain.guards.SessionCatalogWriteGuard",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.skills.ports.guard.SchemaChecker",
+      "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.skills.ports.sandbox.SkillReadGrant",
+      "implementation": "pycode.app.composition.capabilities.skill_read_grant",
+      "kind": "function"
+    },
+    {
+      "port": "pycode.skills.ports.skills.SkillCatalog",
+      "implementation": "pycode.skills.adapters.catalog.FileSkillCatalog",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.skills.ports.skills.SkillResourceToolFactory",
+      "implementation": "pycode.skills.adapters.python_tool.PythonSkillToolFactory",
+      "kind": "factory"
+    },
+    {
+      "port": "pycode.skills.ports.skills.SkillCatalogCommands",
+      "implementation": "pycode.skills.services.skills.SkillService",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.skills.ports.skills.SkillInstaller",
+      "implementation": "pycode.skills.adapters.install.GitHubSkillInstaller",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.snapshot.ports.snapshots.SnapshotStore",
+      "implementation": "pycode.snapshot.adapters.git_tree.GitSnapshotStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.team.ports.team.ChildSession",
+      "implementation": "pycode.session.services.agent_session.AgentSession",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.team.ports.team.ChildSessions",
+      "implementation": "pycode.app.composition.team.ConfiguredChildSessions",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.team.ports.team.Worktrees",
+      "implementation": "pycode.team.adapters.worktrees.WorktreeManager",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.team.ports.team.WorktreeSnapshot",
+      "implementation": "pycode.snapshot.adapters.git_tree.GitSnapshotStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.team.ports.team.WorktreeSnapshotFactory",
+      "implementation": "pycode.snapshot.adapters.git_tree.GitSnapshotStore",
+      "kind": "factory"
+    },
+    {
+      "port": "pycode.tools.ports.dispatch.ToolDispatch",
+      "implementation": "pycode.mcp.adapters.tools.MCPCall",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.hooks.ToolHooks",
+      "implementation": "pycode.hooks.services.tool_bridge.ToolHookBridge",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.outputs.OutputWriter",
+      "implementation": "pycode.tools.adapters.output_store.StreamingOutputWriter",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.outputs.ToolOutputStore",
+      "implementation": "pycode.tools.adapters.output_store.FileToolOutputStore",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.outputs.SessionHeaderReader",
+      "implementation": "pycode.session.adapters.storage.header_reader.FileSessionHeaderReader",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.publication.MessagePublisher",
+      "implementation": "pycode.agent.adapters.boundaries.AgentMessagePublisher",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.publication.ToolLifecycle",
+      "implementation": "pycode.app.composition.runtime.build_runtime_bindings",
+      "kind": "factory"
+    },
+    {
+      "port": "pycode.tools.ports.questions.QuestionPrompt",
+      "implementation": "pycode.tools.adapters.questions.InterruptQuestionPrompt",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.tools.ArgumentValidator",
+      "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.tools.ports.tools.ToolGate",
+      "implementation": "pycode.tools.services.permissions.ReadOnlyToolGate",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.ui.ports.ui.InteractiveSession",
+      "implementation": "pycode.session.services.agent_session.AgentSession",
+      "kind": "class"
+    },
+    {
+      "port": "pycode.ui.ports.ui.InteractiveSessions",
+      "implementation": "pycode.app.composition.ui.ConfiguredInteractiveSessions",
+      "kind": "class"
+    }
+  ]
+}

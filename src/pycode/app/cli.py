@@ -9,8 +9,7 @@ from pathlib import Path
 
 from pycode.app.cli_commands import command
 from pycode.app.cli_parser import build_parser
-from pycode.app.config import load_config, load_providers
-from pycode.app.container import (
+from pycode.app.composition import (
     build_container,
     build_model_catalog,
     build_model_control,
@@ -19,9 +18,9 @@ from pycode.app.container import (
     open_agent_session,
     sandbox_status,
 )
-from pycode.core.errors import DomainError, OutputClosed
-from pycode.core.sandbox import SandboxSettings
-from pycode.core.values import json_dumps, plain_data
+from pycode.app.config import load_config, load_providers
+from pycode.kernel import DomainError, OutputClosed, json_dumps, plain_data
+from pycode.sandbox import SandboxSettings
 
 
 def main(argv: list[str] | None = None) -> int:

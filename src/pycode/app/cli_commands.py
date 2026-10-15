@@ -7,8 +7,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 
-from pycode.app.config import load_providers
-from pycode.app.container import (
+from pycode.app.composition import (
     build_console_output,
     build_memory_service,
     build_session_repository,
@@ -18,11 +17,9 @@ from pycode.app.container import (
     open_agent_session,
     open_session_view,
 )
-from pycode.core.errors import DomainError
-from pycode.core.messages import Message
-from pycode.core.runtime import RunResult
-from pycode.core.snapshots import RevertPlan
-from pycode.core.values import json_dumps, plain_data
+from pycode.app.config import load_providers
+from pycode.kernel import DomainError, Message, RunResult, json_dumps, plain_data
+from pycode.session import RevertPlan
 
 
 def leaf_id(value):

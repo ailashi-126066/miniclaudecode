@@ -9,10 +9,10 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
+from pycode.app.composition import build_background_model, build_memory_updater
 from pycode.app.config import AppConfig, load_providers
-from pycode.app.container import build_background_model, build_memory_updater
-from pycode.core.requests import RetryPolicy
-from pycode.core.values import plain_data
+from pycode.kernel.values import plain_data
+from pycode.models.domain.requests import RetryPolicy
 
 ROOT = Path(__file__).resolve().parents[2]
 

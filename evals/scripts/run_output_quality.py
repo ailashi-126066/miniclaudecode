@@ -11,20 +11,20 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.storage.requests import SQLiteRequestStore
-from pycode.app.config import AppConfig, load_providers
-from pycode.app.container import (
+from pycode.app.composition import (
     build_background_model,
     build_memory_service,
     build_memory_updater,
     build_session_repository,
 )
-from pycode.core.messages import Message
-from pycode.core.requests import RetryPolicy
-from pycode.core.summaries import SummarySource
-from pycode.core.values import plain_data
-from pycode.workflows.summary import SummaryWorkflow
+from pycode.app.composition import build_summary_workflow as SummaryWorkflow
+from pycode.app.config import AppConfig, load_providers
+from pycode.context.domain.summaries import SummarySource
+from pycode.kernel.contracts.messages import Message
+from pycode.kernel.values import plain_data
+from pycode.models.adapters.storage.requests import SQLiteRequestStore
+from pycode.models.domain.requests import RetryPolicy
+from pycode.session.adapters.storage.layout import StorageLayout
 
 try:
     from evals.scripts.source_manifest import manifest

@@ -6,11 +6,11 @@ import os
 import sys
 from pathlib import Path
 
-from pycode.adapters.snapshot.git_tree import GitSnapshotStore
-from pycode.adapters.storage.session import JsonlSessionStore
-from pycode.core.revert_state import decode_plan
-from pycode.core.session import SessionHeader
-from pycode.services.revert import RevertService
+from pycode.kernel.contracts.history import SessionHeader
+from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.domain.revert_state import decode_plan
+from pycode.session.services.revert import RevertService
+from pycode.snapshot.adapters.git_tree import GitSnapshotStore
 from tests.support.requests import TestTiming
 
 

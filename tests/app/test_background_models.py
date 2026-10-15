@@ -3,10 +3,9 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
+from pycode.app.composition.memory import ConfiguredMemoryUpdater
+from pycode.memory.domain.memory import MemoryRecord
 from tests.support.execution import provider
-
-from pycode.app.background_models import ConfiguredMemoryUpdater
-from pycode.core.memory import MemoryRecord
 
 
 def test_memory_updater_forces_thinking_off_for_forced_tool_choice():
@@ -48,7 +47,7 @@ async def test_selection_keeps_only_known_ids_in_score_order(monkeypatch):
                 {"id": "user:a", "score": 0.8},
             ]
 
-    monkeypatch.setattr("pycode.app.background_models.MemoryDirectorySelector", Selector)
+    monkeypatch.setattr("pycode.app.composition.memory.MemoryDirectorySelector", Selector)
     purposes = []
 
     def factory(selected, session_id, run_id, purpose):
@@ -83,7 +82,7 @@ async def test_selection_considers_older_entries_beyond_first_directory_batch(mo
             batches.append(len(directory))
             return [{"id": directory[-1]["id"], "score": len(batches) / 10}]
 
-    monkeypatch.setattr("pycode.app.background_models.MemoryDirectorySelector", Selector)
+    monkeypatch.setattr("pycode.app.composition.memory.MemoryDirectorySelector", Selector)
     updater = ConfiguredMemoryUpdater(provider("http://127.0.0.1:9"), lambda *args: Owner())
     records = [
         MemoryRecord(("memories", "user", "u"), str(i), "user", "Memory", "A", "t", "t")
@@ -94,8 +93,8 @@ async def test_selection_considers_older_entries_beyond_first_directory_batch(mo
 
 
 async def test_memory_model_factory_disables_request_retries(tmp_path, monkeypatch):
+    from pycode.app.composition import build_memory_updater
     from pycode.app.config import AppConfig
-    from pycode.app.container import build_memory_updater
 
     policies = []
 
@@ -103,7 +102,7 @@ async def test_memory_model_factory_disables_request_retries(tmp_path, monkeypat
         policies.append(kwargs["retry_policy"])
         return None
 
-    monkeypatch.setattr("pycode.app.container.build_background_model", factory)
+    monkeypatch.setattr("pycode.app.composition.memory.build_background_model", factory)
     updater = build_memory_updater(
         AppConfig(tmp_path, tmp_path / "data"), provider("http://127.0.0.1:9")
     )

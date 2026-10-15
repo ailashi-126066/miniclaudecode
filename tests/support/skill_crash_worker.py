@@ -8,10 +8,10 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from pycode.app.composition import open_agent_session
 from pycode.app.config import AppConfig
-from pycode.app.container import open_agent_session
-from pycode.core.messages import Message
-from pycode.core.models import ProviderConfig
+from pycode.kernel.contracts.messages import Message
+from pycode.models.domain.models import ProviderConfig
 
 
 class CrashConsumer:

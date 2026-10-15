@@ -1,21 +1,33 @@
-"""Static enforcement of module dependency direction and product branding."""
+"""Static enforcement of feature APIs, dependency DAG, layer purity and product branding."""
 
 import ast
+import json
 import os
 import re
 import tomllib
+from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LAYERS = {"core", "ports", "services", "workflows", "adapters", "app"}
-ALLOWED = {
-    "core": {"core"},
-    "ports": {"core", "ports"},
-    "services": {"core", "ports", "services"},
-    "workflows": {"core", "ports", "services", "workflows"},
-    "adapters": {"core", "ports", "adapters"},
-    "app": LAYERS,
+FEATURE_DEPENDENCIES = {
+    "kernel": set(),
+    "sandbox": {"kernel"},
+    "snapshot": {"kernel"},
+    "models": {"kernel"},
+    "mcp": {"kernel"},
+    "skills": {"kernel", "sandbox"},
+    "plans": {"kernel", "sandbox"},
+    "hooks": {"kernel", "sandbox"},
+    "context": {"kernel", "models", "mcp", "skills"},
+    "memory": {"kernel", "context"},
+    "tools": {"kernel", "sandbox", "snapshot", "skills", "plans"},
+    "agent": {"kernel", "models", "context", "tools", "skills", "plans", "hooks", "mcp"},
+    "team": {"kernel", "snapshot", "tools", "plans"},
+    "session": {"kernel", "context", "models", "skills", "snapshot", "tools", "memory", "team"},
+    "ui": {"kernel", "tools", "plans", "team"},
 }
+FEATURE_DEPENDENCIES["app"] = set(FEATURE_DEPENDENCIES)
+LEGACY = {"core", "ports", "services", "workflows", "adapters"}
 CORE_IO = {
     "os",
     "pathlib",
@@ -23,6 +35,7 @@ CORE_IO = {
     "socket",
     "urllib",
     "httpx",
+    "httpx2",
     "requests",
     "sqlite3",
     "shutil",
@@ -42,82 +55,397 @@ FRAMEWORKS = {
     "deepagents",
     "fastmcp",
 }
-# Top-level packages each first-party package must never import: the product stays
-# independent of evaluation, developer scripts and archived evidence; evals may use pycode.
 FORBIDDEN_IMPORTS = {
     "pycode": frozenset({"evals", "scripts", "archive"}),
     "evals": frozenset({"archive"}),
 }
-# Locally generated evaluation data (corpus checkouts, work trees, results); never scanned.
 EVAL_GENERATED = {"cache", "work", "results"}
-# Archived evaluation code whose runtime dependencies were removed; kept for reference only.
 EVAL_ARCHIVED = {"memory_rules"}
-
-
-def imported_modules(node: ast.AST, module: str, is_package: bool) -> list[str]:
-    if isinstance(node, ast.Import):
-        return [alias.name for alias in node.names]
-    if not isinstance(node, ast.ImportFrom):
-        return []
-    base = node.module or ""
-    if node.level:
-        package = module.split(".") if is_package else module.split(".")[:-1]
-        keep = len(package) - node.level + 1
-        base = ".".join(package[:keep] + ([base] if base else []))
-    return [base, *[f"{base}.{alias.name}" for alias in node.names]]
-
-
-def dependency_errors(source: str, module: str, is_package: bool = False) -> list[str]:
-    parts = module.split(".")
-    top = parts[0]
-    forbidden = FORBIDDEN_IMPORTS.get(top, frozenset())
-    layer = parts[1] if top == "pycode" and len(parts) >= 2 and parts[1] in LAYERS else None
-    if not forbidden and layer is None:
-        return []
-    errors = []
-    for node in ast.walk(ast.parse(source)):
-        dependencies = imported_modules(node, module, is_package)
-        blocked = next((item for item in dependencies if item.split(".")[0] in forbidden), None)
-        if blocked is not None:
-            errors.append(f"{module}:{node.lineno}: {top} cannot import {blocked}")
-        if layer is None:
-            continue
-        for dependency in dependencies:
-            imported = dependency.split(".")
-            if len(imported) >= 2 and imported[0] == "pycode" and imported[1] in LAYERS:
-                if imported[1] not in ALLOWED[layer]:
-                    errors.append(f"{module}:{node.lineno}: {layer} cannot import {dependency}")
-                if (
-                    layer == "app"
-                    and imported[1] == "adapters"
-                    and module != "pycode.app.container"
-                ):
-                    errors.append(f"{module}:{node.lineno}: concrete adapters belong in container")
-            if layer == "core" and imported[0] in CORE_IO:
-                errors.append(f"{module}:{node.lineno}: core cannot import I/O module {dependency}")
-            if layer in {"core", "ports", "services"} and imported[0] in FRAMEWORKS:
-                errors.append(f"{module}:{node.lineno}: framework type outside adapter/workflow")
-        if layer == "core" and isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id in {"open", "input", "print"}:
-                errors.append(f"{module}:{node.lineno}: core cannot perform I/O")
-    return errors
+RANK = {"domain": 0, "ports": 1, "services": 2, "adapters": 3, "io": 3}
 
 
 def module_name(relative: Path) -> tuple[str, bool]:
     parts = list(relative.with_suffix("").parts)
-    is_package = parts[-1] == "__init__"
-    if is_package:
+    package = parts[-1] == "__init__"
+    if package:
         parts.pop()
-    return ".".join(parts), is_package
+    return ".".join(parts), package
+
+
+def feature_of(module: str | None) -> str | None:
+    if module is None:
+        return None
+    parts = module.split(".")
+    if parts[0] != "pycode" or len(parts) < 2:
+        return None
+    return "app" if parts[1] == "__main__" else parts[1]
+
+
+def layer_of(module: str | None) -> str | None:
+    if module is None:
+        return None
+    parts = module.split(".")
+    if len(parts) < 3 or parts[1] == "app":
+        return None
+    if parts[2] == "service":
+        return "services"
+    if parts[2] in RANK:
+        return parts[2]
+    return "domain" if parts[1] == "kernel" else None
+
+
+def import_base(node: ast.ImportFrom, module: str, package: bool) -> str:
+    if not node.level:
+        return node.module or ""
+    parts = module.split(".") if package else module.split(".")[:-1]
+    return ".".join(parts[: len(parts) - node.level + 1] + ([node.module] if node.module else []))
+
+
+def import_refs(source: str, module: str, package=False, modules=None):
+    """Yield (node, target module, symbol or None, local binding) including TYPE_CHECKING."""
+    known = modules or {}
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node, alias.name, None, alias.asname or alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom):
+            base = import_base(node, module, package)
+            for alias in node.names:
+                submodule = base + "." + alias.name
+                if submodule in known or (
+                    base == "pycode" and alias.name in set(FEATURE_DEPENDENCIES) | LEGACY
+                ):
+                    yield node, submodule, None, alias.asname or alias.name
+                else:
+                    yield node, base, alias.name, alias.asname or alias.name
+
+
+def public_exports(source: str) -> set[str] | None:
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+        ):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                return None
+            if isinstance(value, (list, tuple)) and all(isinstance(x, str) for x in value):
+                return set(value)
+    return None
+
+
+def symbol_origin(module: str, symbol: str | None, sources, packages, seen=None):
+    """Resolve a real definition, including aliases and adapter-producing wrappers."""
+    if symbol is None or module not in sources:
+        return module
+    visited = set() if seen is None else seen
+    key = module, symbol
+    if key in visited:
+        return None
+    visited.add(key)
+    source = sources[module]
+    imports = {
+        binding: (target, name)
+        for _, target, name, binding in import_refs(source, module, module in packages, sources)
+    }
+    bindings = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bindings[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    bindings[target.id] = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            bindings[node.target.id] = node.value
+
+    def expression_origin(expression):
+        if isinstance(expression, ast.Name):
+            return symbol_origin(module, expression.id, sources, packages, set(visited))
+        if isinstance(expression, ast.Attribute):
+            parts = []
+            while isinstance(expression, ast.Attribute):
+                parts.insert(0, expression.attr)
+                expression = expression.value
+            if isinstance(expression, ast.Name) and expression.id in imports:
+                target, imported = imports[expression.id]
+                if imported is not None:
+                    return symbol_origin(target, imported, sources, packages, set(visited))
+                full = target + "." + ".".join(parts)
+                prefixes = [name for name in sources if full.startswith(name + ".")]
+                if prefixes:
+                    longest = max(prefixes, key=len)
+                    return symbol_origin(
+                        longest,
+                        full[len(longest) + 1 :].split(".")[0],
+                        sources,
+                        packages,
+                        set(visited),
+                    )
+                return target
+        if isinstance(expression, ast.Call):
+            return expression_origin(expression.func)
+        return None
+
+    if symbol in bindings:
+        node = bindings[symbol]
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            return expression_origin(node)
+        if isinstance(node, ast.Call):
+            origin = expression_origin(node)
+            return origin if origin is not None else module
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and layer_of(module) is None
+        ):
+            # Factory wrappers/subclasses cannot launder an adapter through a public name.
+            for child in ast.walk(node):
+                expression = child.func if isinstance(child, ast.Call) else None
+                if isinstance(node, ast.ClassDef) and child in node.bases:
+                    expression = child
+                if expression is not None:
+                    origin = expression_origin(expression)
+                    if origin is not None and "adapters" in origin.split("."):
+                        return origin
+        return module
+    if symbol in imports:
+        target, imported = imports[symbol]
+        return symbol_origin(target, imported, sources, packages, set(visited))
+    return None
+
+
+def delayed_imports(tree):
+    found = []
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.depth = 0
+
+        def visit_FunctionDef(self, node):
+            self.depth += 1
+            self.generic_visit(node)
+            self.depth -= 1
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Import(self, node):
+            if self.depth:
+                found.append(node)
+
+        visit_ImportFrom = visit_Import
+
+    Visitor().visit(tree)
+    return found
+
+
+def dependency_errors(
+    source: str, module: str, is_package: bool = False, *, sources=None, packages=None
+):
+    sources, packages = sources or {}, packages or set()
+    top = module.split(".")[0]
+    feature, layer = feature_of(module), layer_of(module)
+    composition = module == "pycode.app.composition" or module.startswith("pycode.app.composition.")
+    errors = []
+    if feature in LEGACY:
+        errors.append(f"{module}: legacy layer package must be removed")
+    tree = ast.parse(source)
+    refs = list(import_refs(source, module, is_package, sources))
+    aliases = {}
+    for node, target, symbol, binding in refs:
+        aliases[binding] = target + ("." + symbol if symbol else "")
+        if target.split(".")[0] in FORBIDDEN_IMPORTS.get(top, ()):
+            errors.append(f"{module}:{node.lineno}: {top} cannot import {target}")
+        if top != "pycode":
+            continue
+        other = feature_of(target)
+        if other in LEGACY:
+            errors.append(f"{module}:{node.lineno}: legacy import {target}")
+        if layer == "domain" and target.split(".")[0] in CORE_IO:
+            errors.append(f"{module}:{node.lineno}: domain cannot import I/O module {target}")
+        if layer in {"domain", "ports", "services"} and target.split(".")[0] in FRAMEWORKS:
+            errors.append(f"{module}:{node.lineno}: framework dependency outside adapters")
+        origin = symbol_origin(target, symbol, sources, packages)
+        origin_layer = layer_of(origin) if origin is not None else None
+        if origin is None and target in sources and symbol is not None:
+            errors.append(f"{module}:{node.lineno}: {symbol} has no definition in {target}")
+        if (
+            layer in {"domain", "ports", "services"}
+            and origin_layer
+            and RANK[origin_layer] > RANK[layer]
+        ):
+            errors.append(
+                f"{module}:{node.lineno}: {layer} cannot depend on {origin_layer} {origin}"
+            )
+        if not other or other == feature:
+            continue
+        if other not in FEATURE_DEPENDENCIES.get(feature, set()):
+            errors.append(f"{module}:{node.lineno}: disallowed feature edge {feature} -> {other}")
+        if composition and (
+            "adapters" in target.split(".")
+            or (origin is not None and "adapters" in origin.split("."))
+        ):
+            continue
+        if "adapters" in target.split(".") or (
+            origin is not None and "adapters" in origin.split(".")
+        ):
+            errors.append(
+                f"{module}:{node.lineno}: cross-feature adapters require composition injection"
+            )
+        if target != "pycode." + other or symbol is None:
+            errors.append(
+                f"{module}:{node.lineno}: cross-feature imports require named public API of {other}"
+            )
+        elif target in sources:
+            exports = public_exports(sources[target])
+            if exports is None or symbol not in exports:
+                errors.append(f"{module}:{node.lineno}: {symbol} is not exported by {target}")
+    if top == "pycode":
+        for node in delayed_imports(tree):
+            errors.append(
+                f"{module}:{node.lineno}: function-local import must move to module scope"
+            )
+    if layer == "domain":
+
+        def qualified(node):
+            if isinstance(node, ast.Name):
+                return aliases.get(node.id, node.id)
+            if isinstance(node, ast.Attribute):
+                return qualified(node.value) + "." + node.attr
+            return ""
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, (ast.Name, ast.Attribute)):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        aliases[target.id] = qualified(node.value)
+            if isinstance(node, ast.Call) and qualified(node.func) in {
+                "open",
+                "input",
+                "print",
+                "builtins.open",
+                "builtins.input",
+                "builtins.print",
+            }:
+                errors.append(f"{module}:{node.lineno}: domain cannot perform I/O")
+    if top == "pycode":
+
+        def dynamic_name(node):
+            if isinstance(node, ast.Name):
+                return aliases.get(node.id, node.id)
+            if isinstance(node, ast.Attribute):
+                return dynamic_name(node.value) + "." + node.attr
+            return ""
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and dynamic_name(node.func) in {
+                "importlib.import_module",
+                "__import__",
+                "builtins.__import__",
+            }:
+                if (
+                    node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    if node.args[0].value == "pycode" or node.args[0].value.startswith("pycode."):
+                        errors.append(
+                            f"{module}:{node.lineno}: dynamic pycode imports "
+                            "hide feature dependencies"
+                        )
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Subscript)
+                        and dynamic_name(target.value) == "sys.modules"
+                    ):
+                        key = target.slice
+                        if (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, str)
+                            and (key.value == "pycode" or key.value.startswith("pycode."))
+                        ):
+                            errors.append(
+                                f"{module}:{node.lineno}: pycode module alias "
+                                "registration is forbidden"
+                            )
+        for node in tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__getattr__"
+            ):
+                errors.append(f"{module}:{node.lineno}: lazy module APIs are forbidden")
+    return list(dict.fromkeys(errors))
+
+
+def dependency_cycles(graph):
+    completed, stack, found = set(), [], []
+
+    def visit(module):
+        if module in stack:
+            found.append(stack[stack.index(module) :] + [module])
+            return
+        if module in completed:
+            return
+        stack.append(module)
+        for target in sorted(graph.get(module, ())):
+            visit(target)
+        stack.pop()
+        completed.add(module)
+
+    for module in sorted(graph):
+        visit(module)
+    return found
 
 
 def check_dependencies(root: Path = ROOT) -> list[str]:
-    errors = []
     source_root = root / "src"
+    sources, packages = {}, set()
     for path in sorted((source_root / "pycode").rglob("*.py")):
-        module, is_package = module_name(path.relative_to(source_root))
-        errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, is_package))
-    # evals is a top-level package next to src/; its generated corpora and runs are not code.
+        module, package = module_name(path.relative_to(source_root))
+        sources[module] = path.read_text(encoding="utf-8")
+        if package:
+            packages.add(module)
+    errors, module_graph, feature_graph = [], defaultdict(set), defaultdict(set)
+    for module, source in sources.items():
+        errors.extend(
+            dependency_errors(
+                source, module, module in packages, sources=sources, packages=packages
+            )
+        )
+        for _, target, symbol, _ in import_refs(source, module, module in packages, sources):
+            origin = symbol_origin(target, symbol, sources, packages)
+            if target in sources:
+                module_graph[module].add(target)
+            if origin in sources and origin != target:
+                module_graph[module].add(origin)
+            feature, other = feature_of(module), feature_of(origin) if origin is not None else None
+            if feature and other and feature != other:
+                feature_graph[feature].add(other)
+        if module in {"pycode." + name for name in FEATURE_DEPENDENCIES}:
+            exports = public_exports(source)
+            if exports is None:
+                errors.append(f"{module}: public API requires a literal __all__")
+            for symbol in exports or ():
+                origin = symbol_origin(module, symbol, sources, packages)
+                if origin is None:
+                    errors.append(f"{module}: public API exports undefined symbol {symbol}")
+                elif "adapters" in origin.split(".") or origin.split(".")[0] in FRAMEWORKS:
+                    errors.append(
+                        f"{module}: public API cannot re-export adapter {symbol} from {origin}"
+                    )
+    for label, graph in [("module", module_graph), ("feature", feature_graph)]:
+        errors.extend(
+            label + " dependency cycle: " + " -> ".join(cycle) for cycle in dependency_cycles(graph)
+        )
+    manifest = root / "docs" / "design" / "feature-dependencies.json"
+    if manifest.exists():
+        declared = json.loads(manifest.read_text())["allowed_dependencies"]
+        if {k: set(v) for k, v in declared.items()} != FEATURE_DEPENDENCIES:
+            errors.append("Feature dependency manifest differs from enforced architecture")
     for path in sorted((root / "evals").rglob("*.py")):
         relative = path.relative_to(root)
         if any(
@@ -125,8 +453,71 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
             for part in relative.parts[1:]
         ):
             continue
-        module, is_package = module_name(relative)
-        errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, is_package))
+        module, package = module_name(relative)
+        errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, package))
+    return errors
+
+
+def check_port_implementations(root: Path = ROOT) -> list[str]:
+    """Every declared public port must name an existing non-Protocol production binding."""
+    manifest = root / "docs" / "design" / "port-implementations.json"
+    if not manifest.exists():
+        return []
+    records = json.loads(manifest.read_text())["ports"]
+    bindings = {record["port"]: record for record in records}
+    found = set()
+    errors = []
+    source_root = root / "src"
+    for path in (source_root / "pycode").rglob("*.py"):
+        if "ports" not in path.parts and "contracts" not in path.parts:
+            continue
+        module, _ = module_name(path.relative_to(source_root))
+        for node in ast.parse(path.read_text()).body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            protocol = any(
+                (isinstance(base, ast.Name) and base.id == "Protocol")
+                or (
+                    isinstance(base, ast.Subscript)
+                    and isinstance(base.value, ast.Name)
+                    and base.value.id == "Protocol"
+                )
+                for base in node.bases
+            )
+            if protocol:
+                found.add(module + "." + node.name)
+    for port in sorted(found - bindings.keys()):
+        errors.append("Port has no implementation mapping: " + port)
+    for port in sorted(bindings.keys() - found):
+        errors.append("Implementation mapping names no current port: " + port)
+    for port, record in bindings.items():
+        module, _, symbol = record["implementation"].rpartition(".")
+        path = source_root.joinpath(*module.split(".")).with_suffix(".py")
+        if not path.exists():
+            errors.append("Port implementation module is missing: " + record["implementation"])
+            continue
+        candidates = [
+            node
+            for node in ast.walk(ast.parse(path.read_text()))
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == symbol
+        ]
+        if not candidates:
+            errors.append("Port implementation symbol is missing: " + record["implementation"])
+        elif any(
+            isinstance(node, ast.ClassDef)
+            and any(
+                (isinstance(base, ast.Name) and base.id == "Protocol")
+                or (
+                    isinstance(base, ast.Subscript)
+                    and isinstance(base.value, ast.Name)
+                    and base.value.id == "Protocol"
+                )
+                for base in node.bases
+            )
+            for node in candidates
+        ):
+            errors.append("Protocol is not a concrete implementation: " + port)
     return errors
 
 
@@ -238,7 +629,9 @@ def check_harness(root: Path = ROOT) -> list[str]:
 
 
 def main() -> int:
-    errors = check_dependencies() + check_branding() + check_harness()
+    errors = (
+        check_dependencies() + check_branding() + check_harness() + check_port_implementations()
+    )
     for error in errors:
         print(error)
     if errors:

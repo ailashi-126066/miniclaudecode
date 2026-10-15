@@ -5,18 +5,20 @@ from dataclasses import replace
 from uuid import uuid4
 
 from pycode.app.config import AppConfig
-from pycode.core.errors import StorageError
-from pycode.core.hooks import HookContext
-from pycode.core.messages import Message
-from pycode.core.models import ProviderConfig
-from pycode.core.session_tree import SessionTree
-from pycode.core.tools import ToolSpec
-from pycode.core.values import plain_data
-from pycode.ports.events import EventConsumer, EventJournal
-from pycode.ports.history import SessionStore
-from pycode.ports.tools import Tool
-from pycode.services.context_projector import ContextProjector
-from pycode.services.summary import SummaryService
+from pycode.context import ContextProjector, SummaryService
+from pycode.hooks import HookContext
+from pycode.kernel import (
+    EventConsumer,
+    EventJournal,
+    Message,
+    SessionTree,
+    StorageError,
+    ToolSpec,
+    plain_data,
+)
+from pycode.kernel import ExecutableTool as Tool
+from pycode.models import ProviderConfig
+from pycode.session import SessionStore
 
 
 class ConfiguredRuntimeLauncher:

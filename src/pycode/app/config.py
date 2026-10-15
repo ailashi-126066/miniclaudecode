@@ -9,15 +9,15 @@ from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter, ValidationError
 
-from pycode.core.errors import DomainError
-from pycode.core.models import (
+from pycode.kernel import DomainError
+from pycode.models import (
     CapabilityOverride,
     ModelReference,
     ProviderConfig,
     ToolSelectorSettings,
+    is_loopback_host,
 )
-from pycode.core.network import is_loopback_host
-from pycode.core.sandbox import SandboxSettings
+from pycode.sandbox import SandboxSettings
 
 
 @dataclass(frozen=True)

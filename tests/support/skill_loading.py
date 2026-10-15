@@ -7,11 +7,12 @@ fixtures exercise the same native file read and durable recorder boundaries.
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.adapters.skills.backend import SkillBackend
-from pycode.core.messages import Message, ToolCall, ToolResult
-from pycode.core.skills import active_skills
-from pycode.core.values import plain_data
-from pycode.services.skill_resources import SkillLoadRecorder
+from pycode.kernel.contracts.messages import Message, ToolCall, ToolResult
+from pycode.kernel.values import plain_data
+from pycode.skills.adapters.backend import SkillBackend
+from pycode.skills.domain.skills import active_skills
+from pycode.skills.services.skill_resources import SkillLoadRecorder
+from pycode.tools.adapters.backend import PycodeBackend
 
 
 async def read_skill(store, catalog, name):
@@ -23,7 +24,7 @@ async def read_skill(store, catalog, name):
             break
     assert selected is not None
     path = catalog.virtual_path(selected)
-    backend = SkillBackend(Path(selected.path).parent.parent)
+    backend = SkillBackend(PycodeBackend(Path(selected.path).parent.parent, read_only=True))
     read = await backend.aread(
         "/" + Path(selected.path).parent.name + "/SKILL.md", offset=0, limit=2000
     )

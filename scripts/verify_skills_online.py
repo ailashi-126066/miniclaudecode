@@ -7,8 +7,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pycode.adapters.skills.catalog import FileSkillCatalog
-from pycode.adapters.skills.install import GitHubSkillInstaller
+from pycode.skills.adapters.catalog import FileSkillCatalog
+from pycode.skills.adapters.install import GitHubSkillInstaller
+from pycode.tools.adapters.schema import JsonSchemaValidator
 
 
 def verify_files(report):
@@ -30,7 +31,7 @@ async def verify(args):
     await asyncio.to_thread(verify_files, second)
     assert first["files"] == second["files"]
     assert second["backup_dir"] is not None
-    catalog = FileSkillCatalog((("user", storage),))
+    catalog = FileSkillCatalog((("user", storage),), validator=JsonSchemaValidator())
     index = await catalog.scan()
     installed = next(item for item in index.entries if item.name == second["skill_name"])
     document = await catalog.read(installed)

@@ -1,7 +1,7 @@
 """Shared Provider and session fixtures for actual loopback framework tests."""
 
-from pycode.app.container import open_agent_session
-from pycode.core.models import ProviderConfig
+from pycode.app.composition import open_agent_session
+from pycode.models.domain.models import ProviderConfig
 
 
 def provider(url):

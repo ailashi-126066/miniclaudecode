@@ -7,8 +7,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from pycode.core.hashing import data_hash
-from pycode.core.values import json_dumps
+from pycode.kernel.hashing import data_hash
+from pycode.kernel.values import json_dumps
 
 
 def digest(path):

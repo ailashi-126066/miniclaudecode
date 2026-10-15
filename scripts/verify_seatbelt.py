@@ -11,8 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
 
-from pycode.adapters.sandbox.seatbelt import SeatbeltSandbox
-from pycode.core.sandbox import SandboxSettings
+from pycode.sandbox.adapters.seatbelt import SeatbeltSandbox
+from pycode.sandbox.domain.sandbox import SandboxSettings
 
 
 async def execute(sandbox, workspace, command, *, network=False, mode="on"):

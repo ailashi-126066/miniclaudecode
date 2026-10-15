@@ -12,13 +12,13 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
+from pycode.app.composition import build_background_model, build_memory_updater, open_agent_session
 from pycode.app.config import AppConfig, load_providers
-from pycode.app.container import build_background_model, build_memory_updater, open_agent_session
-from pycode.core.errors import ToolError
-from pycode.core.messages import Message, ToolResult
-from pycode.core.requests import RetryPolicy
-from pycode.core.tools import ToolSpec
-from pycode.core.values import plain_data
+from pycode.kernel.contracts.messages import Message, ToolResult
+from pycode.kernel.contracts.tools import ToolSpec
+from pycode.kernel.errors import ToolError
+from pycode.kernel.values import plain_data
+from pycode.models.domain.requests import RetryPolicy
 
 try:
     from evals.scripts.source_manifest import manifest
@@ -83,16 +83,16 @@ def messages(view):
 
 
 async def collect(case, directory):
-    from tests.support.execution import provider as loopback_provider
-    from tests.support.http_provider import chat_completion, protocol_server
-    from tests.workflows.test_model_fallback import failure, roster
-    from tests.workflows.test_skills_http import skill_reply
-    from tests.workflows.test_tool_selection import (
+    from tests.models.adapters.test_model_fallback import failure, roster
+    from tests.models.adapters.test_tool_selection import (
         Probe,
         reply_selection,
         selection_request,
         selection_settings,
     )
+    from tests.skills.adapters.test_skills_http import skill_reply
+    from tests.support.execution import provider as loopback_provider
+    from tests.support.http_provider import chat_completion, protocol_server
 
     workspace = directory / case["id"] / "workspace"
     workspace.mkdir(parents=True)

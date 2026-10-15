@@ -7,9 +7,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from evals.coding.gate import EvaluationToolGate
-from pycode.core.hashing import data_hash
-from pycode.core.messages import Message
-from pycode.core.values import plain_data
+from pycode.kernel.contracts.messages import Message
+from pycode.kernel.hashing import data_hash
+from pycode.kernel.values import plain_data
 
 
 class ConfiguredEvaluationSolver:
