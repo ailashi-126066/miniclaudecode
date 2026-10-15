@@ -64,7 +64,7 @@ async def test_tui_thinking_and_usage_are_projected_from_real_provider_messages(
             rendered = "\n".join(
                 str(widget.render()) for widget in app.query("#conversation Static")
             )
-            assert "Thinking from provider" in rendered and "缓存命中 12" in rendered
+            assert "Thinking from provider" in rendered and "缓存命中 60.0%" in rendered
             assert "推理 3" in rendered
 
 

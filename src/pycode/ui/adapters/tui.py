@@ -86,8 +86,9 @@ def reply_metadata(message):
     if total is not None:
         parts.append(f"共 {total}")
     cache_hit = usage.get("cache_read_tokens")
-    if cache_hit is not None:
-        parts.append(f"缓存命中 {cache_hit}")
+    input_tokens = usage.get("input_tokens")
+    if cache_hit is not None and input_tokens not in {None, 0}:
+        parts.append(f"缓存命中 {cache_hit / input_tokens * 100:.1f}%")
     return " · ".join(parts)
 
 
@@ -95,8 +96,7 @@ class PyApp(App):
     TITLE = "pycode"
     CSS = """
     Screen {background: $background; color: $foreground;}
-    #brand {height: 3; padding: 0 3; color: $primary; text-style: bold;
-      border-bottom: solid $primary-muted;}
+    #brand {height: 3; padding: 0 3; color: $primary; text-style: bold;}
     #main {height: 1fr;}
     #conversation {height: 1fr; padding: 0 3;}
     #back-to-bottom {display: none; height: 1; color: $primary; background: $background;
@@ -104,10 +104,10 @@ class PyApp(App):
     #conversation Static {height: auto;}
     #conversation Markdown {margin-bottom: 1;}
     #pending {height: auto; max-height: 22; overflow-y: auto;}
-    #entry {height: auto; padding: 0 3; border-top: solid $primary-muted;}
-    #chat-input {height: 3; min-height: 3; max-height: 10; border: solid $primary-muted;}
-    #chat-input:focus {border: solid $primary;}
-    #status {height: 1; padding: 0 3; color: $text-muted; border-top: solid $primary-muted;}
+    #entry {height: auto; padding: 0 3;}
+    #chat-input {height: 3; min-height: 3; max-height: 10; border: none;}
+    #chat-input:focus {border: none;}
+    #status {height: 1; padding: 0 3; color: $text-muted;}
     #notice {display: none; height: auto; max-height: 6; padding: 0 3;}
     #notice.error {color: $error;}
     #notice.success {color: $success;}
@@ -195,10 +195,10 @@ class PyApp(App):
             yield VerticalScroll(id="conversation")
             yield Button("回到最新消息", id="back-to-bottom")
             yield Vertical(id="pending")
+        yield Static("", id="notice", markup=False)
         with Vertical(id="entry"):
             yield CompletionPopup(id="command-completion")
             yield ChatInput(id="chat-input", disabled=True)
-        yield Static("", id="notice", markup=False)
         yield Static("模型：等待首轮请求 · 上下文：等待首轮请求", id="status", markup=False)
 
     async def on_mount(self):
@@ -304,12 +304,7 @@ class PyApp(App):
                 else None,
             )
         elif event.kind == "result":
-            self.notice(
-                "任务完成"
-                if event.data["outcome"] == "completed"
-                else "任务状态：" + event.data["outcome"],
-                "success" if event.data["outcome"] == "completed" else "warning",
-            )
+            self.notice("")
 
     def notice(self, text, severity=None):
         widget = self.query_one("#notice", Static)
