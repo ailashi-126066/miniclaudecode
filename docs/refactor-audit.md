@@ -43,12 +43,12 @@
 
 | 门槛 | 状态 |
 | --- | --- |
-| 完整 pytest，PATH 包含 rg | 待运行 |
-| ruff check / format --check / architecture | 待最终合并复验 |
-| compileall、全产品模块导入、本地 pyright basic | 待最终合并复验 |
-| macOS scripts/verify_seatbelt.py | 待运行 |
-| scripts/verify_release.py 的 wheel/sdist 与全新环境安装 | 待运行 |
-| python -m evals coding --help 与离线 smoke（不调用云模型） | 待运行 |
+| 完整 pytest，PATH 包含 rg | 1192 passed、1 skipped（259.42 秒）；跳过 Windows/Linux 专用向量 |
+| ruff check / format --check / architecture | main 全部通过，649 文件格式 |
+| compileall、全产品模块导入、本地 pyright basic | 维护范围编译通过、352 产品模块导入、basic 零错误零警告 |
+| macOS scripts/verify_seatbelt.py | 真实隔离验证通过 |
+| scripts/verify_release.py 的 wheel/sdist 与全新环境安装 | with-evals 17 项检查全部通过 |
+| python -m evals coding --help 与离线 smoke（不调用云模型） | help 通过；三题本地协议 smoke 3 passed/17.65秒 |
 | DeepSeek 12 题完整编码评测两轮，与原 16384 输出额度 12/12 基线对比 | 待离线验收后执行/授权 |
 | scripts/verify_live_provider.py 与一次真实后台记忆整理 | 待离线验收后执行/授权 |
 | 最终 GitHub main 推送与远程 SHA/文件树核对 | 待运行 |
@@ -69,3 +69,10 @@ Team控制选择、Skill重读/recent上下文、拒绝分类和完整输出、�
 补真实会话/run_start并去时序竞态。增量安全声明保留性能并深冻结合成未知结果；拒绝扩展
 只读验证与脱敏补回归。Root15项、Context10项、Team16项、Skills/MCP等160项及结算50项
 定向组通过（有重叠，不能求和作为全量）；独立复审通过，待主线第二轮完整pytest。
+
+第二轮主线完整 pytest 通过：1192 passed、1 skipped（259.42秒），唯一跳过为其他平台
+专用向量。main 上 lint/格式/架构/pyright 通过；compileall 明确排除已忽略的历史测试产物
+（这些故障注入文件有意不是合法 Python），维护源码/测试/脚本/评测编译通过。
+macOS 实际 Seatbelt、发行构建/全新 venv 安装/doctor/最小会话及 eval extras 17 项门槛通过；
+入口 help 和本地三题 coding smoke 通过。机器可读摘要见 refactor-results.json。
+真实 API 费用与旧运行产物删除仍待按计划确认，不将离线通过冒充真实模型通过。

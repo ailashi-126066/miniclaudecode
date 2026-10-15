@@ -1,0 +1,56 @@
+{
+  "status": "offline_passed_pending_live_and_cleanup_decisions",
+  "tested_commit": "584237f1d5c48d161742f293aa5ae2a6392d5d39",
+  "release_source_sha256": "58946e5cecb675654d5bf98ca8e173ae5d562e6c2c985fe40a00e07e3e9500ae",
+  "pytest": {
+    "tests": "1193",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "1",
+    "time": "259.378"
+  },
+  "static": {
+    "ruff": "passed",
+    "format": "passed",
+    "architecture": "passed",
+    "pyright_basic": "0 errors, 0 warnings",
+    "maintained_compileall": "passed",
+    "product_module_imports": 352
+  },
+  "seatbelt": "passed",
+  "release": {
+    "status": "passed",
+    "checks": 17,
+    "fresh_environment": true,
+    "extras": [
+      "eval"
+    ]
+  },
+  "offline_smoke": {
+    "tests": "3",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "17.642"
+  },
+  "github": {
+    "url": "https://github.com/ailashi-126066/miniclaudecode",
+    "target": "main",
+    "original_remote_main": "4f61c2de0507da7160baf2c807f715f668b7ca89",
+    "original_commit_count": 47,
+    "status": "not_pushed"
+  },
+  "live_deepseek": {
+    "status": "awaiting_user_authorization",
+    "model": "deepseek-flash",
+    "max_output_tokens": 16384,
+    "rounds": 2,
+    "tasks_per_round": 12
+  },
+  "runtime_cleanup": {
+    "status": "awaiting_user_confirmation",
+    "new_environment": ".venv",
+    "preserve_original_history_and_16k_baselines": true
+  },
+  "ci": "not_added_per_user_request"
+}
