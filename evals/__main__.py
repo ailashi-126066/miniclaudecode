@@ -17,7 +17,6 @@ from pycode.core.values import json_dumps
 QUALITY_SCRIPTS = """quality evaluations (run from the repository root; each accepts --help):
   python evals/scripts/run_output_quality.py
   python evals/scripts/run_trajectory_quality.py
-  python evals/scripts/run_rule_comparison_quality.py --source REPORT
   python evals/scripts/summarize_quality_suite.py
   python evals/scripts/verify_official_eval_interfaces.py
 coding corpus helpers:

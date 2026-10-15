@@ -11,6 +11,7 @@ from pycode.core.errors import ModelError
 from pycode.core.messages import Message, UsageRecord
 from pycode.core.models import ModelSelection
 from pycode.core.session import EntryDraft, SessionHeader
+from pycode.core.session_tree import SessionTree
 from pycode.core.summaries import SummaryCompletion, SummarySettings
 from pycode.services.context_projector import ContextProjector
 from pycode.services.events import EventStream
@@ -42,7 +43,7 @@ class Generator:
         return None
 
 
-async def setup(tmp_path, generator):
+async def setup(tmp_path, generator, *, on_compacted=None):
     history = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     for index in range(6):
         await history.append_message(Message(f"u{index}", "user", "x" * 6000))
@@ -60,6 +61,7 @@ async def setup(tmp_path, generator):
         settings,
         events,
         preparation=prepare_summary,
+        on_compacted=on_compacted,
     )
     return history, objects, settings, events, service
 
@@ -417,6 +419,28 @@ async def test_force_starts_and_adopts_in_the_same_preparation_check(tmp_path):
         assert report.status == "applied"
         assert report.applied_job_id == generator.sources[0].job_id
         assert len(generator.sources) == 1
+    finally:
+        await service.aclose()
+        await history.aclose()
+
+
+async def test_automatic_compaction_notifies_memory_after_adoption(tmp_path):
+    notifications = []
+
+    async def on_compacted():
+        snapshot = await history.snapshot()
+        notifications.append(SessionTree(snapshot.index).get(snapshot.leaf_id).type)
+
+    history, _, _, _, service = await setup(tmp_path, Generator(), on_compacted=on_compacted)
+    try:
+        await service.prepare()
+        await service.collect(cancel=False)
+        # Force the capacity path (automatic, rather than manual compaction).
+        report = await service.prepare(force=True)
+        assert report.applied_job_id is not None
+        assert notifications == ["compaction"]
+        await service.prepare()
+        assert notifications == ["compaction"]
     finally:
         await service.aclose()
         await history.aclose()

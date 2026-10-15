@@ -3,7 +3,7 @@
 `app/container.py` is the sole composition root. It constructs concrete adapters and injects
 them into services/workflows. `app/runtime_launcher.py` owns the active run, live waits,
 summary and Hook lifetimes through explicit construction callbacks. `app/background_models.py`
-owns summary and per-job memory model lifetimes; neither implements another Agent loop.
+owns summary and memory model lifetimes; neither implements another Agent loop.
 
 Dependency direction is app → adapters/services/workflows, workflows → services/ports/core,
 services → ports/core, adapters → ports/core. Core is pure data/policy. Framework message
@@ -23,8 +23,8 @@ before native display truncation. SkillsMiddleware owns loading/disclosure, incl
 catalogue reload through its public methods. LangChain MCPAdapter owns MCP connections/protocol.
 
 Main-chat InMemorySaver exists only for the live run. JSONL is the sole restart authority.
-Lost calls get one interrupted result unless a verified memory commit receipt can restore
-their exact confirmed result; no old approval or disk Graph state is reused. Recovery never
+Lost calls, memory tools included, get one interrupted result; no old approval or disk Graph
+state is reused. Recovery never
 reexecutes old business tools. EventStream isolates failed consumers; closed CLI output requests
 controlled cancellation. JSONL contains one original result; large bytes live in one scoped
 object. Memory/summary/Plan metadata reference original facts rather than another conversation.
@@ -48,16 +48,29 @@ dependency policy, concurrency) and WorktreeManager stay as unwired building blo
 Usage retains purpose/agent/session identity and known team totals.
 
 Plan is an exact writable document with run-bound approved hash; restart expires approvals.
-Memory uses official LangMem manage/search tools and Store Manager over JsonMemoryStore.
-Each namespace owns one active memory.json; related changes, processed source ranges and
-commit receipts publish atomically per scope. Jobs own immutable sources, staging, model
-observers and per-request accounting. Rule feedback selects single/multi prompt_memory;
-inferred rules require a fixed, tool-free comparison and exact version-bound runtime permit.
-Scope moves use ordered leases, copy-first publication and persistent receipts, without a
-cross-file transaction claim. No legacy Markdown memory migration, recovery, reader, writer or
-candidate approval remains.
+
+Memory has two parts. AGENTS.md instructions (`~/.pycode/AGENTS.md`, plus the project's
+`AGENTS.md` only with `--trust-project`) load through Deep Agents `MemoryMiddleware` with a
+read-only allowlisted
+backend. They are read once per run into private graph state and appended to every model call's
+system message, so they never enter JSONL history and compaction/summaries cannot drop them;
+the harness system footprint recorded for capacity includes them.
+
+Long-term memory uses LangMem directly; pycode owns only storage location, trigger timing,
+viewing/editing and undo. `services/memory.py` (MemoryService) recalls entries before a task
+(all of them up to 20, otherwise a metered selector picks up to 10), schedules one background
+`create_memory_store_manager` pass when a run completes or after manual/automatic compaction, logs every
+change and undoes the latest automatic pass. The model also gets LangMem
+`manage_*_memory`/`search_*_memory` tools through ordinary settlement and MemoryToolGate.
+Background memory models always run with thinking disabled (forced tool choice conflicts with
+DeepSeek thinking); failures are logged, never retried and never reach the conversation.
+Automatic passes write the user scope and, for a trusted project, the project scope. The write
+filter (`core/memory.py`: length, per-scope count, credential patterns) applies to every write.
+JsonMemoryStore keeps one atomic `memory.json` per scope with prefix and simple text search.
+
 GC marks all durable references and
-live/uncertain writers before 30-day quarantine/purge. Worktree integration/cleanup stays separate.
+live/uncertain writers before 30-day quarantine/purge; memory directories are explicitly
+excluded from managed objects. Worktree integration/cleanup stays separate.
 Seatbelt profiles deny by default: reads cover the workspace, system directories, temp,
 the running interpreter's prefixes/import roots and git global config; later rules deny
 ~/.ssh, ~/.aws, ~/.gnupg, ~/.config, ~/.pycode and every .env/.env.* except a workspace

@@ -35,8 +35,10 @@ class SummaryService:
         events: EventSink,
         *,
         preparation: Callable[["SummaryService", SummaryCheck], Awaitable[SummaryReport]],
+        on_compacted: Callable[[], Awaitable[None]] | None = None,
     ):
         self._preparation = preparation
+        self._on_compacted = on_compacted
         self._history = history
         self._projector = projector
         self._objects = objects
@@ -291,6 +293,8 @@ class SummaryService:
         )
         await self._objects.invalidate(source.job_id, "adopted")
         self._source = self._result = self._task = None
+        if self._on_compacted is not None:
+            await self._on_compacted()
         return SummaryReport(tokens, source.job_id, status="applied")
 
     async def aclose(self):

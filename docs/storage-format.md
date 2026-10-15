@@ -5,7 +5,8 @@
   model-catalog.json
   mcp.json / hooks.json
   skills/
-  memory/                       # memory.json, versions/, jobs/, moves/
+  AGENTS.md                     # optional user instructions (MemoryMiddleware)
+  memory/                       # memory.json, settings.json, changes.jsonl, memory.lock
   projects/<normalized-workspace-hash>/
     runtime.sqlite              # model_requests accounting only
     sessions/<opaque-session-id>/
@@ -20,8 +21,9 @@
   quarantine/objects/           # 30-day content-object quarantine
 <workspace>/.pycode/
   plans/<session-id>/<plan-id>.md
-  memory/
+  memory/                       # memory.json, memory.lock
   skills/ / mcp.json / hooks.json
+<workspace>/AGENTS.md           # loaded by MemoryMiddleware only with --trust-project
 ```
 
 Main Graph checkpoint and progress events are memory-only. runtime.sqlite has no current
@@ -34,6 +36,9 @@ plan, and JSON memory (`memory.json`). Older runtime tables, `py`-branded header
 records, pre-transaction revert journals and per-record Markdown memory are no longer converted or
 recovered. Memory snapshots still accept the optional `migration` receipt field so files published
 by the former one-way migrator keep decoding; nothing writes, verifies or protects its backups.
+Fields left by the removed memory pipeline (`processed_batches`, `group_receipts`,
+`tool_receipts`, `move_receipts`) are ignored on read and dropped on the next write; old
+`versions/`, `jobs/` and `moves/` directories are no longer read.
 
 JSONL model responses precede tool execution. Final ToolResult precedes object binding, snapshot
 boundary and finish events. A streamed object can be durable before its JSONL fact; restart treats
@@ -53,7 +58,9 @@ boundaries. Plan approval stores exact content/hash; changed files require a new
 snapshots are distinct from conversation summaries.
 
 GC inventories managed roots, treats corrupt/partial/live state conservatively, and marks original
-branches, fork ancestry, output/summary/Plan/memory/team references. Unreferenced objects move to
+branches, fork ancestry, output/summary/Plan/team references. Memory directories
+(`~/.pycode/memory/`, `<workspace>/.pycode/memory/`) are explicitly excluded: no path under them
+can become a managed object, so GC never moves `memory.json`, settings or the change log. Unreferenced objects move to
 quarantine first; renewed references restore content, sessions require explicit restoration. Purge
 after 30 days never targets the user's Git repository. Snapshot Git ref removal/GC is isolated.
 Worktrees are retained while dirty, active, cancelled, unintegrated or unverified; checked clean
@@ -75,27 +82,32 @@ hashes tests/tools and the dependency lock. Exported traces explicitly state whe
 entry was retained and that ephemeral output objects were removed with the workspace. Earlier
 reports are immutable historical evidence and are never rewritten by normal test execution.
 
-JsonMemoryStore binds configured namespaces
-(non-path user/project identities) to separate `memory.json` files. Schema version 1 contains
-namespace, revision, typed records with timezone timestamps, and committed source-batch receipts.
-Duplicate keys, missing required fields, future versions and corrupt files fail without overwrite.
-Updates use the existing FileLease and atomic_write; prior whole snapshots are inactive JSON
-version backups. A job-owned BaseStore view stages component writes and freezes before commit.
-Each scope commits independently with its observed revision, content and source progress together.
-Replayed source receipts cannot undo a newer correction. Directory search uses a metered model,
-never embeddings, keyword ranking or full-body injection into selection prompts.
-UUID spelling aliases resolve to the existing key, including official tools updating hex IDs.
-GC uses the same strict snapshot validation, scans active snapshots, version backups, pending jobs
-and scope moves, and protects active memory writers. Mutation rechecks the inventory before moving
-or purging objects.
+JsonMemoryStore (a LangGraph BaseStore) binds configured namespaces (non-path user/project
+identities) to separate `memory.json` files. Schema version 1 contains `namespace`, `revision`,
+optional `migration` and `records`: `{key: {value: {kind, content}, created_at, updated_at}}`.
+LangMem writes `{kind: "Memory", content: {content: text}}`; older Semantic/Episodic/Procedural
+records stay readable. Existing hex UUID IDs resolve through their UUID-equivalent hyphenated
+form when LangMem manages them; writes retain the existing key. Each write takes the scope's `memory.lock` FileLease and publishes the
+whole file with atomic_write. Duplicate keys, invalid records and corrupt files fail without
+overwrite. Search supports namespace prefixes, dotted equality filters and simple token overlap
+for text queries; there are no embeddings, staging views or job leases. `settings.json` in the
+user scope holds the `auto`/`off` mode.
 
+`~/.pycode/memory/changes.jsonl` is the append-only memory change log (one JSON object per line;
+a torn final line is skipped):
 
-New memory commits capture a trusted original-branch evidence snapshot before model review.
-Tool quotes use checked complete output readback, with bounded character ranges and no preview
-fallback after corruption. Physical source/role/scope checks precede a metered support verdict;
-actual source presence does not alone authorize a new claim or deletion. A job-owned write permit
-binds accepted changes and their observed target hashes. Associated changes validate together,
-independent valid groups can commit, and rejected groups cannot advance the whole source batch.
-Progress IDs and character positions must be real, contiguous captured sources. The existing
-atomic JSON commit remains the sole publication path. Durable rejected-group recovery and the
-application memory-service/tool switch are still pending integration.
+```json
+{"id": "<hex>", "at": 1760000000.0, "origin": "consolidate|tool|edit|delete|clear|undo",
+ "reason": "session_end|compaction|manual", "session_id": "...", "run_id": "...",
+ "undoes": "<id, undo only>", "error_code": "<on failure>", "rejected": [...],
+ "changes": [{"scope": "user|project", "namespace": [...], "key": "...",
+              "before": <record|null>, "after": <record|null>}]}
+```
+
+`memory undo` restores the `before` records of the newest `consolidate` entry for the current
+scopes that has not been undone, and refuses if any of those entries changed since (`after`
+no longer matches). The comparison and restore hold every affected scope's file lease, so
+another session cannot change a record between the check and restore. Repeated writes to one
+entry within a pass are logged as its original `before` and final `after` state. If a disk
+error prevents restoring a later scope, changes already published are logged with
+`attempted_undo`; `undoes` is recorded only after every affected scope has been restored.

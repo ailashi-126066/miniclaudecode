@@ -44,9 +44,10 @@ OpenEvals 固定为 0.2.0，AgentEvals 固定为 0.0.9。数据集和评分标�
 ```text
 python evals/scripts/run_output_quality.py
 python evals/scripts/run_trajectory_quality.py
-python -m archive.tests_support.verify_live_inferred_rule_evaluation
-python evals/scripts/run_rule_comparison_quality.py --source tests/.runtime-tests/live/RUN/result.json
 ```
+
+规则对比评估（`run_rule_comparison_quality.py`）及其依赖的旧记忆流水线已存档到
+`evals/memory_rules/`，不可直接运行。
 
 输出评估实际调用记忆应用服务、摘要工作流和官方规则优化器。轨迹评估执行当前
 AgentSession，但使用本地 HTTP 服务注入可控选择、重试、fallback 和中断；这些轨迹
@@ -172,16 +173,23 @@ Windows／Linux 没有 Seatbelt；macOS Bash 可选 `--sandbox on|on-auto`，
 参数里有未加引号的通配符／花括号（如 `-de*`）的命令仍需审批。
 危险命令黑名单只是纵深防御，始终先于审批生效。
 
-长期记忆使用每作用域一个 `memory.json`，区分语义事实、历史案例和程序规则；默认 auto，
-另有 off。官方 LangMem 管理／搜索、后台整理和规则优化共用 Store、真实来源校验与可靠提交，
-无需记忆人工审批。无 Provider 的 CLI 可以查看、编辑、移动和删除已存在记忆。
+记忆分两部分。AGENTS.md：`~/.pycode/AGENTS.md` 每次运行都加载；项目根目录的 `AGENTS.md`
+只在 `--trust-project` 时加载。内容通过 Deep Agents
+`MemoryMiddleware` 追加到系统提示，不写入会话 JSONL，压缩不会丢失。
 
-`memory edit ID "正文" --scope user|project` 指定目标作用域；`memory move ID user|project`
-只移动，ID、原创建时间和已有来源保留。同 ID 在两侧都存在时，用 `--from-scope` 指定来源。
-TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先保存目标再删除未变化的源，
-每个文件独立原子发布，并用持久凭据恢复；两文件之间不宣称原子事务。冲突保留已有内容并报错。
-迁入不同作用域的用户偏好／项目知识标为明确作用域纠正；迁入规则由该次用户动作明确采用，
-修改案例正文时取消原“已验证”标记。迁移备份与旧格式原件仍用于恢复。
+长期记忆直接使用 LangMem，每作用域（user／project）一个 `memory.json`；默认 auto，另有 off。
+模型可用 `manage_*_memory`／`search_*_memory` 工具；一次运行结束或上下文压缩后，后台调用一次
+LangMem Store Manager 整理最近对话（最近摘要加最近若干条消息，有长度上限），user 作用域
+总是参与，project 作用域只在受信任项目参与。后台记忆模型强制关闭 thinking；失败只记日志，
+不重试，不影响对话。写入过滤：单条不超过 2000 字符、每作用域最多 200 条，疑似密钥
+（`sk-…`、`api_key:`／`token=`／`password:`、AWS key 等）拒绝写入。召回时条目不超过 20 条
+全部注入，否则由模型挑选最多 10 条。每次变更记录到 `~/.pycode/memory/changes.jsonl`。
+
+无 Provider 的 CLI 可以查看、编辑、删除和撤销：`memory --session ID list|edit ID "正文"|
+delete ID|undo|clear|mode auto|off`；两个作用域有同一 ID 时用 `--scope user|project` 指定。
+TUI 使用 `/memory`、`/memory edit ID 正文`、`/memory delete ID`、`/memory undo`；
+编辑和删除也可在末尾加 `--scope user|project`。
+`undo` 撤销最近一次自动整理；之后被手动改过的条目会拒绝撤销。旧版 `memory move` 已移除。
 
 多 Agent 将在后续阶段以进程内方式重新实现。
 `worktree inspect ID` 查看保留路径与差异；完成集成后使用
@@ -191,7 +199,8 @@ TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先
 ## GC 与评测
 
 `storage gc --dry-run` 显示引用标记和决策。无引用对象先隔离 30 天，重新引用可以恢复；
-会话删除必须明确操作。所有分支、fork、摘要、Plan、记忆和团队引用都参与保护。
+会话删除必须明确操作。所有分支、fork、摘要、Plan 和团队引用都参与保护；
+记忆目录（`memory.json`、变更日志）明确排除在 GC 之外。
 Git GC 只针对独立快照仓库。worktree 清理是独立的 30 天扫描。
 
 固定 Python 评测清单见 `evals/data/manifest.json`：12 题、固定 3 题 smoke、精确提交和文件哈希。
@@ -239,8 +248,8 @@ python scripts/verify_release.py
 原开发验证报告保持原始结果。
 
 长期记忆的手动编辑使用 `memory --session ID edit MEMORY_ID "新内容"`；
-`/memory edit MEMORY_ID 新内容` 在 TUI 中调用相同服务，并保留用户修改的真实来源。
-自动提取使用上次成功边界之后的有界来源；手动 `memory extract` 重新检查当前分支。
+`/memory edit MEMORY_ID 新内容` 在 TUI 中调用相同服务。手动 `memory extract`（需要
+`--providers`）立即对当前分支执行一次整理。
 MCP elicitation 使用原生中断，可接受、拒绝或取消；图片及文件块保留在原结果／大结果对象中。
 支持图片的模型接收原生媒体块。审批等待前后完成的其他工具照常结算，不阻塞整个 Agent。
 

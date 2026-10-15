@@ -9,7 +9,6 @@
 import asyncio
 import logging
 import shlex
-from functools import partial
 from uuid import uuid4
 
 from textual.app import App, ComposeResult
@@ -695,23 +694,21 @@ class PyApp(App):
         self.start_operation(self.session.select_model, *args)
 
     async def command_memory(self, args):
+        scope = None
+        if len(args) >= 3 and args[-2] == "--scope":
+            if args[0] not in {"edit", "remove", "delete"} or args[-1] not in {"user", "project"}:
+                return False
+            scope, args = args[-1], args[:-2]
         if not args:
             self.start_operation(self.show_memory)
         elif len(args) == 2 and args[0] == "mode":
             self.start_operation(self.session.memory_mode, args[1])
         elif len(args) >= 3 and args[0] == "edit":
-            self.start_operation(self.session.memory_edit, args[1], " ".join(args[2:]))
-        elif (
-            args
-            and args[0] == "move"
-            and (len(args) == 3 or len(args) == 5 and args[3] == "--from-scope")
-        ):
-            operation = self.session.memory_move
-            if len(args) == 5:
-                operation = partial(operation, from_scope=args[4])
-            self.start_operation(operation, args[1], args[2])
-        elif len(args) == 2 and args[0] == "remove":
-            self.start_operation(self.session.memory_remove, args[1])
+            self.start_operation(self.edit_memory, args[1], " ".join(args[2:]), scope)
+        elif len(args) == 2 and args[0] in {"remove", "delete"}:
+            self.start_operation(self.remove_memory, args[1], scope)
+        elif args == ["undo"]:
+            self.start_operation(self.undo_memory)
         elif args == ["clear"]:
             self.start_operation(self.session.memory_clear)
         elif args == ["extract"]:
@@ -781,6 +778,21 @@ class PyApp(App):
 
     async def show_memory(self):
         self._memory_report = await self.session.memory_list()
+
+    async def edit_memory(self, memory_id, content, scope=None):
+        await self.session.memory_edit(memory_id, content, scope=scope)
+        self.notice("Memory updated: " + memory_id)
+        await self.show_memory()
+
+    async def remove_memory(self, memory_id, scope=None):
+        await self.session.memory_remove(memory_id, scope=scope)
+        self.notice("Memory deleted: " + memory_id)
+        await self.show_memory()
+
+    async def undo_memory(self):
+        result = await self.session.memory_undo()
+        self.notice("Undid automatic memory update: " + ", ".join(result["memory_ids"]))
+        await self.show_memory()
 
     async def show_storage(self):
         report = await self.session.storage_status()

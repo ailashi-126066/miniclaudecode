@@ -11,7 +11,6 @@ from pathlib import Path
 
 from pycode.adapters.storage.file_lease import FileLease
 from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.storage.memory_references import memory_reference_values
 from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
 from pycode.adapters.storage.session_codec import decode_entry, decode_header
 from pycode.core.errors import StorageError
@@ -40,12 +39,17 @@ class FileStorageObjects:
         self.project = StorageLayout(workspace, user_data).project.resolve()
         self.quarantine = self.root / "quarantine" / "objects"
         self.allowed_roots = [self.root, self.workspace / ".pycode" / "plans"]
+        # Memory (memory.json, settings.json, changes.jsonl) is never a managed object.
+        self.memory_roots = [self.root / "memory", self.workspace / ".pycode" / "memory"]
         self.lease = FileLease(self.root / "storage.lock")
         self.owned_session_id = owned_session_id
 
     def checked(self, value):
         path = Path(value)
         resolved = path.resolve()
+        for root in self.memory_roots:
+            if resolved.is_relative_to(root.resolve()):
+                raise StorageError("gc_memory_excluded", "Memory files are not managed objects")
         for root in self.allowed_roots:
             if resolved.is_relative_to(root.resolve()) and resolved != root.resolve():
                 return resolved
@@ -301,22 +305,10 @@ class FileStorageObjects:
                                     )
                                 references.extend(string_values(plain_data(decode_entry(raw))))
                     tokens_by_object[identifier] = references
-        memory_roots = [self.root / "memory"]
         for workspace in known_workspaces:
             root = Path(workspace).resolve() / ".pycode" / "memory"
-            memory_roots.append(root)
-            if root not in self.allowed_roots:
-                self.allowed_roots.append(root)
-        memory_writing = False
-        for root in memory_roots:
-            values, busy = memory_reference_values(root)
-            for value in values:
-                root_tokens.extend(string_values(value))
-            if busy:
-                if root == self.root / "memory":
-                    memory_writing = True
-                else:
-                    active_projects.add(StorageLayout(root.parent.parent, self.root).project.name)
+            if root not in self.memory_roots:
+                self.memory_roots.append(root)
         if self.quarantine.exists():
             for path in sorted(self.quarantine.glob("*/record.json")):
                 data = self.read_json(path)
@@ -361,7 +353,6 @@ class FileStorageObjects:
                 references.update(aliases.get(token, ()))
             protected = (
                 item.protected
-                or memory_writing
                 or item.metadata.get("project_id") in uncertain_projects
                 or item.metadata.get("project_id") in active_projects
             )

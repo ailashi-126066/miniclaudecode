@@ -154,3 +154,27 @@ async def test_path_escape_is_rejected_before_any_move(tmp_path):
     with pytest.raises(StorageError) as error:
         await objects.apply(item, "quarantine", timing.now())
     assert error.value.code == "gc_path_escape" and outside.read_text() == "user data"
+
+
+async def test_memory_directories_are_never_managed_objects(tmp_path):
+    workspace, layout, timing, repository, objects = await setup_objects(tmp_path)
+    await write_output(repository, layout, workspace)
+    gc = StorageGC(objects, repository, timing)
+    await gc.delete_session("s1")
+    files = []
+    for root in (objects.root / "memory", workspace / ".pycode" / "memory"):
+        root.mkdir(parents=True)
+        for name in ("memory.json", "settings.json", "changes.jsonl"):
+            (root / name).write_text("{}\n")
+            files.append(root / name)
+    await gc.collect()
+    timing.current += RETENTION_SECONDS
+    collected = await gc.collect()
+    assert all(path.read_text() == "{}\n" for path in files)
+    assert not any("memory" in row["object_id"] for row in collected["decisions"])
+    from pycode.core.storage import StoredObject
+
+    item = StoredObject("forged", "output", (str(files[0]),), 3)
+    with pytest.raises(StorageError) as error:
+        await objects.apply(item, "quarantine", timing.now())
+    assert error.value.code == "gc_memory_excluded" and files[0].exists()

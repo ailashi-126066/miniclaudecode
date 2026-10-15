@@ -50,6 +50,8 @@ FORBIDDEN_IMPORTS = {
 }
 # Locally generated evaluation data (corpus checkouts, work trees, results); never scanned.
 EVAL_GENERATED = {"cache", "work", "results"}
+# Archived evaluation code whose runtime dependencies were removed; kept for reference only.
+EVAL_ARCHIVED = {"memory_rules"}
 
 
 def imported_modules(node: ast.AST, module: str, is_package: bool) -> list[str]:
@@ -118,7 +120,10 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
     # evals is a top-level package next to src/; its generated corpora and runs are not code.
     for path in sorted((root / "evals").rglob("*.py")):
         relative = path.relative_to(root)
-        if any(part in EVAL_GENERATED or part.startswith(".") for part in relative.parts[1:]):
+        if any(
+            part in EVAL_GENERATED | EVAL_ARCHIVED or part.startswith(".")
+            for part in relative.parts[1:]
+        ):
             continue
         module, is_package = module_name(relative)
         errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, is_package))

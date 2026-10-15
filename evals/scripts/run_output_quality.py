@@ -42,18 +42,12 @@ async def generate(case, config, provider, run_id, *, reuse=False, retry_memory=
             if not reuse:
                 await history.append_message(Message("source-user", "user", case["input"]))
                 await memory.initialize()
-                await memory.extract_snapshot(await history.snapshot(), run_id)
+                await memory.consolidate(run_id, "manual")
             elif retry_memory:
                 await memory.initialize()
-                await memory.extract_snapshot(await history.snapshot(), run_id)
-                await memory.collect()
+                await memory.consolidate(run_id, "manual")
             output = await memory.list()
-            pending = [
-                job.model_dump(mode="json")
-                for ns in memory.scopes
-                for job in await memory.jobs.pending(ns, run_id, str(config.workspace))
-            ]
-            return {"output": output, "pending_jobs": pending, "session_id": run_id}
+            return {"output": output, "pending_jobs": [], "session_id": run_id}
         finally:
             await memory.aclose()
             await history.aclose()

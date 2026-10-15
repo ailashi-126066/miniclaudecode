@@ -105,22 +105,15 @@ async def command(args, config):
             elif args.memory_command == "mode":
                 await memory.set_mode(args.mode)
                 value = {"mode": args.mode}
-            elif args.memory_command == "remove":
-                await memory.remove(args.memory_id)
+            elif args.memory_command in {"remove", "delete"}:
+                await memory.remove(args.memory_id, scope=args.scope)
                 value = {"removed": args.memory_id}
             elif args.memory_command == "edit":
                 value = {
-                    "memory_id": await memory.edit(
-                        args.memory_id, args.content, scope=args.scope, from_scope=args.from_scope
-                    )
+                    "memory_id": await memory.edit(args.memory_id, args.content, scope=args.scope)
                 }
-            elif args.memory_command == "move":
-                value = {
-                    "memory_id": await memory.move(
-                        args.memory_id, args.scope, from_scope=args.from_scope
-                    ),
-                    "scope": args.scope,
-                }
+            elif args.memory_command == "undo":
+                value = await memory.undo()
             elif args.memory_command == "clear":
                 await memory.clear()
                 value = {"cleared": True}
@@ -196,22 +189,17 @@ async def command(args, config):
             elif args.memory_command == "mode":
                 await session.memory_mode(args.mode)
                 value = {"mode": args.mode}
-            elif args.memory_command == "remove":
-                await session.memory_remove(args.memory_id)
+            elif args.memory_command in {"remove", "delete"}:
+                await session.memory_remove(args.memory_id, scope=args.scope)
                 value = {"removed": args.memory_id}
             elif args.memory_command == "edit":
                 value = {
                     "memory_id": await session.memory_edit(
-                        args.memory_id, args.content, scope=args.scope, from_scope=args.from_scope
+                        args.memory_id, args.content, scope=args.scope
                     )
                 }
-            elif args.memory_command == "move":
-                value = {
-                    "memory_id": await session.memory_move(
-                        args.memory_id, args.scope, from_scope=args.from_scope
-                    ),
-                    "scope": args.scope,
-                }
+            elif args.memory_command == "undo":
+                value = await session.memory_undo()
             elif args.memory_command == "clear":
                 await session.memory_clear()
                 value = {"cleared": True}

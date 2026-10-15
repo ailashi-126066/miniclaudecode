@@ -57,10 +57,11 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   JSONL once/结果、owned background、真实只读 Agent 动作和 Plan/权限边界为本项目接入。
 - `services/plans.py`、`adapters/storage/plans.py`、`workflows/plans.py`：精确 Markdown 路径，
   当前进程审批、批准内容 hash、反馈与重启过期语义。AskUser 使用同样 live interrupt。
-- `services/json_memory.py`、`workflows/memory_update.py`、`adapters/storage/json_memory.py`：
-  官方 LangMem Store Manager／管理搜索工具／prompt_memory 适配，三类 JSON 记忆、可信来源、
-  单一召回、分组提交、持久作业／来源游标和规则比较为本项目接入。旧格式迁移与恢复代码、
-  旧提取器、人工审阅服务和 Markdown 工具路由均已退出运行包。
+- `services/memory.py`、`workflows/memory_update.py`、`workflows/memory_tools.py`、
+  `adapters/storage/json_memory.py`：官方 LangMem Store Manager 与 manage/search 工具直接
+  作用于每作用域一个 `memory.json` 的 BaseStore；本项目只接入存储位置、触发时机、写入过滤、
+  变更日志与撤销。AGENTS.md 由 Deep Agents `MemoryMiddleware` 加载。旧的证据审查、分组提交、
+  作业／来源游标、作用域移动流水线已删除，规则比较代码存档于 `evals/memory_rules/`。
 - `services/team.py`、`adapters/team/worktrees.py`：任务存储、依赖校验与并发策略，以及
   worktree 和安全集成清理，留待进程内多 Agent 复用；`team serve`／Agent Protocol 已删除。
   没有独立 Worker 消息队列／已消费游标；同步只读子任务和 fork Skill 使用 native task。

@@ -15,13 +15,15 @@ class MemoryPanel(VerticalScroll):
         self.report = report
 
     def compose(self) -> ComposeResult:
-        yield Static("Memory mode: " + self.report["mode"], markup=False)
+        yield Static(
+            "Memory mode: " + self.report["mode"] + "  ·  /memory edit ID TEXT · "
+            "/memory delete ID · /memory undo · append --scope user|project for duplicate IDs",
+            markup=False,
+        )
         if not self.report["records"]:
             yield Static("No saved memories.", markup=False)
         for record in self.report["records"]:
-            kind = record.get("kind", "SemanticMemory")
             yield Static(
-                f"[{record['scope']} · {kind}] {record['key']} · {record['memory_id']}\n"
-                + record["content"],
+                f"[{record['scope']}] {record['memory_id']}\n" + record["content"],
                 markup=False,
             )

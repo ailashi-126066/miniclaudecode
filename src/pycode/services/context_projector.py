@@ -11,7 +11,6 @@ from pycode.core.session_tree import SessionTree
 from pycode.core.skills import active_skills
 from pycode.core.tool_pairing import repair_tool_pairing
 from pycode.core.values import clone_value, freeze_value
-from pycode.services.memory_projection import memory_result, project_memory
 
 
 class ContextProjector:
@@ -62,8 +61,6 @@ class ContextProjector:
                 and entry.message.model_selection is not None
                 and entry.message.model_selection != self._cached.selection
             ):
-                return None
-            if entry.message is not None and memory_result(entry.message):
                 return None
             added.append(entry)
             current = entry.parent_id
@@ -162,15 +159,6 @@ class ContextProjector:
             elif entry.type == "memory_load":
                 memory_records = entry.data["records"]
                 memory_source = entry
-        messages, memory_records = project_memory(path, messages, memory_records)
-        by_message_id = {message.id: message for message in messages}
-        contributions = [
-            ProjectedEntry(
-                item.entry_id,
-                tuple(by_message_id.get(message.id, message) for message in item.messages),
-            )
-            for item in contributions
-        ]
         checkpoint.pop("memories", None)
         if memory_records:
             checkpoint["memories"] = clone_value(memory_records)
@@ -181,9 +169,7 @@ class ContextProjector:
             ]
             for record in memory_records:
                 lines.append(
-                    f"[{record['scope']} {record['memory_id']}; "
-                    f"kind={record.get('kind', 'SemanticMemory')}; "
-                    f"saved={record['updated_at']}; verification={record.get('verification')}] "
+                    f"[{record['scope']} {record['memory_id']}; saved={record['updated_at']}] "
                     + record["content"]
                 )
             pinned.append(

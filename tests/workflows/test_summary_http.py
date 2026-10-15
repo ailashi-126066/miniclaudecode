@@ -247,11 +247,8 @@ async def test_default_auto_memory_does_not_hide_capacity_or_interrupt_backgroun
             return summary
         response = chat_completion()
         names = {tool["function"]["name"] for tool in request["body"].get("tools", [])}
-        if (
-            "SemanticMemory" in names
-            or "MemoryDirectoryChoices" in names
-            or "MemoryEvidenceVerdict" in names
-        ):
+        # Main-agent requests always carry the filesystem tools; LangMem consolidation does not.
+        if "read_file" not in names:
             memory_requests.append(request)
             return response
         main_requests.append(request)

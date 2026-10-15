@@ -37,10 +37,14 @@ from pycode.adapters.skills.python_tool import PythonSkillToolFactory
 from pycode.adapters.snapshot.git_tree import GitSnapshotStore
 from pycode.adapters.storage.catalog import FileCatalogStore
 from pycode.adapters.storage.history_backend import ConversationHistoryBackend
+from pycode.adapters.storage.json_memory import JsonMemoryStore, MemoryChangeLog
 from pycode.adapters.storage.layout import StorageLayout
 from pycode.adapters.storage.objects import FileStorageObjects
 from pycode.adapters.storage.plans import FilePlanStore
-from pycode.adapters.storage.prompts import ProjectPromptSource
+from pycode.adapters.storage.prompts import (
+    InstructionFileBackend,
+    ProjectPromptSource,
+)
 from pycode.adapters.storage.requests import SQLiteRequestStore
 from pycode.adapters.storage.session_repository import JsonlSessionRepository
 from pycode.adapters.storage.summaries import FileSummaryStore
@@ -58,7 +62,7 @@ from pycode.adapters.tools.schema import JsonSchemaValidator
 from pycode.adapters.tools.skills import InstallSkill, SkillSearch
 from pycode.adapters.ui.console import ConsoleOutput
 from pycode.adapters.ui.tui import PyApp
-from pycode.app.background_models import ConfiguredSummaryGenerator
+from pycode.app.background_models import ConfiguredMemoryUpdater, ConfiguredSummaryGenerator
 from pycode.app.config import AppConfig, credential_environment
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
 from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
@@ -67,6 +71,7 @@ from pycode.core.errors import ModelError, StorageError
 from pycode.core.execution_recovery import pending_run_entry
 from pycode.core.hashing import data_hash
 from pycode.core.mcp import choose_tools
+from pycode.core.memory import scope_namespace
 from pycode.core.messages import Purpose
 from pycode.core.models import ProviderConfig, model_selection
 from pycode.core.requests import RetryPolicy
@@ -91,9 +96,10 @@ from pycode.services.hooks import HookEngine
 from pycode.services.input_queue import PendingInputs
 from pycode.services.mcp import MCPService
 from pycode.services.mcp_bindings import MCPRuntimeBindings
+from pycode.services.memory import MemoryService
 from pycode.services.model_catalog import ModelCatalog
 from pycode.services.model_control import ModelControl
-from pycode.services.permission import IsolatedWorkerToolGate, ReadOnlyToolGate
+from pycode.services.permission import IsolatedWorkerToolGate, MemoryToolGate, ReadOnlyToolGate
 from pycode.services.plans import PlanService, PlanToolGate
 from pycode.services.prompts import PromptService
 from pycode.services.restart import recover_conversation
@@ -109,6 +115,7 @@ from pycode.services.tool_executor import ToolExecutor
 from pycode.services.tool_registry import ToolRegistry
 from pycode.services.usage import UsageService
 from pycode.workflows.agent import AgentRuntime, RunContext
+from pycode.workflows.memory_tools import memory_tools
 from pycode.workflows.metered_model import MeteredChatModel
 from pycode.workflows.model_fallback import ModelCandidate, ModelFallback
 from pycode.workflows.model_requests import ModelRequestRunner
@@ -274,8 +281,6 @@ def build_runtime(
     factory = ModelFactory(credential_environment(config, (provider,)), observation)
     model = factory.create(provider)
     validator = JsonSchemaValidator()
-    from pycode.workflows.memory_tools import memory_tools
-
     scoped_memory_tools = memory_tools(memory, read_only=config.read_only)
     tools = (*tools, *scoped_memory_tools)
     layout = StorageLayout(config.workspace, config.user_data)
@@ -326,8 +331,6 @@ def build_runtime(
         else ReadOnlyToolGate()
     )
     if scoped_memory_tools:
-        from pycode.services.permission import MemoryToolGate
-
         gate = MemoryToolGate(gate, tuple(tool.spec for tool in scoped_memory_tools))
     if plans is not None:
         if config.isolated_worker:
@@ -475,6 +478,7 @@ def build_runtime(
                 settings,
                 events,
                 preparation=prepare_summary,
+                on_compacted=memory.compacted if memory is not None else None,
             )
         else:
             summary_service.configure(settings, generator, events)
@@ -516,6 +520,7 @@ def build_runtime(
             fallback_owner,
             configure_candidate,
         )
+    instructions = agents_md_sources(config)
     runtime = AgentRuntime(
         model,
         checkpointer=checkpointer,
@@ -530,6 +535,8 @@ def build_runtime(
         skills=skill_sources(config),
         subagents=runtime_subagents(config, provider, history_store, consumers, run_id),
         read_only=config.read_only,
+        instructions=instructions,
+        instruction_backend=InstructionFileBackend(instructions),
     )
     return RuntimeContainer(
         runtime,
@@ -734,12 +741,7 @@ async def open_agent_session(
     try:
         await store.claim_writer()
         layout = StorageLayout(config.workspace, config.user_data)
-        receipt_reader = build_memory_service(config, store)
-        await recover_conversation(
-            store,
-            FileToolOutputStore(layout.sessions, session_id, store),
-            recover_tool=receipt_reader.recover_active_operation,
-        )
+        await recover_conversation(store, FileToolOutputStore(layout.sessions, session_id, store))
         if config.agent_id == "lead" and (layout.project / "worktrees").exists():
             await WorktreeManager(config.workspace, layout.project / "worktrees").scan()
     except BaseException:
@@ -875,7 +877,6 @@ async def open_agent_session(
             plans=plans,
             storage=build_storage_gc(config, owned_session_id=session_id),
             memory=memory,
-            recover_tool=memory.recover_active_operation,
             recovery_outputs=FileToolOutputStore(layout.sessions, session_id, store),
         )
     except BaseException:
@@ -1145,86 +1146,56 @@ def build_summary_generator(config, provider, consumers):
     return ConfiguredSummaryGenerator(provider, model_factory, records_factory)
 
 
-def build_memory_service(config, history, provider=None, consumers=()):
-    from pycode.adapters.storage.json_memory import JsonMemoryStore
-    from pycode.adapters.storage.memory_jobs import FileMemoryJobs
-    from pycode.adapters.storage.memory_moves import FileMemoryMoves
-    from pycode.core.memory_evidence import MemoryWritePermit
-    from pycode.services.json_memory import JsonMemoryService
-    from pycode.services.memory_sources import MemorySourcePlanner
-
+def memory_namespaces(config):
     user_id = hashlib.sha256(str(config.user_data.resolve()).encode()).hexdigest()[:24]
     project_id = StorageLayout(config.workspace, config.user_data).project.name
-    user_namespace = ("memories", "user", user_id)
-    project_namespace = ("memories", "project", project_id)
+    return scope_namespace("user", user_id), scope_namespace("project", project_id)
+
+
+def build_memory_service(config, history, provider=None, consumers=()):
+    user_namespace, project_namespace = memory_namespaces(config)
     roots = {
         user_namespace: config.user_data / "memory",
         project_namespace: config.workspace / ".pycode" / "memory",
     }
     scopes = {user_namespace: "user", project_namespace: "project"}
-
-    async def model_selection_required(query, directory):
-        raise ModelError("memory_model_required", "Memory directory selection needs a provider")
-
-    store = JsonMemoryStore(
-        roots,
-        selector=model_selection_required,
-        validate_change=MemoryWritePermit(),
-    )
-    layout = StorageLayout(config.workspace, config.user_data)
-
-    # Session IDs are read only after the repository has established their trusted identity.
-    class SessionOutputReader:
-        def __init__(self):
-            self.outputs = None
-
-        async def read(
-            self, output_id, offset, limit, max_bytes, byte_offset=0, *, absolute_byte_offset=None
-        ):
-            if self.outputs is None:
-                snapshot = await history.snapshot()
-                self.outputs = FileToolOutputStore(
-                    layout.sessions, snapshot.header.session_id, history
-                )
-            return await self.outputs.read(
-                output_id,
-                offset,
-                limit,
-                max_bytes,
-                byte_offset,
-                absolute_byte_offset=absolute_byte_offset,
-            )
-
-    return JsonMemoryService(
+    # Automatic consolidation writes project memory only for a trusted project.
+    automatic = (user_namespace, project_namespace) if config.project_trusted else (user_namespace,)
+    return MemoryService(
         history,
-        store,
+        JsonMemoryStore(roots),
         scopes,
         SystemTiming(),
-        FileMemoryJobs(roots),
-        MemorySourcePlanner(output_reader=SessionOutputReader()),
+        MemoryChangeLog(config.user_data / "memory" / "changes.jsonl"),
         updater=build_memory_updater(config, provider, consumers) if provider is not None else None,
         mode=config.memory_mode,
-        moves=FileMemoryMoves(store, scopes, user_namespace),
-    )
-
-
-def build_memory_update_store(roots, model, permit):
-    from pycode.adapters.storage.json_memory import JsonMemoryStore
-    from pycode.workflows.memory_query import MemoryDirectorySelector
-
-    return JsonMemoryStore(
-        roots,
-        selector=MemoryDirectorySelector(model),
-        validate_change=permit,
-        directory_tokens=min(12000, max(128, model.input_limit - 1000)),
-        max_queries=8,
+        auto_namespaces=automatic,
     )
 
 
 def build_memory_updater(config, provider, consumers=()):
-    from pycode.app.background_models import ConfiguredMemoryUpdater
-
     def model_factory(selected, session_id, run_id, purpose):
-        return build_background_model(config, selected, consumers, session_id, run_id, purpose)
+        return build_background_model(
+            config,
+            selected,
+            consumers,
+            session_id,
+            run_id,
+            purpose,
+            retry_policy=RetryPolicy(max_retries=0),
+        )
 
-    return ConfiguredMemoryUpdater(provider, model_factory, build_memory_update_store)
+    return ConfiguredMemoryUpdater(provider, model_factory)
+
+
+def agents_md_sources(config):
+    """AGENTS.md is loaded only by MemoryMiddleware; project files require explicit trust."""
+    sources = [config.user_data / "AGENTS.md"]
+    if config.project_trusted:
+        project = config.workspace / "AGENTS.md"
+        if not project.resolve().is_relative_to(config.workspace.resolve()):
+            raise StorageError(
+                "instructions_outside_workspace", "Project AGENTS.md escapes the workspace"
+            )
+        sources.append(project)
+    return tuple(dict.fromkeys(str(path.resolve()) for path in sources if path.is_file()))
