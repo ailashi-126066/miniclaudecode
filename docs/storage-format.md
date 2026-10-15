@@ -5,7 +5,7 @@
   model-catalog.json
   mcp.json / hooks.json / team.json
   skills/
-  memory/                       # approved Markdown + metadata, candidates, versions, transactions
+  memory/                       # memory.json, versions/, jobs/, moves/
   projects/<normalized-workspace-hash>/
     runtime.sqlite              # model_requests accounting only
     sessions/<opaque-session-id>/
@@ -13,7 +13,6 @@
       position.json             # derived active leaf, revision and byte offset
       writer.lock
       tool-results/             # metadata + optional one complete byte/artifact object
-      migration-backups/        # inactive exact pre-migration bytes
     summaries/                  # source/ready result/invalidation references
     snapshots/repository.git/   # independent tree objects and refs
     worktrees/                  # registry and cleanup audit; no automatic commits
@@ -26,9 +25,15 @@
 ```
 
 Main Graph checkpoint and progress events are memory-only. runtime.sqlite has no current
-tool-operation, stream-event, approval or main-chat checkpoint tables. Migration takes an exact
-SQLite backup before dropping obsolete tables, retains model accounting, and backs up old
-output/header records before normalizing the final representation.
+tool-operation, stream-event, approval or main-chat checkpoint tables.
+
+No storage migration or legacy-format compatibility code remains. Only the current formats are
+read: session headers branded `pycode`, output metadata with an empty preview plus
+`preview_sha256`, revert journals whose `revert_started` entries carry `transaction_id` and a saved
+plan, and JSON memory (`memory.json`). Older runtime tables, `py`-branded headers, settled output
+records, pre-transaction revert journals and per-record Markdown memory are no longer converted or
+recovered. Memory snapshots still accept the optional `migration` receipt field so files published
+by the former one-way migrator keep decoding; nothing writes, verifies or protects its backups.
 
 JSONL model responses precede tool execution. Final ToolResult precedes object binding, snapshot
 boundary and finish events. A streamed object can be durable before its JSONL fact; restart treats
@@ -45,9 +50,7 @@ visible, but old tools and waits cannot resume after process exit.
 
 Summary objects are produced independently and adopted only against matching source/config/branch
 boundaries. Plan approval stores exact content/hash; changed files require a new review. Memory
-records use evidence, optimistic content hashes, version backups and prepared transactions; reads
-recover/validate consistent content and metadata. Candidate scope/contents require explicit review
-when ambiguous/conflicting. Memory snapshots are distinct from conversation summaries.
+snapshots are distinct from conversation summaries.
 
 GC inventories managed roots, treats corrupt/partial/live state conservatively, and marks original
 branches, fork ancestry, output/summary/Plan/memory/team references. Unreferenced objects move to
@@ -58,8 +61,7 @@ integration and stopped status are required for removal. Cleanup is audited and 
 
 GC rechecks current references and active owners under its mutation lease before destructive
 actions. Audit records retain the actual source session/entry/timestamp when known, plus a
-separate reference-at-collection flag. Memory removals use prepared transactions too; restart
-finishes a partial content/metadata move before reading the index.
+separate reference-at-collection flag.
 
 Review fixes add no main-chat persistence authority. Team task facts may contain a current
 Worker pending question plus an explicit worktree start choice; cancelling/updating clears that
@@ -73,7 +75,7 @@ hashes tests/tools and the dependency lock. Exported traces explicitly state whe
 entry was retained and that ephemeral output objects were removed with the workspace. Earlier
 reports are immutable historical evidence and are never rewritten by normal test execution.
 
-JSON memory migration is in progress. The new JsonMemoryStore binds configured namespaces
+JsonMemoryStore binds configured namespaces
 (non-path user/project identities) to separate `memory.json` files. Schema version 1 contains
 namespace, revision, typed records with timezone timestamps, and committed source-batch receipts.
 Duplicate keys, missing required fields, future versions and corrupt files fail without overwrite.
@@ -82,21 +84,10 @@ version backups. A job-owned BaseStore view stages component writes and freezes 
 Each scope commits independently with its observed revision, content and source progress together.
 Replayed source receipts cannot undo a newer correction. Directory search uses a metered model,
 never embeddings, keyword ranking or full-body injection into selection prompts.
-The application still uses the old memory service until migration, evidence validation, recovery,
-active tools and GC integration are verified. These new adapter tests do not establish that switch.
-
-
-Legacy per-record Markdown/JSON conversion now preserves original IDs, scoped content, evidence
-and timestamps. Original files and exact hashed migration backups are retained as inactive
-recovery material; old Store/Markdown entry points reject access once active JSON exists.
-A prepared manifest and immutable receipt identify a published migration, so interrupted completion
-can resume without replaying edits or undoing newer corrections. Unknown aggregate Markdown
-without verifiable IDs/provenance is preserved and reported rather than guessed into records.
-UUID spelling aliases resolve to the existing key, including official tools updating old hex IDs.
-The v1 migration receipt is additive optional metadata; core snapshot fields remain required.
-GC uses the same strict snapshot/backup validation, scans pending jobs and version sources, and
-protects active memory writers. Mutation rechecks the inventory before moving or purging objects.
-These adapter and GC changes still precede the application's memory-service migration.
+UUID spelling aliases resolve to the existing key, including official tools updating hex IDs.
+GC uses the same strict snapshot validation, scans active snapshots, version backups, pending jobs
+and scope moves, and protects active memory writers. Mutation rechecks the inventory before moving
+or purging objects.
 
 
 New memory commits capture a trusted original-branch evidence snapshot before model review.

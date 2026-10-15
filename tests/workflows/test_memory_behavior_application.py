@@ -318,7 +318,6 @@ async def test_rule_stage_failure_keeps_related_feedback_pending_but_preserves_i
             await service.aclose()
             holder["repair"] = True
             reopened = build_memory_service(config, history, provider(url))
-            await reopened.ensure_store()
             assert await reopened.process(await reopened.jobs.get(namespace, pending[0].job_id))
             final = await reopened.store.snapshot(namespace)
             assert final["records"][key] == record

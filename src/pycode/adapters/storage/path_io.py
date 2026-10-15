@@ -24,17 +24,15 @@ def io_path(path):
 def safe_relative(base, name):
     relative = PurePosixPath(name)
     if not name or relative.is_absolute() or ".." in relative.parts or "\\" in name:
-        raise StorageError(
-            "memory_migration_corrupt", "Migration manifest contains an invalid path"
-        )
+        raise StorageError("memory_path_invalid", "Memory file name is not a safe relative path")
     path = base.joinpath(*relative.parts)
     if not path.resolve().is_relative_to(base.resolve()):
-        raise StorageError("memory_path_invalid", "Migration path escapes its backup root")
+        raise StorageError("memory_path_invalid", "Memory file path escapes its root")
     for ancestor in [path, *path.parents]:
         if ancestor == base:
             break
         if ancestor.is_symlink():
-            raise StorageError("memory_path_invalid", "Migration file path contains a symlink")
+            raise StorageError("memory_path_invalid", "Memory file path contains a symlink")
     return path
 
 

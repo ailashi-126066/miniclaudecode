@@ -1,16 +1,15 @@
-"""The live panel reads migrated JSON; explicit edits require no memory approval or model call."""
+"""The live panel reads JSON memory; explicit edits require no memory approval or model call."""
 
+import hashlib
 from uuid import uuid4
 
 from tests.adapters.ui.test_tui_http import settled
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
-from tests.support.legacy_memory_store import FileMemoryStore
-from tests.support.legacy_memory_types import MemoryRecord
 
+from pycode.adapters.storage.json_memory import JsonMemoryStore
 from pycode.app.config import AppConfig
 from pycode.app.container import build_tui
-from pycode.core.memory import content_hash
 
 
 async def test_tui_json_memory_inspection_and_explicit_edit_without_candidate_approval(
@@ -29,32 +28,38 @@ async def test_tui_json_memory_inspection_and_explicit_edit_without_candidate_ap
                 for item in app.state["snapshot"]["entries"]
                 if item["message"] and item["message"]["role"] == "user"
             )
-            legacy = FileMemoryStore(config.user_data / "memory", tmp_path / ".pycode" / "memory")
+            user_id = hashlib.sha256(str(config.user_data.resolve()).encode()).hexdigest()[:24]
+            namespace = ("memories", "user", user_id)
+            store = JsonMemoryStore(
+                {namespace: config.user_data / "memory"},
+                selector=None,
+                validate_change=lambda *args: None,
+            )
             key = uuid4().hex
-            await legacy.write(
-                MemoryRecord(
-                    key,
-                    "function-style",
-                    "user_preference",
-                    "user",
-                    "Keep functions readable.",
-                    1,
-                    1,
-                    (
-                        {
-                            "entry_id": entry["id"],
-                            "quote": "Keep functions readable.",
-                            "source_session_id": app.session_id,
-                        },
-                    ),
-                    content_hash("Keep functions readable."),
-                )
+            await store.aput(
+                namespace,
+                key,
+                {
+                    "kind": "SemanticMemory",
+                    "content": {
+                        "title": "function-style",
+                        "summary": "Keep functions readable.",
+                        "body": "Keep functions readable.",
+                        "category": "user_preference",
+                        "sources": [
+                            {
+                                "session_id": app.session_id,
+                                "entry_id": entry["id"],
+                                "quote": "Keep functions readable.",
+                            }
+                        ],
+                    },
+                },
             )
             await app.command("/memory")
             await settled(app)
             assert app.query("#memory-panel")
             assert not app.query("#memory-candidate") and not app.query("#memory-approve")
-            assert (config.user_data / "memory/memory.json").is_file()
             await app.command(f"/memory edit {key} Keep functions readable and explicit.")
             await settled(app)
             if app.last_error:

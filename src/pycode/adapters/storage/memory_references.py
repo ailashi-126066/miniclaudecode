@@ -1,7 +1,6 @@
 """Read memory authorities and recovery references before any managed-object cleanup."""
 
 import json
-import re
 
 from pycode.adapters.storage.file_lease import FileLease
 from pycode.adapters.storage.json_memory import (
@@ -9,10 +8,8 @@ from pycode.adapters.storage.json_memory import (
     encode,
     reject_duplicate_keys,
 )
-from pycode.adapters.storage.memory_migration import verify_migration_backup
 from pycode.adapters.storage.path_io import safe_relative
 from pycode.core.errors import StorageError
-from pycode.core.memory_schema import MemoryMigrationReceipt
 
 
 def reference_json(root, path, *, snapshot=False):
@@ -59,38 +56,6 @@ def memory_reference_values(root):
     )
     if state is not None:
         values.append(state)
-    manifest_path = root / "migration.json"
-    if manifest_path.exists() or manifest_path.is_symlink():
-        manifest = reference_json(root, manifest_path)
-        try:
-            receipt = MemoryMigrationReceipt.model_validate_json(
-                encode(manifest.get("receipt"))
-            ).model_dump(mode="json")
-        except ValueError as error:
-            raise StorageError(
-                "memory_migration_corrupt", "Migration reference identity is invalid"
-            ) from error
-        if state is not None and state["migration"] != receipt:
-            raise StorageError(
-                "memory_migration_conflict", "Migration references differ from active memory"
-            )
-        for path in verify_migration_backup(root, receipt, manifest):
-            if path.suffix == ".json":
-                values.append(reference_json(root, path))
-    elif state is not None and state["migration"] is not None:
-        raise StorageError("memory_migration_corrupt", "Active migration has no recovery manifest")
-    if state is None:
-        for path in sorted(root.glob("*.json")):
-            if re.fullmatch(r"[a-f0-9]{32}", path.stem):
-                values.append(reference_json(root, path))
-        candidates = root / "candidates"
-        if candidates.is_symlink():
-            raise StorageError("memory_path_invalid", "Legacy candidate root cannot be a symlink")
-        if candidates.exists():
-            for path in sorted(candidates.glob("*.json")):
-                data = reference_json(root, path)
-                if data.get("status") == "pending":
-                    values.append(data)
     versions = root / "versions"
     jobs = root / "jobs"
     moves = root / "moves"

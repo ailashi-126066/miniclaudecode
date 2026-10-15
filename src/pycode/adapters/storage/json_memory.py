@@ -206,7 +206,7 @@ class JsonMemoryStore(BaseStore):
         return state.model_dump(mode="json")
 
     def publish(self, namespace, state, previous):
-        """Called only while holding the scope lease, for normal commits and migration."""
+        """Called only while holding the scope lease."""
         root = self.roots[namespace]
         MemorySnapshot.model_validate_json(encode(state))
         if state["namespace"] != list(namespace):

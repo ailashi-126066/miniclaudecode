@@ -59,8 +59,8 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   当前进程审批、批准内容 hash、反馈与重启过期语义。AskUser 使用同样 live interrupt。
 - `services/json_memory.py`、`workflows/memory_update.py`、`adapters/storage/json_memory.py`：
   官方 LangMem Store Manager／管理搜索工具／prompt_memory 适配，三类 JSON 记忆、可信来源、
-  单一召回、分组提交、持久作业／来源游标和规则比较为本项目接入。`legacy_memory.py` 仅保留
-  已有旧事务的迁移恢复；旧提取器、人工审阅服务和 Markdown 工具路由已退出运行包。
+  单一召回、分组提交、持久作业／来源游标和规则比较为本项目接入。旧格式迁移与恢复代码、
+  旧提取器、人工审阅服务和 Markdown 工具路由均已退出运行包。
 - `services/team.py`、`workflows/team.py`、`adapters/team/*`：Deep Agents Async Subagents
   五个 native tools 及 Agent Protocol；pycode 添加依赖、并发、worktree 和安全集成清理。
   没有独立 Worker 消息队列／已消费游标；同步只读子任务和 fork Skill 使用 native task。

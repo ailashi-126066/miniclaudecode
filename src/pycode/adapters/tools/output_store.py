@@ -13,7 +13,6 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from pycode.adapters.storage.migration import migrate_output_metadata
 from pycode.adapters.storage.path_io import atomic_write, io_path
 from pycode.adapters.storage.session_codec import decode_header
 from pycode.adapters.tools.read_range import read_range
@@ -112,8 +111,7 @@ class FileToolOutputStore:
         path = self.directory(owner or self._session_id) / f"{output_id}.json"
         if not path.exists():
             raise ToolError("output_missing", "Complete tool output metadata is missing")
-        migrated = migrate_output_metadata(path)
-        metadata = TypeAdapter(OutputMetadata).validate_json(json_dumps(migrated), strict=True)
+        metadata = TypeAdapter(OutputMetadata).validate_json(path.read_bytes(), strict=True)
         if metadata.output_id != output_id or metadata.session_id != (owner or self._session_id):
             raise ToolError("output_corrupt", "Tool output identity does not match its object")
         return metadata

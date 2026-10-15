@@ -74,7 +74,6 @@ async def seed(config):
     history = await build_session_repository(config).open("seed", create=True)
     service = build_memory_service(config, history)
     try:
-        await service.ensure_store()
         value = proposal("unused")
         value["content"]["sources"] = []
         await service.command(

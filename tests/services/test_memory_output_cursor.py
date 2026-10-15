@@ -229,7 +229,6 @@ async def test_application_commit_persists_output_position_and_reopen_uses_it(
             config = AppConfig(tmp_path, tmp_path / "data", allow_delegation=False)
             history = await build_session_repository(config).open("s")
             reopened = build_memory_service(config, history, provider(url))
-            await reopened.ensure_store()
             window = await reopened.sources.next(
                 await history.snapshot(), state["processed_batches"]
             )

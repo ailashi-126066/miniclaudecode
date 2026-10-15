@@ -41,8 +41,6 @@ from pycode.adapters.snapshot.git_tree import GitSnapshotStore
 from pycode.adapters.storage.catalog import FileCatalogStore
 from pycode.adapters.storage.history_backend import ConversationHistoryBackend
 from pycode.adapters.storage.layout import StorageLayout
-from pycode.adapters.storage.legacy_memory import LegacyMemoryRecovery
-from pycode.adapters.storage.migration import migrate_runtime_database
 from pycode.adapters.storage.objects import FileStorageObjects
 from pycode.adapters.storage.plans import FilePlanStore
 from pycode.adapters.storage.prompts import ProjectPromptSource
@@ -896,7 +894,6 @@ async def open_agent_session(
     try:
         await store.claim_writer()
         layout = StorageLayout(config.workspace, config.user_data)
-        await asyncio.to_thread(migrate_runtime_database, layout.runtime_database)
         receipt_reader = build_memory_service(config, store)
         await recover_conversation(
             store,
@@ -1315,11 +1312,8 @@ def build_summary_generator(config, provider, consumers):
 def build_memory_service(config, history, provider=None, consumers=()):
     from pycode.adapters.storage.json_memory import JsonMemoryStore
     from pycode.adapters.storage.memory_jobs import FileMemoryJobs
-    from pycode.adapters.storage.memory_migration import MemoryMigration
     from pycode.adapters.storage.memory_moves import FileMemoryMoves
-    from pycode.core.errors import ToolError
     from pycode.core.memory_evidence import MemoryWritePermit
-    from pycode.core.memory_schema import validate_memory_value
     from pycode.services.json_memory import JsonMemoryService
     from pycode.services.memory_sources import MemorySourcePlanner
 
@@ -1341,21 +1335,6 @@ def build_memory_service(config, history, provider=None, consumers=()):
         selector=model_selection_required,
         validate_change=MemoryWritePermit(),
     )
-
-    def validate_migration(namespace, key, value, previous):
-        if namespace not in scopes or previous is not None:
-            raise ToolError("memory_scope_denied", "Migration owns a fresh configured scope")
-        checked = validate_memory_value(value)
-        if checked["kind"] != "SemanticMemory":
-            raise ToolError("memory_legacy_corrupt", "Legacy records map only to semantic memory")
-
-    legacy = LegacyMemoryRecovery()
-    migration_store = JsonMemoryStore(
-        roots,
-        selector=model_selection_required,
-        validate_change=validate_migration,
-    )
-    migration = MemoryMigration(migration_store, scopes, recover=legacy.recover_transactions)
     layout = StorageLayout(config.workspace, config.user_data)
 
     # Session IDs are read only after the repository has established their trusted identity.
@@ -1387,7 +1366,6 @@ def build_memory_service(config, history, provider=None, consumers=()):
         SystemTiming(),
         FileMemoryJobs(roots),
         MemorySourcePlanner(output_reader=SessionOutputReader()),
-        migration,
         updater=build_memory_updater(config, provider, consumers) if provider is not None else None,
         mode=config.memory_mode,
         moves=FileMemoryMoves(store, scopes, user_namespace),

@@ -8,32 +8,12 @@ def transaction_id(plan: RevertPlan) -> str:
 
 
 def entry_transaction_id(entry) -> str:
-    return entry.data.get("transaction_id") or entry.data.get("restore_id") or entry.id
+    return entry.data.get("transaction_id") or entry.id
 
 
 def belongs_to_session(entry, header) -> bool:
     owner = entry.data.get("session_id")
     return owner == header.session_id or (owner is None and header.parent_session_id is None)
-
-
-def legacy_completion(snapshot, started):
-    if started.data.get("transaction_id") or started.data.get("restore_id"):
-        return None
-    position = snapshot.entries.index(started)
-    for entry in snapshot.entries[position + 1 :]:
-        if entry.type != "custom" or not belongs_to_session(entry, snapshot.header):
-            continue
-        if entry.data.get("kind") == "revert_started":
-            break
-        if (
-            entry.data.get("kind") == "revert_completed"
-            and not entry.data.get("transaction_id")
-            and not entry.data.get("restore_id")
-            and entry.data.get("mode") == started.data.get("mode")
-            and entry.data.get("target_leaf_id") == started.data.get("target_leaf_id")
-        ):
-            return entry
-    return None
 
 
 def pending_revert(snapshot):
@@ -50,7 +30,7 @@ def pending_revert(snapshot):
         if not belongs_to_session(entry, snapshot.header):
             continue
         identifier = entry_transaction_id(entry)
-        if identifier not in ended and legacy_completion(snapshot, entry) is None:
+        if identifier not in ended:
             return entry
     return None
 

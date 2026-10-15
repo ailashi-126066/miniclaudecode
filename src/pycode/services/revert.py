@@ -10,7 +10,6 @@ from pycode.core.revert_state import (
     belongs_to_session,
     decode_plan,
     entry_transaction_id,
-    legacy_completion,
     pending_revert,
     transaction_id,
 )
@@ -139,8 +138,6 @@ class RevertService:
                 started = entry
             elif entry.data.get("kind") == "revert_completed":
                 completed = entry
-        if started is not None and completed is None:
-            completed = legacy_completion(snapshot, started)
         return started, completed
 
     async def file_record(self, plan, completed):
@@ -210,22 +207,14 @@ class RevertService:
                 "revert_transaction_missing", "This session has no matching revert transaction"
             )
         saved = started.data.get("plan")
-        plan = (
-            decode_plan(saved)
-            if saved is not None
-            else RevertPlan(
-                snapshot.header.session_id,
-                started.parent_id,
-                started.data["target_leaf_id"],
-                started.data["mode"],
-                transaction_id=restore_id,
+        if saved is None:
+            raise StorageError(
+                "revert_transaction_unsupported", "Revert journal has no saved transaction plan"
             )
-        )
+        plan = decode_plan(saved)
         if completed is not None:
             if completed.data.get("compensated", False) != compensate:
                 raise StorageError("revert_already_completed", "Revert already settled differently")
-            if saved is None and started.data.get("restore_id") is not None:
-                return await self._snapshots.recover(restore_id, compensate=compensate)
             return await self.file_record(plan, completed)
         pending = pending_revert(snapshot)
         if pending is not None and pending.id != started.id:
@@ -277,7 +266,7 @@ class RevertService:
                 )
             )
         record = None
-        if plan.files is not None or (saved is None and started.data.get("restore_id") is not None):
+        if plan.files is not None:
             record = await self._snapshots.recover(
                 restore_id,
                 compensate=compensate,

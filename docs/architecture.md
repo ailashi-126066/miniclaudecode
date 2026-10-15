@@ -54,8 +54,8 @@ commit receipts publish atomically per scope. Jobs own immutable sources, stagin
 observers and per-request accounting. Rule feedback selects single/multi prompt_memory;
 inferred rules require a fixed, tool-free comparison and exact version-bound runtime permit.
 Scope moves use ordered leases, copy-first publication and persistent receipts, without a
-cross-file transaction claim. LegacyMemoryRecovery only finishes existing old transactions
-before one-way migration; no runtime Markdown reader, writer or candidate approval remains.
+cross-file transaction claim. No legacy Markdown memory migration, recovery, reader, writer or
+candidate approval remains.
 GC marks all durable references and
 live/uncertain writers before 30-day quarantine/purge. Worktree integration/cleanup stays separate.
 Seatbelt profiles deny by default: reads cover the workspace, system directories, temp,

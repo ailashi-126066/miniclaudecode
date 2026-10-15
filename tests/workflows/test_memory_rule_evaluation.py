@@ -298,7 +298,6 @@ async def test_production_cancel_reopen_resumes_only_unfinished_comparison_steps
             holder["block"] = False
             release.set()
             reopened = build_memory_service(config, history, provider(url))
-            await reopened.ensure_store()
             assert await reopened.process(
                 await reopened.jobs.get(pending[0].namespace, pending[0].job_id)
             )

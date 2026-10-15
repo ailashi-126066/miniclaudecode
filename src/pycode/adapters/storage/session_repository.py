@@ -6,7 +6,6 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pycode.adapters.storage.migration import migrate_session_brand
 from pycode.adapters.storage.session import JsonlSessionStore
 from pycode.adapters.storage.session_codec import decode_header
 from pycode.core.errors import StorageError
@@ -30,7 +29,6 @@ class JsonlSessionRepository:
                 path = directory / "entries.jsonl"
                 if directory.is_symlink() or not directory.is_dir() or not path.is_file():
                     continue
-                migrate_session_brand(path)
                 with path.open("rb") as source:
                     header = decode_header(source.readline())
                 if header.workspace != self._workspace or header.session_id != directory.name:
@@ -66,7 +64,6 @@ class JsonlSessionRepository:
                         "session_quarantined", "Restore this deleted session before opening it"
                     )
             if path.exists():
-                migrate_session_brand(path)
                 with path.open("rb") as source:
                     return decode_header(source.readline())
             if not create:

@@ -6,12 +6,9 @@ from pathlib import Path
 import pytest
 from tests.adapters.storage.test_json_memory import PROJECT, USER, value
 from tests.services.test_storage_gc import setup_objects, write_output
-from tests.support.legacy_memory_store import FileMemoryStore
-from tests.support.legacy_memory_types import MemoryRecord
 
 from pycode.adapters.storage.file_lease import FileLease
 from pycode.adapters.storage.json_memory import JsonMemoryStore
-from pycode.adapters.storage.memory_migration import MemoryMigration
 from pycode.adapters.storage.path_io import owned_io
 from pycode.core.errors import StorageError
 from pycode.services.storage_gc import StorageGC
@@ -171,36 +168,7 @@ async def test_active_memory_writer_protects_objects_before_snapshot_replace(tmp
         lease.close()
 
 
-async def test_migration_recovery_backup_preserves_old_sources_without_old_activity(tmp_path):
-    store, gc, _, _, _, _, entry_id = await setup_memory_objects(tmp_path)
-    legacy = FileMemoryStore(store.roots[USER], store.roots[PROJECT])
-    record = MemoryRecord(
-        "a" * 32,
-        "fact",
-        "user_preference",
-        "user",
-        "line was observed",
-        1,
-        2,
-        evidence=({"source_session_id": "s1", "entry_id": entry_id, "quote": "line"},),
-    )
-    await legacy.write(record)
-    migration = MemoryMigration(
-        store, {USER: "user", PROJECT: "project"}, recover=legacy.recover_transactions
-    )
-    await migration.run()
-    await store.adelete(USER, record.memory_id)
-    decisions = (await gc.collect())["decisions"]
-    assert next(d for d in decisions if d["type"] == "output")["action"] == "keep_referenced"
-    assert (
-        next(d for d in decisions if d["type"] == "session")["action"]
-        == "keep_referenced_quarantine"
-    )
-    with pytest.raises(StorageError):
-        await legacy.list_records()
-
-
-@pytest.mark.parametrize("location", ["active", "version", "job", "migration_backup"])
+@pytest.mark.parametrize("location", ["active", "version", "job"])
 async def test_corrupt_json_memory_or_recovery_data_blocks_gc_before_any_move(tmp_path, location):
     store, gc, objects, _, _, _, entry_id = await setup_memory_objects(tmp_path)
     await store.aput(USER, "remember", reference(entry_id))
@@ -210,16 +178,9 @@ async def test_corrupt_json_memory_or_recovery_data_blocks_gc_before_any_move(tm
     elif location == "version":
         await store.adelete(USER, "remember")
         path = root / "versions" / "revision-1.json"
-    elif location == "job":
+    else:
         (root / "jobs").mkdir()
         path = root / "jobs" / "job.json"
-    else:
-        # A recovery manifest must not silently pretend a missing archive is valid.
-        data = json.loads((root / "memory.json").read_bytes())
-        receipt = {"format": "legacy-records-v1", "source_sha256": "a" * 64, "record_ids": []}
-        data["migration"] = receipt
-        (root / "memory.json").write_text(json.dumps(data))
-        path = root / "migration.json"
     path.write_bytes(b'{"status":"pending_retry","status":"complete"}')
     before = (
         {str(p): p.read_bytes() for p in objects.quarantine.rglob("*") if p.is_file()}

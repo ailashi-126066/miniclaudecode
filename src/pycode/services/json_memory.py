@@ -33,26 +33,19 @@ class JsonMemoryService:
         timing,
         jobs,
         sources,
-        migration,
         *,
         updater=None,
         mode=None,
         moves=None,
     ):
         self.history, self.store, self.scopes, self.timing = history, store, scopes, timing
-        self.jobs, self.sources, self.migration, self.updater = jobs, sources, migration, updater
+        self.jobs, self.sources, self.updater = jobs, sources, updater
         self.mode = mode
         self.moves = moves
         self.user_namespace = next(ns for ns, scope in scopes.items() if scope == "user")
         self.tasks = {}
         self.lock = asyncio.Lock()
-        self.migrated = False
         self.closed = False
-
-    async def ensure_store(self):
-        if not self.migrated:
-            await self.migration.run()
-            self.migrated = True
 
     async def initialize(self):
         if self.mode is None:
@@ -65,7 +58,6 @@ class JsonMemoryService:
         await self.recover_moves()
         if self.mode == "off":
             return
-        await self.ensure_store()
         if self.updater is not None:
             snapshot = await self.history.snapshot()
             for namespace in self.scopes:
@@ -88,11 +80,9 @@ class JsonMemoryService:
                 EntryDraft("memory_load", data={"records": [], "loaded_at": self.timing.now()})
             )
         else:
-            await self.ensure_store()
             await self.settled("memory-enabled-" + uuid4().hex)
 
     async def list(self):
-        await self.ensure_store()
         records = []
         for namespace, scope in self.scopes.items():
             snapshot = await self.store.snapshot(namespace)
@@ -103,7 +93,6 @@ class JsonMemoryService:
     async def select(self, query):
         if self.mode == "off":
             return ()
-        await self.ensure_store()
         snapshot = await self.history.snapshot()
         records = ()
         try:
@@ -340,7 +329,6 @@ class JsonMemoryService:
     async def extract_snapshot(self, run_id):
         if self.mode == "off" or self.updater is None:
             return
-        await self.ensure_store()
         async with self.lock:
             current = await self.history.snapshot()
             for namespace in self.scopes:
@@ -396,7 +384,6 @@ class JsonMemoryService:
         await self.collect(cancel=True)
 
     async def target(self, memory_id, scope=None):
-        await self.ensure_store()
         found = []
         for namespace, bound_scope in self.scopes.items():
             if scope is not None and scope != bound_scope:
@@ -570,7 +557,6 @@ class JsonMemoryService:
         for move in pending:
             if move.status == "completed" and move.move_id in audited:
                 continue
-            await self.ensure_store()
             await self.finish_move(move)
 
     async def move(self, memory_id, scope, *, content=None, from_scope=None):
@@ -629,7 +615,6 @@ class JsonMemoryService:
         )
 
     async def clear(self):
-        await self.ensure_store()
         for namespace in self.scopes:
             snapshot = await self.store.snapshot(namespace)
             if snapshot["records"]:
@@ -647,7 +632,6 @@ class JsonMemoryService:
             raise ToolError("memory_disabled", "Memory tools are disabled for this execution")
         if namespace not in self.scopes:
             raise ToolError("memory_scope_denied", "Memory tool namespace is outside this session")
-        await self.ensure_store()
         snapshot = await self.history.snapshot()
         arguments_sha256 = data_hash(arguments)
         if manage:

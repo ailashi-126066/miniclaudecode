@@ -191,6 +191,8 @@ class SourceBatch(BaseModel):
 
 
 class MemoryMigrationReceipt(BaseModel):
+    # Read-only: the migrator is gone, but memory.json files it published still carry this
+    # receipt and every current snapshot serializes "migration": null, so the field must decode.
     model_config = ConfigDict(extra="forbid", strict=True)
     format: Literal["legacy-records-v1"]
     source_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]

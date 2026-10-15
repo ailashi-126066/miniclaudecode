@@ -185,7 +185,6 @@ async def test_production_restarts_reorganize_bad_group_and_keep_completed_sourc
             await service.aclose()
             config = AppConfig(tmp_path, tmp_path / "data", allow_delegation=False)
             reopened = build_memory_service(config, history, provider(url))
-            await reopened.ensure_store()
             pending = await reopened.jobs.get(namespace, job.job_id)
             assert pending.reorganize_reason == "memory_claim_unsupported"
             if interrupt:
@@ -202,7 +201,6 @@ async def test_production_restarts_reorganize_bad_group_and_keep_completed_sourc
                 holder["block"] = False
                 await reopened.aclose()
                 reopened = build_memory_service(config, history, provider(url))
-                await reopened.ensure_store()
                 pending = await reopened.jobs.get(namespace, job.job_id)
             assert not await reopened.process(pending)
             restaged = await reopened.jobs.get(namespace, job.job_id)
@@ -212,7 +210,6 @@ async def test_production_restarts_reorganize_bad_group_and_keep_completed_sourc
             await reopened.aclose()
             holder["reject_b"] = False
             reopened = build_memory_service(config, history, provider(url))
-            await reopened.ensure_store()
             assert await reopened.process(await reopened.jobs.get(namespace, job.job_id))
             final = await reopened.store.snapshot(namespace)
             assert final["records"]["a"] == original_a
@@ -330,7 +327,6 @@ async def test_target_conflict_reorganizes_against_latest_records_without_undoin
                 history,
                 provider(url),
             )
-            await reopened.ensure_store()
             assert await reopened.process(await reopened.jobs.get(namespace, job.job_id))
             final = await reopened.store.snapshot(namespace)
             assert final["records"] == before["records"]

@@ -227,7 +227,6 @@ async def test_application_restart_reviews_only_unfinished_group_with_persistent
             config = AppConfig(tmp_path, tmp_path / "data", allow_delegation=False)
             restarted = build_memory_service(config, history, provider(url))
             # Resume the exact durable job; do not run another source organizer in this test.
-            await restarted.ensure_store()
             current = await restarted.jobs.get(namespace, job.job_id)
             assert await restarted.process(current)
             after = await restarted.store.snapshot(namespace)
