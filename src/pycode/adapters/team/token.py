@@ -15,6 +15,8 @@ def issue_token(user_data, port):
     token = secrets.token_urlsafe(32)
     path = token_path(user_data, port)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # mkdir leaves an existing directory's mode alone; tighten it explicitly.
+    path.parent.chmod(0o700)
     # mkstemp creates the file with 0600, so the secret is never world-readable.
     descriptor, temporary = tempfile.mkstemp(prefix=".token-", dir=path.parent)
     try:

@@ -192,9 +192,12 @@ pycode team --providers providers.json serve --port 2024
 本地服务只监听 127.0.0.1。每次启动生成随机 bearer token，以 0600 权限原子写入
 用户数据目录的 `team-tokens/端口.token`，退出时删除；所有请求须携带
 `Authorization: Bearer <token>`，否则返回 401，Host 头只接受 `127.0.0.1`、`localhost`
-或 `[::1]`（可带端口），否则返回 403 以防 DNS rebinding。`team.json` 中指向 loopback
-地址且未显式配置 `Authorization` 的条目由 pycode 自动读取对应端口的 token；
-服务需与客户端使用同一用户数据目录。
+或 `[::1]`（可带端口），否则返回 403 以防 DNS rebinding。`team.json` 中主机为 `127.0.0.1`
+或 `localhost` 且未显式配置 `Authorization` 的条目由 pycode 自动读取对应端口的 token；
+服务需与客户端使用同一用户数据目录。建议写 `http://127.0.0.1:端口`：`localhost` 可能先解析到
+`[::1]`，同机其他用户若抢先监听该地址即可截获 token。端口已被占用时 `team serve` 直接报错退出，
+不会改动运行中服务的 token。TUI／CLI 的 team 命令每次执行都重新读取 token；Lead 模型使用的
+Async Subagents 在会话打开时读取，先开会话后启动或重启 `team serve` 时需重开会话。
 
 本地 graph_id 为 `readonly`、`worker` 或显式集成任务的 `integration`。
 修改型 Worker 使用独立 worktree，文件写入限定

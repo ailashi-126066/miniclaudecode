@@ -11,12 +11,27 @@ from pycode.core.errors import ToolError
 
 class NativeTeamCommands:
     def __init__(self, specifications):
-        self.middleware = AsyncSubAgentMiddleware(async_subagents=list(specifications))
+        # A callable is re-read before each command, e.g. to pick up a rotated host token.
+        if callable(specifications):
+            self.specifications = specifications
+        else:
+            fixed = list(specifications)
+            self.specifications = lambda: fixed
+        self.current = None
+        self.refresh()
+
+    def refresh(self):
+        specifications = list(self.specifications())
+        if specifications == self.current:
+            return
+        self.current = specifications
+        self.middleware = AsyncSubAgentMiddleware(async_subagents=specifications)
         self.tools = {}
         for tool in self.middleware.tools:
             self.tools[tool.name] = tool
 
     async def execute(self, name, arguments, tasks):
+        self.refresh()
         tool = self.tools.get(name)
         if tool is None:
             raise ToolError("unknown_team_command", "Unknown native Team command")

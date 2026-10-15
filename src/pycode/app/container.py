@@ -600,7 +600,10 @@ def build_team_manager(config, history, *, plans=None):
         history,
         config.team_agents,
         concurrency=config.team_concurrency,
-        commands=NativeTeamCommands(async_agent_specs(config.team_agents, config.user_data)),
+        # Re-read per command so a host started or restarted after the session still works.
+        commands=NativeTeamCommands(
+            lambda: async_agent_specs(config.team_agents, config.user_data)
+        ),
         plans=plans,
     )
 
@@ -712,14 +715,15 @@ def async_agent_specs(agents, user_data):
     from urllib.parse import urlsplit
 
     from pycode.adapters.team.token import read_token
-    from pycode.core.network import is_loopback_host
 
     specs = []
     for agent in agents:
         headers = dict(agent.headers)
         url = urlsplit(agent.url)
         explicit = any(key.casefold() == "authorization" for key in headers)
-        if not explicit and is_loopback_host(url.hostname):
+        # Only names that can reach `team serve` (bound to 127.0.0.1) get its token, so it is
+        # never sent to another loopback listener such as [::1] or 127.0.0.2.
+        if not explicit and (url.hostname or "").casefold() in {"127.0.0.1", "localhost"}:
             # Local `team serve` hosts publish a per-port token in the user data directory.
             port = url.port or (443 if url.scheme == "https" else 80)
             token = read_token(user_data, port)

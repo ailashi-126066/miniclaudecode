@@ -91,3 +91,32 @@ async def test_unreachable_executor_marked_interrupted_without_automatic_run(tmp
         assert task["task_id"] == task_id
     finally:
         await store.aclose()
+
+
+async def test_native_commands_reread_specifications_before_each_command():
+    # A host started or restarted after the session publishes a token the next command uses.
+    headers = {}
+
+    def specifications():
+        return [
+            {
+                "name": "worker",
+                "description": "fixed Worker",
+                "graph_id": "worker",
+                "url": url,
+                "headers": dict(headers),
+            }
+        ]
+
+    async with server() as (url, protocol, workers):
+        commands = NativeTeamCommands(specifications)
+        with pytest.raises(ToolError) as error:
+            await commands.execute(
+                "start_async_task", {"subagent_type": "worker", "description": "finish"}, {}
+            )
+        assert error.value.code == "team_service_unavailable" and not workers
+        headers.update(AUTHORIZATION)
+        updates, _ = await commands.execute(
+            "start_async_task", {"subagent_type": "worker", "description": "finish"}, {}
+        )
+        assert len(updates) == 1 and len(workers) == 1
