@@ -80,7 +80,8 @@ async def test_model_command_opens_a_scrollable_picker_and_enter_selects_the_row
     app = compose_application(config, (first, second)).tui()
     async with app.run_test(size=(100, 25)) as pilot:
         await app.ready.wait()
-        await app.command("/model")
+        await pilot.press(*"/model", "enter")
+        await pilot.pause()
         picker = app.query_one(ModelPicker)
         entry = app.query_one(ChatInput)
         assert picker.display and len(picker.models) == 2

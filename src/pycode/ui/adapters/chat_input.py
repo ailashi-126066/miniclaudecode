@@ -109,6 +109,13 @@ class ChatInput(TextArea):
             if self.model_selected is not None:
                 self.model_selected(selected.provider, selected.model_id)
             return
+        if self.text.strip() == "/model":
+            text = self.text
+            self.clear()
+            if self.popup is not None:
+                self.popup.hide()
+            self.post_message(self.Submitted(text))
+            return
         if self.popup is not None and self.popup.selected is not None:
             self.action_complete()
             return

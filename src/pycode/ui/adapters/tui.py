@@ -16,7 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message as UIMessage
-from textual.widgets import Button, Markdown, Static
+from textual.widgets import Button, Collapsible, Markdown, Static
 
 from pycode import __version__
 from pycode.kernel import DomainError, Message, RunResult, StorageError, json_dumps
@@ -93,13 +93,30 @@ def reply_metadata(message):
     return " · ".join(parts)
 
 
+def plan_status(plan):
+    if plan is None:
+        return ""
+    return {
+        "planning": "计划：规划中（只读）",
+        "review": "计划：等待确认",
+        "auto": "计划：已批准执行",
+    }.get(plan["mode"], "")
+
+
+def thinking_preview(text):
+    lines = text.splitlines()
+    return ("…\n" if len(lines) > 3 else "") + "\n".join(lines[-3:])
+
+
 class PyApp(App):
     TITLE = "pycode"
     CSS = """
     Screen {background: $background; color: $foreground;}
     #brand {height: 3; padding: 0 3; color: $primary; text-style: bold;}
     #main {height: 1fr;}
-    #conversation {height: 1fr; padding: 0 3;}
+    #conversation {height: 1fr; padding: 0 3; scrollbar-size-vertical: 1;
+      scrollbar-color: $text-muted; scrollbar-color-hover: $text-muted;
+      scrollbar-color-active: $text-muted; scrollbar-background: $background;}
     #back-to-bottom {display: none; height: 1; color: $primary; background: $background;
       border: none;}
     #conversation Static {height: auto;}
@@ -117,6 +134,8 @@ class PyApp(App):
     .assistant-label {color: $primary; text-style: bold; margin-top: 1;}
     .message-usage {color: $text-muted; margin-bottom: 1;}
     .message-thinking {color: $text-muted; text-style: italic;}
+    .thinking-block {height: auto; margin-bottom: 1; color: $text-muted;}
+    .thinking-block > CollapsibleTitle {color: $text-muted;}
     .live-turn {height: auto; margin-top: 1;}
     .live-phase {color: $primary; text-style: bold;}
     .live-thinking {color: $text-muted; text-style: italic; display: none;}
@@ -127,6 +146,7 @@ class PyApp(App):
     BINDINGS = [
         Binding("ctrl+c", "stop", "Stop", priority=True),
         Binding("ctrl+q", "close", "Quit", priority=True),
+        Binding("escape", "dismiss_notice", show=False),
         Binding("f6", "toggle_theme", "Theme"),
     ]
 
@@ -168,6 +188,7 @@ class PyApp(App):
         self._displayed_session = None
         self._running_tools = {}
         self.commands = CommandRegistry()
+        self.scroll_sensitivity_y = 1.0
         for theme in themes():
             self.register_theme(theme)
         self.theme = "pycode-dark"
@@ -266,7 +287,7 @@ class PyApp(App):
             self._live_thinking += event.data["text"]
             if self._live_thinking_widget is not None:
                 self._live_thinking_widget.display = True
-                self._live_thinking_widget.update("思考中：" + self._live_thinking)
+                self._live_thinking_widget.update("思考中：\n" + thinking_preview(self._live_thinking))
             self.follow_conversation(force=True)
         elif event.kind == "message_end":
             if event.data.get("role") == "assistant":
@@ -315,6 +336,9 @@ class PyApp(App):
         widget.set_classes(severity or "")
         widget.update(text)
         widget.display = bool(text)
+
+    def action_dismiss_notice(self):
+        self.notice("")
 
     def follow_conversation(self, *, force=False):
         area = self.query_one("#conversation", VerticalScroll)
@@ -395,12 +419,14 @@ class PyApp(App):
                 )
             elif message["role"] == "assistant":
                 await area.mount(Static("PYCODE", classes="assistant-label", markup=False))
-                for thinking in message["thinking"]:
+                if message["thinking"]:
+                    thinking = "\n\n".join(item["text"] for item in message["thinking"])
                     await area.mount(
-                        Static(
-                            "思考过程：" + thinking["text"],
-                            markup=False,
-                            classes="message-thinking",
+                        Collapsible(
+                            Static(thinking, markup=False, classes="message-thinking"),
+                            title="思考过程",
+                            collapsed=True,
+                            classes="thinking-block",
                         )
                     )
                 await area.mount(Markdown(message["text"], id="message-" + entry_id))
@@ -493,9 +519,8 @@ class PyApp(App):
         self.query_one("#chat-input", ChatInput).update_completion()
         selected = self.view_state["context"]["selection"]
         label = "模型：" + selected["model_id"] if selected else "模型：等待首轮请求"
-        self.query_one("#status", Static).update(
-            label + " · " + context_text(self.view_state["context_usage"])
-        )
+        pieces = [plan_status(self.view_state.get("plan")), label, context_text(self.view_state["context_usage"])]
+        self.query_one("#status", Static).update(" · ".join(piece for piece in pieces if piece))
         if not pending and not self.query_one("#chat-input", ChatInput).disabled:
             self.query_one("#chat-input", ChatInput).focus()
 
@@ -697,12 +722,11 @@ class PyApp(App):
         except ValueError as error:
             raise StorageError("invalid_command", str(error)) from error
         spec = self.commands.find(parts[0]) if parts else None
-        if (
-            spec is None
-            or spec.raw_arguments
-            or await getattr(self, spec.handler)(parts[1:]) is False
-        ):
-            self.notice(self.commands.help_text(), "warning")
+        if spec is None:
+            self.notice("未识别的命令；输入 / 选择命令，Esc 关闭提示。", "warning")
+        elif spec.raw_arguments or await getattr(self, spec.handler)(parts[1:]) is False:
+            usage = spec.name + (" " + spec.usage if spec.usage else "")
+            self.notice("用法：" + usage, "warning")
 
     async def command_new(self, args):
         await self.switch_session()
