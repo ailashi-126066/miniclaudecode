@@ -38,6 +38,7 @@ class ChatInput(TextArea):
         self.popup: CompletionPopup | None = None
         self.model_picker: ModelPicker | None = None
         self.model_selected: Callable[[str, str], None] | None = None
+        self.dismiss_transient: Callable[[], None] | None = None
         self._dismissed_text = None
 
     def update_completion(self):
@@ -61,6 +62,7 @@ class ChatInput(TextArea):
             return bool(
                 (self.popup is not None and self.popup.selected is not None)
                 or (self.model_picker is not None and self.model_picker.selected is not None)
+                or (action == "dismiss_completion" and self.dismiss_transient is not None)
             )
         return super().check_action(action, parameters)
 
@@ -82,6 +84,8 @@ class ChatInput(TextArea):
             self.popup.hide()
         if self.model_picker is not None:
             self.model_picker.hide()
+        if self.dismiss_transient is not None:
+            self.dismiss_transient()
 
     def action_cursor_up(self, select=False):
         if not select and self.model_picker is not None and self.model_picker.selected is not None:

@@ -231,6 +231,7 @@ class PyApp(App):
             entry.popup = self.query_one("#command-completion", CompletionPopup)
             entry.model_picker = self.query_one("#model-picker", ModelPicker)
             entry.model_selected = self.select_model_from_picker
+            entry.dismiss_transient = self.action_dismiss_notice
             self._sandbox_status = (await self._sessions.sandbox_status()).reason
             await self.switch_session(self._initial_session_id)
         except DomainError as error:
