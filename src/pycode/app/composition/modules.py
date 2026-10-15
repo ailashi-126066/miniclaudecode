@@ -9,7 +9,8 @@ from dataclasses import dataclass, replace
 from functools import partial
 
 from pycode.agent.module import AgentModule
-from pycode.app.config import AppConfig, credential_environment
+from pycode.app.configuration.credentials import credential_environment
+from pycode.app.configuration.settings import AppConfig
 from pycode.context import ProjectionContributor
 from pycode.context.module import ContextModule
 from pycode.hooks.module import HooksModule

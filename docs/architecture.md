@@ -5,6 +5,14 @@ an Application with explicitly selected `ApplicationModules`. CLI, TUI wiring, c
 and maintenance acceptance use it. `app/composition/` contains private application/session/run
 connections; its package no longer exports a catalogue of constructors.
 
+The app root contains only bootstrap and package documentation. `app/cli/` owns input/dispatch,
+`app/configuration/` owns external settings and credentials, `app/composition/` connects modules,
+and `app/lifecycle/` owns assembled session/run resources. Lifecycle receives explicit factories
+and cannot import composition, bootstrap or CLI. Configuration has no reverse application edge.
+Package initializers contain documentation only. The installed CLI entry point is
+`pycode.app.cli.main:main`; module execution uses the same function. These boundaries and the
+physical app layout are enforced by the architecture checker. See `src/pycode/app/README.md`.
+
 Each feature owns `module.py`: configuration interpretation, concrete adapter construction,
 local service products and resource lifetimes. Application wiring imports these named module
 entries and native public contracts, never feature-internal adapters. Feature modules do not
@@ -170,7 +178,7 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `hooks.ports.lifecycle.LifecycleContext` | `agent.services.context.RunContext` |
 | `hooks.ports.runtime.HookExecution` | `tools.services.tool_executor.ToolExecutor` |
 | `hooks.ports.runtime.HookPlanGuard` | `plans.services.plans.PlanService` |
-| `hooks.ports.runtime.HookExecutorFactory` | `app.composition.runtime.build_hook_engine` (factory/callback) |
+| `hooks.ports.runtime.HookExecutorFactory` | `app.composition.hooks.build_hook_engine` (factory/callback) |
 | `kernel.ports.history.MessageJournal` | `session.adapters.storage.session.JsonlSessionStore` |
 | `kernel.ports.history.HistoryReader` | `session.adapters.storage.session.JsonlSessionStore` |
 | `kernel.ports.history.HistoryJournal` | `session.adapters.storage.session.JsonlSessionStore` |
@@ -200,7 +208,7 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `sandbox.ports.process.ProcessRunner` | `sandbox.adapters.tools.process_runner.run_process` (factory/callback) |
 | `sandbox.ports.sandbox.SandboxBackend` | `sandbox.adapters.seatbelt.RequiredSandbox` |
 | `session.ports.history.SessionStore` | `session.adapters.storage.session.JsonlSessionStore` |
-| `session.ports.runtime.RuntimeLauncher` | `app.runtime_launcher.ConfiguredRuntimeLauncher` |
+| `session.ports.runtime.RuntimeLauncher` | `app.lifecycle.session.ConfiguredRuntimeLauncher` |
 | `session.ports.sessions.SessionRepository` | `session.adapters.storage.session_repository.JsonlSessionRepository` |
 | `session.ports.storage.StorageObjects` | `session.adapters.storage.objects.FileStorageObjects` |
 | `session.ports.workspace.WorkspaceInspector` | `session.adapters.storage.workspace.FileWorkspaceInspector` |
@@ -223,7 +231,7 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `tools.ports.outputs.ToolOutputStore` | `tools.adapters.output_store.FileToolOutputStore` |
 | `tools.ports.outputs.SessionHeaderReader` | `session.adapters.storage.header_reader.FileSessionHeaderReader` |
 | `tools.ports.publication.MessagePublisher` | `agent.adapters.boundaries.AgentMessagePublisher` |
-| `tools.ports.publication.ToolLifecycle` | `app.composition.runtime.build_runtime_bindings` (factory/callback) |
+| `tools.ports.publication.ToolLifecycle` | `app.composition.bindings.build_runtime_bindings` (factory/callback) |
 | `tools.ports.questions.QuestionPrompt` | `tools.adapters.questions.InterruptQuestionPrompt` |
 | `tools.ports.tools.ArgumentValidator` | `tools.adapters.schema.JsonSchemaValidator` |
 | `tools.ports.tools.ToolGate` | `tools.services.permissions.ReadOnlyToolGate` |

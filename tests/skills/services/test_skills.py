@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.history import EntryDraft

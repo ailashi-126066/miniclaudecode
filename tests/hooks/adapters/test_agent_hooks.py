@@ -3,7 +3,7 @@
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from tests.hooks.adapters.test_hooks import hook_file
 from tests.support.execution import provider

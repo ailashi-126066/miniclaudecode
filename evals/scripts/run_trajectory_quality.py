@@ -13,7 +13,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig, load_providers
+from pycode.app.configuration.providers import load_providers
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.kernel.domain.tools import ToolSpec

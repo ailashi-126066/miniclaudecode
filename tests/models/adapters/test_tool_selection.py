@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.kernel.domain.tools import ToolSpec
 from pycode.models.domain.models import ModelReference, ToolSelectorSettings

@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.messages import Message
 from tests.support.execution import provider

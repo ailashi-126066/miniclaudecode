@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
-from pycode.app.composition.runtime import build_agent_runtime
+from pycode.app.composition.bindings import build_agent_runtime
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message, ToolResult

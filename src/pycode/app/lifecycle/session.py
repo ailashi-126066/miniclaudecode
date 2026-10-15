@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from uuid import uuid4
 
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.context import ContextProjector, SummaryService
 from pycode.hooks import HookContext
 from pycode.kernel import (

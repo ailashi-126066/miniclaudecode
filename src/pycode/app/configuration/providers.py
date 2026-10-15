@@ -1,9 +1,8 @@
-"""Validate external configuration once at the application boundary."""
+"""Read and validate external Provider JSON at the application boundary."""
 
 import json
-import os
 import re
-from dataclasses import dataclass, field, fields
+from dataclasses import fields
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -17,65 +16,6 @@ from pycode.models import (
     ToolSelectorSettings,
     is_loopback_host,
 )
-from pycode.sandbox import SandboxSettings, validate_passthrough
-from pycode.tools import ToolGate
-
-
-@dataclass(frozen=True)
-class AppConfig:
-    workspace: Path
-    user_data: Path
-    summary_keep_recent_tokens: int = 20000
-    sandbox: SandboxSettings = field(default_factory=SandboxSettings)
-    project_trusted: bool = False
-    skill_index_budget: int = 2000
-    memory_mode: str | None = None
-    team_max_agents: int = 4
-    read_only: bool = False
-    allow_delegation: bool = True
-    agent_id: str = "lead"
-    request_database: Path | None = None
-    isolated_worker: bool = False
-    # Embedding hooks: a gate replacing the default tool authorization chain and
-    # directories prepended to the Bash tool's PATH.
-    tool_gate: ToolGate | None = None
-    bash_path_prefix: tuple[str, ...] = ()
-    credential_workspace: Path | None = None
-    subprocess_passthrough: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if (
-            isinstance(self.team_max_agents, bool)
-            or not isinstance(self.team_max_agents, int)
-            or not 1 <= self.team_max_agents <= 4
-        ):
-            raise ValueError("Team concurrency must be 1–4")
-        validate_passthrough(self.subprocess_passthrough)
-        if self.memory_mode not in {None, "auto", "off"}:
-            raise ValueError("Memory mode must be auto or off")
-        if (
-            not isinstance(self.project_trusted, bool)
-            or not isinstance(self.skill_index_budget, int)
-            or isinstance(self.skill_index_budget, bool)
-            or self.skill_index_budget < 1
-        ):
-            raise ValueError("Skill trust and index budget are invalid")
-        if not isinstance(self.sandbox, SandboxSettings):
-            raise ValueError("Sandbox settings must be validated")
-        if not self.workspace.is_absolute() or not self.user_data.is_absolute():
-            raise ValueError("Application paths must be absolute")
-        if (
-            not isinstance(self.summary_keep_recent_tokens, int)
-            or isinstance(self.summary_keep_recent_tokens, bool)
-            or self.summary_keep_recent_tokens < 1
-        ):
-            raise ValueError("Summary configuration is invalid")
-
-
-def load_config(workspace: str | None = None, user_data: str | None = None) -> AppConfig:
-    project = Path(workspace).expanduser().resolve() if workspace else Path.cwd().resolve()
-    data = Path(user_data).expanduser().resolve() if user_data else Path.home() / ".pycode"
-    return AppConfig(workspace=project, user_data=data)
 
 
 def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
@@ -234,29 +174,6 @@ def validate_provider_references(providers, names):
         reference = provider.tool_selector.model
         if reference is not None and reference.provider not in names:
             raise DomainError("invalid_provider_config", "Tool selector Provider is not configured")
-
-
-def credential_environment(
-    config: AppConfig, providers: tuple[ProviderConfig, ...]
-) -> dict[str, str]:
-    environment = dict(os.environ)
-    references = {
-        provider.api_key_env for provider in providers if not environment.get(provider.api_key_env)
-    }
-    path = (config.credential_workspace or config.workspace) / ".env"
-    if not references or not path.exists():
-        return environment
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        if "=" not in line or line.lstrip().startswith("#"):
-            continue
-        name, value = line.split("=", 1)
-        name = name.strip()
-        if name not in references:
-            continue
-        value = value.strip().strip('"').strip("'")
-        if value:
-            environment[name] = value
-    return environment
 
 
 def validate_thinking(config: ProviderConfig) -> None:

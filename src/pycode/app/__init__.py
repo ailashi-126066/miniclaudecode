@@ -1,3 +1,1 @@
-"""Configuration, composition root, CLI and lifecycle ownership."""
-
-__all__ = []
+"""Application configuration, command entry points, composition and resource ownership."""

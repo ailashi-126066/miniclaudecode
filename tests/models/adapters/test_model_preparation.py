@@ -11,7 +11,7 @@ from pydantic import Field
 
 from pycode.agent.adapters.history import HistoryMiddleware
 from pycode.agent.module import AgentModule
-from pycode.app.composition.runtime import build_runtime_bindings
+from pycode.app.composition.bindings import build_runtime_bindings
 from pycode.context.domain.summaries import SummaryReport
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import ModelError

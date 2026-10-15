@@ -8,7 +8,7 @@ from dataclasses import asdict
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import SnapshotError, StorageError
 from pycode.kernel.domain.messages import Message

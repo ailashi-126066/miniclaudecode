@@ -3,11 +3,27 @@
 import asyncio
 import hashlib
 from dataclasses import replace
+from pathlib import Path
 
 from pycode.app.composition.modules import default_modules
-from pycode.app.team_runtime import child_config
 from pycode.kernel import EventStream, StorageError
 from pycode.team import child_prompt
+
+
+def child_config(config, record):
+    return replace(
+        config,
+        workspace=Path(record["workspace"]),
+        read_only=record["mode"] == "readonly",
+        isolated_worker=record["mode"] == "worker",
+        allow_delegation=False,
+        agent_id="agent:" + record["agent_id"],
+        memory_mode="off",
+        sandbox=replace(config.sandbox, mode="on")
+        if record["mode"] == "worker"
+        else config.sandbox,
+        credential_workspace=config.credential_workspace or config.workspace,
+    )
 
 
 class ConfiguredChildSessions:

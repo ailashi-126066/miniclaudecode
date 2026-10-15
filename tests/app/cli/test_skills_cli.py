@@ -1,11 +1,12 @@
 import asyncio
 
-from pycode.app.cli import main
-from tests.app.test_execution_cli import setup_cli
+from tests.app.cli.test_execution_cli import setup_cli
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.skills.services.test_skills import write_skill
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
+
+from pycode.app.cli.main import main
 
 
 def test_cli_load_search_reload_use_public_session_and_make_no_model_requests(

@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 from langchain_core.messages import AIMessage
 
-from pycode.app.composition.runtime import build_agent_runtime
+from pycode.app.composition.bindings import build_agent_runtime
 from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import StorageError, ToolError
 from pycode.kernel.domain.history import SessionHeader

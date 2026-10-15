@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pycode.app.config import AppConfig
-from pycode.app.team_runtime import child_config
+from pycode.app.composition.team import child_config
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import ToolCall
 from pycode.kernel.domain.tools import ToolContext, ToolSpec

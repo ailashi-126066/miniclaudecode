@@ -5,7 +5,7 @@ import json
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.context.adapters.storage.prompts import InstructionFileBackend
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.messages import Message

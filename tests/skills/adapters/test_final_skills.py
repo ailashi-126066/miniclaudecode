@@ -3,7 +3,7 @@
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from pycode.kernel.domain.values import plain_data
 from tests.skills.adapters.test_skills_http import skill_reply

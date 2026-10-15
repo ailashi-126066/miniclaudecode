@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader

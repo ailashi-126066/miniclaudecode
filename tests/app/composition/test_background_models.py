@@ -3,12 +3,13 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
+from tests.support.execution import provider
+
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.memory.adapters.background import ConfiguredMemoryUpdater
 from pycode.memory.domain.memory import MemoryRecord
 from pycode.models.module import ModelsModule
-from tests.support.execution import provider
 
 
 def metered_facade(owner, prefix, **options):

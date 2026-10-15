@@ -1,12 +1,12 @@
 {
-  "stage": "module assembly revision",
-  "module_count": 352,
+  "stage": "module assembly and app boundary revision",
+  "module_count": 363,
   "module_cycles": [],
   "feature_cycles": [],
   "module_edges": {
     "pycode": [],
     "pycode.__main__": [
-      "pycode.app.cli",
+      "pycode.app.cli.main",
       "pycode.kernel.adapters.timing"
     ],
     "pycode.agent": [
@@ -107,26 +107,15 @@
       "pycode.app.composition.session",
       "pycode.app.composition.team",
       "pycode.app.composition.ui",
-      "pycode.app.config",
+      "pycode.app.configuration.settings",
       "pycode.kernel.adapters.timing",
       "pycode.models",
       "pycode.models.domain.models"
     ],
-    "pycode.app.cli": [
+    "pycode.app.cli": [],
+    "pycode.app.cli.commands": [
       "pycode.app.bootstrap",
-      "pycode.app.cli_commands",
-      "pycode.app.cli_parser",
-      "pycode.app.config",
-      "pycode.kernel",
-      "pycode.kernel.adapters.timing",
-      "pycode.kernel.domain.errors",
-      "pycode.kernel.domain.values",
-      "pycode.sandbox",
-      "pycode.sandbox.domain.sandbox"
-    ],
-    "pycode.app.cli_commands": [
-      "pycode.app.bootstrap",
-      "pycode.app.config",
+      "pycode.app.configuration.providers",
       "pycode.kernel",
       "pycode.kernel.adapters.timing",
       "pycode.kernel.domain.completion",
@@ -136,15 +125,42 @@
       "pycode.session",
       "pycode.session.domain.revert"
     ],
-    "pycode.app.cli_parser": [
+    "pycode.app.cli.main": [
+      "pycode.app.bootstrap",
+      "pycode.app.cli.commands",
+      "pycode.app.cli.parser",
+      "pycode.app.configuration.providers",
+      "pycode.app.configuration.settings",
+      "pycode.kernel",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.errors",
+      "pycode.kernel.domain.values",
+      "pycode.sandbox",
+      "pycode.sandbox.domain.sandbox"
+    ],
+    "pycode.app.cli.parser": [
       "pycode",
       "pycode.sandbox",
       "pycode.sandbox.domain.subprocess_env"
     ],
     "pycode.app.composition": [],
+    "pycode.app.composition.bindings": [
+      "pycode.agent",
+      "pycode.agent.module",
+      "pycode.agent.services.context",
+      "pycode.hooks",
+      "pycode.hooks.services.lifecycle",
+      "pycode.models.module",
+      "pycode.tools.module"
+    ],
     "pycode.app.composition.context": [
       "pycode.app.composition.modules",
       "pycode.kernel.adapters.timing"
+    ],
+    "pycode.app.composition.hooks": [
+      "pycode.app.composition.outputs",
+      "pycode.kernel",
+      "pycode.kernel.services.events"
     ],
     "pycode.app.composition.memory": [
       "pycode.app.composition.modules",
@@ -156,7 +172,8 @@
     ],
     "pycode.app.composition.modules": [
       "pycode.agent.module",
-      "pycode.app.config",
+      "pycode.app.configuration.credentials",
+      "pycode.app.configuration.settings",
       "pycode.context",
       "pycode.context.module",
       "pycode.context.ports.projection",
@@ -178,49 +195,59 @@
       "pycode.tools.module",
       "pycode.ui.module"
     ],
+    "pycode.app.composition.outputs": [],
+    "pycode.app.composition.run": [
+      "pycode.app.composition.outputs",
+      "pycode.app.composition.runtime",
+      "pycode.context",
+      "pycode.context.domain.context_budget",
+      "pycode.kernel",
+      "pycode.kernel.adapters.timing",
+      "pycode.kernel.domain.tools",
+      "pycode.kernel.domain.values"
+    ],
     "pycode.app.composition.runtime": [
       "pycode.agent",
-      "pycode.agent.module",
-      "pycode.agent.ports.runtime",
       "pycode.agent.services.context",
+      "pycode.app.composition.bindings",
       "pycode.app.composition.context",
+      "pycode.app.composition.hooks",
       "pycode.app.composition.modules",
-      "pycode.app.config",
-      "pycode.app.team_runtime",
+      "pycode.app.composition.outputs",
+      "pycode.app.composition.skills",
+      "pycode.app.configuration.credentials",
+      "pycode.app.configuration.settings",
+      "pycode.app.lifecycle.run",
       "pycode.context",
       "pycode.context.domain.context_budget",
       "pycode.context.domain.summaries",
       "pycode.context.domain.tool_eviction",
       "pycode.hooks",
-      "pycode.hooks.services.lifecycle",
       "pycode.hooks.services.tool_bridge",
       "pycode.kernel",
       "pycode.kernel.adapters.event_journal",
       "pycode.kernel.adapters.timing",
       "pycode.kernel.domain.messages",
-      "pycode.kernel.domain.tools",
-      "pycode.kernel.domain.values",
       "pycode.kernel.services.events",
       "pycode.models",
       "pycode.models.domain.models",
       "pycode.models.domain.selection",
-      "pycode.models.module",
-      "pycode.models.ports.models",
       "pycode.session",
       "pycode.session.domain.guards",
       "pycode.session.services.durable_inputs",
       "pycode.session.services.input_queue",
-      "pycode.session.services.sessions",
-      "pycode.skills.module",
-      "pycode.tools.module"
+      "pycode.session.services.sessions"
     ],
     "pycode.app.composition.session": [
+      "pycode.app.composition.hooks",
       "pycode.app.composition.memory",
       "pycode.app.composition.modules",
-      "pycode.app.composition.runtime",
+      "pycode.app.composition.outputs",
+      "pycode.app.composition.run",
+      "pycode.app.composition.skills",
       "pycode.app.composition.team",
-      "pycode.app.config",
-      "pycode.app.runtime_launcher",
+      "pycode.app.configuration.credentials",
+      "pycode.app.lifecycle.session",
       "pycode.context",
       "pycode.context.domain.context_budget",
       "pycode.context.domain.summaries",
@@ -247,9 +274,11 @@
       "pycode.session.services.session_view",
       "pycode.skills.module"
     ],
+    "pycode.app.composition.skills": [
+      "pycode.skills.module"
+    ],
     "pycode.app.composition.team": [
       "pycode.app.composition.modules",
-      "pycode.app.team_runtime",
       "pycode.kernel",
       "pycode.kernel.adapters.timing",
       "pycode.kernel.domain.errors",
@@ -262,20 +291,38 @@
       "pycode.app.composition.session",
       "pycode.kernel.adapters.timing"
     ],
-    "pycode.app.config": [
+    "pycode.app.configuration": [],
+    "pycode.app.configuration.credentials": [
+      "pycode.app.configuration.settings",
+      "pycode.models",
+      "pycode.models.domain.models"
+    ],
+    "pycode.app.configuration.providers": [
       "pycode.kernel",
       "pycode.kernel.domain.errors",
       "pycode.models",
       "pycode.models.domain.models",
-      "pycode.models.domain.network",
+      "pycode.models.domain.network"
+    ],
+    "pycode.app.configuration.settings": [
       "pycode.sandbox",
       "pycode.sandbox.domain.sandbox",
       "pycode.sandbox.domain.subprocess_env",
       "pycode.tools",
       "pycode.tools.ports.tools"
     ],
-    "pycode.app.runtime_launcher": [
-      "pycode.app.config",
+    "pycode.app.lifecycle": [],
+    "pycode.app.lifecycle.run": [
+      "pycode.agent",
+      "pycode.agent.ports.runtime",
+      "pycode.agent.services.context",
+      "pycode.kernel",
+      "pycode.kernel.ports.events",
+      "pycode.models",
+      "pycode.models.ports.models"
+    ],
+    "pycode.app.lifecycle.session": [
+      "pycode.app.configuration.settings",
       "pycode.context",
       "pycode.context.services.context_projector",
       "pycode.context.services.summary",
@@ -293,10 +340,6 @@
       "pycode.models.domain.models",
       "pycode.session",
       "pycode.session.ports.history"
-    ],
-    "pycode.app.team_runtime": [
-      "pycode.kernel",
-      "pycode.kernel.domain.errors"
     ],
     "pycode.context": [
       "pycode.context.domain.context_budget",
@@ -1627,6 +1670,10 @@
       "pycode.team.services.team_tasks"
     ],
     "pycode.team.adapters": [],
+    "pycode.team.adapters.delegate": [
+      "pycode.kernel",
+      "pycode.kernel.domain.errors"
+    ],
     "pycode.team.adapters.team_tools": [
       "pycode.kernel",
       "pycode.kernel.domain.errors",
@@ -1648,6 +1695,7 @@
       "pycode.kernel.domain.errors"
     ],
     "pycode.team.module": [
+      "pycode.team.adapters.delegate",
       "pycode.team.adapters.team_tools",
       "pycode.team.adapters.worktrees",
       "pycode.team.services.team"
@@ -2023,6 +2071,14 @@
     ]
   },
   "feature_edges": {
+    "agent": [
+      "context",
+      "hooks",
+      "kernel",
+      "models",
+      "plans",
+      "tools"
+    ],
     "app": [
       "agent",
       "context",
@@ -2039,14 +2095,6 @@
       "team",
       "tools",
       "ui"
-    ],
-    "agent": [
-      "context",
-      "hooks",
-      "kernel",
-      "models",
-      "plans",
-      "tools"
     ],
     "context": [
       "kernel",
@@ -2109,5 +2157,6 @@
       "tools"
     ]
   },
-  "source_sha256": "874f7e253cfeb0919cd8cdee06bcd1b40ec72e9beb9da92d36711a8570e266d9"
+  "source_sha256": "e0a380e81c67c27c855155f8edd18e0371eb0acd07435ae353b4185d907136d0",
+  "source_digest_scope": "sha256 of canonical JSON [{path, sha256}] for sorted src/pycode/**/*.py; excludes generated bytecode"
 }

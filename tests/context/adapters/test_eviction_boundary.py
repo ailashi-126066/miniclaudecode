@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, ToolMessage
 
-from pycode.app.composition.runtime import build_agent_runtime
+from pycode.app.composition.bindings import build_agent_runtime
 from pycode.context.domain.tool_eviction import EvictionBudget
 from pycode.context.services.context_projector import ContextProjector
 from pycode.context.services.tool_eviction import ToolEvictionService

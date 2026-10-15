@@ -1,5 +1,5 @@
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from tests.hooks.adapters.test_hooks import hook_file
 from tests.session.adapters.test_revert_http import command_reply
 from tests.support.execution import provider

@@ -3,7 +3,7 @@
 import hashlib
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.memory.adapters.storage.json_memory import JsonMemoryStore, MemoryChangeLog
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server

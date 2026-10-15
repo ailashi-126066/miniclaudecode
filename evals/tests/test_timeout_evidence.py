@@ -15,7 +15,7 @@ from evals.coding.assembly import build_evaluation_solver
 from evals.coding.runner import EvaluationRunner
 from evals.coding.workspaces import EvaluationWorkspaces
 from evals.tests.corpus import polyglot_cache
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 
 
 async def test_timeout_preserves_settled_request_usage_trace_and_independent_tests(

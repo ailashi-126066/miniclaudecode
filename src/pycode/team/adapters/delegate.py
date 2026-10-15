@@ -1,27 +1,8 @@
-"""Local team configuration and synchronous fork Skill/Hook adaptation."""
-
-from dataclasses import replace
-from pathlib import Path
+"""Adapt synchronous readonly Team delegation to the native framework response."""
 
 from langchain_core.messages import AIMessage
 
 from pycode.kernel import ToolError
-
-
-def child_config(config, record):
-    return replace(
-        config,
-        workspace=Path(record["workspace"]),
-        read_only=record["mode"] == "readonly",
-        isolated_worker=record["mode"] == "worker",
-        allow_delegation=False,
-        agent_id="agent:" + record["agent_id"],
-        memory_mode="off",
-        sandbox=replace(config.sandbox, mode="on")
-        if record["mode"] == "worker"
-        else config.sandbox,
-        credential_workspace=config.credential_workspace or config.workspace,
-    )
 
 
 class TeamDelegate:

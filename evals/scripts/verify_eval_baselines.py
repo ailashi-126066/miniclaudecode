@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.sandbox.domain.sandbox import SandboxSettings
 
 

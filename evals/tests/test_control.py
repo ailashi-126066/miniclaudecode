@@ -16,7 +16,7 @@ from evals.coding.runner import EvaluationRunner
 from evals.coding.workspaces import EvaluationWorkspaces
 from evals.quality.langfuse import LangfuseEvaluationSummary
 from evals.tests.corpus import polyglot_cache
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 
 
 @pytest.mark.parametrize("verify,telemetry_fault", [(True, False), (False, False), (True, True)])

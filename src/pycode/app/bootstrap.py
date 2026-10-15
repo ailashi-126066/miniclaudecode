@@ -14,7 +14,7 @@ from pycode.app.composition import session as session_scope
 from pycode.app.composition import team as team_scope
 from pycode.app.composition import ui as ui_scope
 from pycode.app.composition.modules import ApplicationModules, default_modules
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.models import ProviderConfig
 
 

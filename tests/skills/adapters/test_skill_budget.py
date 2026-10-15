@@ -1,7 +1,7 @@
 """An oversized catalogue discloses selected paths through native middleware only."""
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.skills.services.test_skills import write_skill

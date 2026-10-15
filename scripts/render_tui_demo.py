@@ -9,7 +9,7 @@ from tests.support.http_provider import protocol_server
 from tests.tools.adapters.test_questions import question_response
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 
 
 async def main(project):

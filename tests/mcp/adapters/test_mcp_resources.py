@@ -1,5 +1,5 @@
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from tests.mcp.adapters.test_mcp import mcp_config
 from tests.skills.adapters.test_skills_http import skill_reply

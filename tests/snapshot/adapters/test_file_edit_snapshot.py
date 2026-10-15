@@ -1,7 +1,7 @@
 import json
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from tests.snapshot.adapters.test_git_tree import git, repository
 from tests.support.execution import provider

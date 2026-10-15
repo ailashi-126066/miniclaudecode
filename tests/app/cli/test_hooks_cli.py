@@ -1,15 +1,15 @@
 import asyncio
 
 import pytest
-
-from pycode.app.bootstrap import compose_application
-from pycode.app.cli import main
-from pycode.app.config import AppConfig
-from pycode.kernel.domain.messages import Message
-from tests.app.test_execution_cli import setup_cli
+from tests.app.cli.test_execution_cli import setup_cli
 from tests.hooks.adapters.test_hooks import hook_file, open_session
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
+
+from pycode.app.bootstrap import compose_application
+from pycode.app.cli.main import main
+from pycode.app.configuration.settings import AppConfig
+from pycode.kernel.domain.messages import Message
 
 
 @pytest.mark.parametrize("action", ["result", "retry"])

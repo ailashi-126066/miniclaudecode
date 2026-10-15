@@ -1,7 +1,13 @@
 """Architecture enforcement covers real imports, aliases, public origins and cycles."""
 
 import pytest
-from scripts.check_architecture import check_dependencies, dependency_errors
+from scripts.check_architecture import (
+    APP_PACKAGES,
+    ROOT,
+    app_layout_errors,
+    check_dependencies,
+    dependency_errors,
+)
 
 
 def test_project_dependency_direction():
@@ -18,12 +24,12 @@ def test_project_dependency_direction():
         ("pycode.hooks.services.engine", "from pycode.tools import ToolExecutor"),
         ("pycode.session.services.agent", "from pycode.models.domain.models import ProviderConfig"),
         ("pycode.agent.adapters.agent", "from pycode.tools.adapters.settlement import Middleware"),
-        ("pycode.app.cli", "from pycode.models.adapters.factory import ModelFactory"),
+        ("pycode.app.cli.main", "from pycode.models.adapters.factory import ModelFactory"),
         (
             "pycode.app.composition.runtime",
             "from pycode.models.adapters.factory import ModelFactory",
         ),
-        ("pycode.app.cli", "from pycode.skills.module import SkillsModule"),
+        ("pycode.app.cli.main", "from pycode.skills.module import SkillsModule"),
         ("pycode.skills.adapters.catalog", "from pycode.skills.module import SkillsModule"),
         ("pycode.mcp.module", "from pycode.skills.module import SkillsModule"),
         ("evals.coding.runner", "from pycode.app.composition import build_runtime"),
@@ -58,7 +64,7 @@ def test_prohibited_dependencies_are_detected(module, source):
         ("pycode.app.composition.runtime", "from pycode.models.module import ModelsModule"),
         ("evals.coding.runner", "from pycode.app.bootstrap import compose_application"),
         ("evals.scripts.compare_eval_runs", "from evals.coding import provenance"),
-        ("scripts.verify_release", "from pycode.app.cli import main"),
+        ("scripts.verify_release", "from pycode.app.bootstrap import compose_application"),
     ],
 )
 def test_allowed_dependencies(module, source):
@@ -278,7 +284,7 @@ def test_feature_assembly_is_not_a_backdoor_public_api(tmp_path):
         "pycode/skills/__init__.py",
         "from .module import SkillsModule\n__all__ = ['SkillsModule']\n",
     )
-    package_file(tmp_path, "pycode/app/cli.py", "from pycode.skills import SkillsModule\n")
+    package_file(tmp_path, "pycode/app/cli/main.py", "from pycode.skills import SkillsModule\n")
     errors = check_dependencies(tmp_path)
     assert any("feature assembly requires" in item for item in errors)
     assert any("public API cannot re-export" in item for item in errors)
@@ -324,3 +330,130 @@ def test_module_entry_does_not_forward_an_imported_adapter(tmp_path):
         "module entry cannot forward imported implementations" in item
         for item in check_dependencies(tmp_path)
     )
+
+
+@pytest.mark.parametrize(
+    ("module", "target"),
+    [
+        ("configuration.settings", "bootstrap"),
+        ("configuration.providers", "composition.modules"),
+        ("configuration.credentials", "lifecycle.session"),
+        ("configuration.settings", "cli.parser"),
+        ("lifecycle.session", "composition.run"),
+        ("lifecycle.run", "bootstrap"),
+        ("lifecycle.session", "cli.commands"),
+        ("composition.session", "cli.main"),
+        ("composition.modules", "bootstrap"),
+        ("cli.commands", "composition.session"),
+        ("cli.main", "lifecycle.run"),
+        ("bootstrap", "cli.main"),
+    ],
+)
+def test_app_scopes_reject_reversed_dependencies(module, target):
+    errors = dependency_errors(f"import pycode.app.{target}", "pycode.app." + module)
+    assert any("cannot depend on app" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("module", "source"),
+    [
+        ("cli.main", "from pycode.app.bootstrap import compose_application"),
+        ("cli.commands", "from pycode.app.configuration.settings import AppConfig"),
+        ("configuration.providers", "from pycode.models import ProviderConfig"),
+        ("lifecycle.run", "from pycode.agent import Runtime"),
+        ("lifecycle.session", "from pycode.app.configuration.settings import AppConfig"),
+        ("composition.run", "from pycode.app.lifecycle.run import RuntimeContainer"),
+        ("bootstrap", "from pycode.app.composition.modules import default_modules"),
+    ],
+)
+def test_app_scope_dependencies_point_towards_configuration_and_feature_ports(module, source):
+    assert dependency_errors(source, "pycode.app." + module) == []
+
+
+@pytest.mark.parametrize("consumer", ["evals.coding.assembly", "scripts.verify_live_provider"])
+@pytest.mark.parametrize("scope", ["cli.main", "composition.run", "lifecycle.session"])
+def test_external_callers_use_the_application_facade(consumer, scope):
+    assert dependency_errors(f"from pycode.app.{scope} import Factory", consumer)
+
+
+@pytest.mark.parametrize("consumer", ["evals.coding.assembly", "scripts.verify_live_provider"])
+@pytest.mark.parametrize("scope", ["bootstrap", "configuration.providers"])
+def test_external_callers_may_use_bootstrap_and_configuration(consumer, scope):
+    assert dependency_errors(f"from pycode.app.{scope} import Public", consumer) == []
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["bootstrap", "cli.main", "configuration.settings", "lifecycle.run", "composition.run"],
+)
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import langgraph",
+        "from textual.app import App",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n"
+        "    from langchain_core import Runnable",
+    ],
+)
+def test_app_does_not_own_framework_adapters(module, source):
+    assert any(
+        "app cannot import framework" in error
+        for error in dependency_errors(source, "pycode.app." + module)
+    )
+
+
+def test_relative_configuration_import_cannot_reach_bootstrap(tmp_path):
+    package_file(tmp_path, "pycode/app/bootstrap.py", "class Application: pass\n")
+    package_file(
+        tmp_path, "pycode/app/configuration/settings.py", "from ..bootstrap import Application\n"
+    )
+    assert any(
+        "configuration cannot depend on app bootstrap" in e for e in check_dependencies(tmp_path)
+    )
+
+
+def test_bootstrap_cannot_forward_private_lifecycle_to_external_scripts(tmp_path):
+    package_file(tmp_path, "pycode/app/lifecycle/run.py", "class PrivateRuntime: pass\n")
+    package_file(
+        tmp_path, "pycode/app/bootstrap.py", "from .lifecycle.run import PrivateRuntime as Public\n"
+    )
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "consumer.py").write_text("from pycode.app.bootstrap import Public\n")
+    assert any(
+        "application assembly requires app.bootstrap" in e for e in check_dependencies(tmp_path)
+    )
+
+
+@pytest.mark.parametrize(
+    "relative", ["cli.py", "config.py", "runtime_launcher.py", "team_runtime.py"]
+)
+def test_old_flat_app_modules_are_not_compatible_entrypoints(tmp_path, relative):
+    package_file(tmp_path, "pycode/app/" + relative, '"""Old module."""\n')
+    assert app_layout_errors(tmp_path / "src")
+
+
+def test_app_package_initializers_cannot_hide_construction_exports(tmp_path):
+    package_file(tmp_path, "pycode/app/__init__.py", '"""App."""\n')
+    package_file(
+        tmp_path,
+        "pycode/app/cli/__init__.py",
+        "from .main import main\n__all__ = ['main']\n",
+    )
+    assert any(
+        "initializers must contain only a docstring" in e for e in check_dependencies(tmp_path)
+    )
+
+
+def test_actual_app_layout_contains_only_named_scope_packages():
+    app = ROOT / "src" / "pycode" / "app"
+    assert app_layout_errors(ROOT / "src") == []
+    assert {
+        path.name for path in app.iterdir() if path.is_file() and not path.name.startswith(".")
+    } == {"__init__.py", "bootstrap.py", "README.md"}
+    assert {
+        path.name
+        for path in app.iterdir()
+        if path.is_dir() and not path.name.startswith((".", "__"))
+    } == APP_PACKAGES
+    assert all((app / name / "__init__.py").is_file() for name in APP_PACKAGES)

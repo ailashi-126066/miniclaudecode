@@ -6,7 +6,7 @@ from dataclasses import replace
 from langchain_core.messages import AIMessage
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message
 from pycode.tools.adapters.backend import PycodeBackend

@@ -9,8 +9,8 @@ from pathlib import Path
 
 from evals.coding.assembly import build_evaluation_runner
 from pycode.app.bootstrap import compose_application
-from pycode.app.cli_commands import read_providers
-from pycode.app.config import load_config
+from pycode.app.configuration.providers import load_providers
+from pycode.app.configuration.settings import load_config
 from pycode.kernel.domain.errors import DomainError
 from pycode.kernel.domain.values import json_dumps
 
@@ -41,7 +41,9 @@ def build_parser():
     coding = commands.add_parser(
         "coding", help="Run fixed isolated Python coding evaluations serially"
     )
-    coding.add_argument("--providers", required=True)
+    coding.add_argument(
+        "--providers", required=True, type=lambda value: Path(value).expanduser().resolve()
+    )
     coding.add_argument("--manifest", default="evals/data/manifest.json")
     coding.add_argument("--cache", default="evals/cache/polyglot")
     coding.add_argument("--work", required=True)
@@ -54,7 +56,7 @@ def build_parser():
 
 async def coding(args, config):
     output = compose_application(config).console(args.output_format)
-    providers = await asyncio.to_thread(read_providers, args.providers)
+    providers = await asyncio.to_thread(load_providers, args.providers)
     runner = build_evaluation_runner(
         config,
         providers,

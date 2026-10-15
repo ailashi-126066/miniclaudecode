@@ -3,7 +3,7 @@ import asyncio
 from textual.widgets import Static
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.ui.adapters.chat_input import ChatInput
 from tests.session.adapters.test_revert_http import command_reply
 from tests.support.execution import provider

@@ -1,7 +1,7 @@
 """Textual Pilot exercises the actual Plan interrupt and automatic execution."""
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from tests.plans.adapters.test_plans import fix_plan_path, write_plan_reply
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.support.execution import provider

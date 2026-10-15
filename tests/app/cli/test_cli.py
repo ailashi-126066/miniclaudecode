@@ -7,9 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.cli import main
-from pycode.app.cli_commands import command
-from pycode.app.config import AppConfig
+from pycode.app.cli.commands import command
+from pycode.app.cli.main import main
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.completion import RunResult
 
 
@@ -39,7 +39,7 @@ def test_missing_workspace_is_a_reported_failure(tmp_path, capsys):
 
 def test_module_entry_point(tmp_path):
     environment = dict(os.environ)
-    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "src")
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[3] / "src")
     result = subprocess.run(
         [sys.executable, "-m", "pycode", "--version"],
         cwd=tmp_path,
@@ -67,8 +67,8 @@ async def test_cli_prints_forwarded_child_approval_and_exits_two(tmp_path, monke
     selected = SimpleNamespace(
         console=application.console, open_session=AsyncMock(return_value=session)
     )
-    monkeypatch.setattr("pycode.app.cli_commands.compose_application", lambda *args: selected)
-    monkeypatch.setattr("pycode.app.cli_commands.read_providers", lambda path: ())
+    monkeypatch.setattr("pycode.app.cli.commands.compose_application", lambda *args: selected)
+    monkeypatch.setattr("pycode.app.cli.commands.read_providers", lambda path: ())
     args = SimpleNamespace(
         command="run",
         output_format="json",

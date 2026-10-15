@@ -8,7 +8,7 @@ from dataclasses import asdict
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
 from tests.session.adapters.test_revert_http import command_reply

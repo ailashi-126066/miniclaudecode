@@ -62,6 +62,69 @@ FORBIDDEN_IMPORTS = {
 EVAL_GENERATED = {"cache", "work", "results"}
 EVAL_ARCHIVED = {"memory_rules"}
 RANK = {"domain": 0, "ports": 1, "services": 2, "adapters": 3, "io": 3, "module": 4}
+APP_PACKAGES = frozenset({"cli", "configuration", "composition", "lifecycle"})
+APP_DEPENDENCIES = {
+    "bootstrap": {"bootstrap", "configuration", "composition", "lifecycle"},
+    "cli": {"cli", "bootstrap", "configuration"},
+    "configuration": {"configuration"},
+    "composition": {"composition", "configuration", "lifecycle"},
+    "lifecycle": {"lifecycle", "configuration"},
+}
+
+
+def app_scope(module: str | None) -> str | None:
+    if module is None or not module.startswith("pycode.app."):
+        return None
+    return module.split(".")[2]
+
+
+def app_layout_errors(source_root: Path) -> list[str]:
+    errors = []
+    app_root = source_root / "pycode" / "app"
+    if app_root.exists():
+        for path in sorted(app_root.iterdir()):
+            if path.name.startswith(".") or path.name == "__pycache__":
+                continue
+            if path.is_dir() and path.name not in APP_PACKAGES:
+                errors.append(f"app root has an unsupported package: {path.name}")
+            elif path.is_file() and path.name not in {"__init__.py", "bootstrap.py", "README.md"}:
+                errors.append(
+                    f"app root only permits bootstrap, package documentation and init: {path.name}"
+                )
+    for path in sorted(app_root.rglob("*.py")):
+        relative = path.relative_to(app_root)
+        if len(relative.parts) == 1:
+            if relative.name not in {"__init__.py", "bootstrap.py"}:
+                errors.append(f"app root only permits __init__.py and bootstrap.py: {relative}")
+        elif relative.parts[0] not in APP_PACKAGES:
+            errors.append(
+                f"app source must use cli/configuration/lifecycle/composition: {relative}"
+            )
+        if path.name == "__init__.py":
+            body = ast.parse(path.read_text(encoding="utf-8")).body
+            if body and not (
+                len(body) == 1
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                errors.append(f"app package initializers must contain only a docstring: {relative}")
+    return errors
+
+
+def app_import_errors(module: str, target: str, line: int) -> list[str]:
+    scope, dependency = app_scope(module), app_scope(target)
+    if module.split(".")[0] in {"evals", "scripts"} and (
+        target == "pycode.app" or dependency is not None
+    ):
+        if dependency not in {"bootstrap", "configuration"}:
+            return [
+                f"{module}:{line}: application assembly requires app.bootstrap or configuration"
+            ]
+    if scope in APP_DEPENDENCIES and dependency is not None:
+        if dependency not in APP_DEPENDENCIES[scope]:
+            return [f"{module}:{line}: app {scope} cannot depend on app {dependency}"]
+    return []
 
 
 def module_name(relative: Path) -> tuple[str, bool]:
@@ -264,9 +327,13 @@ def dependency_errors(
         aliases[binding] = target + ("." + symbol if symbol else "")
         if target.split(".")[0] in FORBIDDEN_IMPORTS.get(top, ()):
             errors.append(f"{module}:{node.lineno}: {top} cannot import {target}")
-        if top in {"evals", "scripts"} and target.startswith("pycode.app.composition"):
-            errors.append(f"{module}:{node.lineno}: application assembly requires app.bootstrap")
+        app_target = target + "." + symbol if target == "pycode.app" and symbol else target
+        errors.extend(app_import_errors(module, app_target, node.lineno))
         if top != "pycode":
+            if target.startswith("pycode.app"):
+                origin = symbol_origin(target, symbol, sources, packages)
+                if origin is not None and origin != app_target:
+                    errors.extend(app_import_errors(module, origin, node.lineno))
             continue
         other = feature_of(target)
         if other in LEGACY:
@@ -278,6 +345,14 @@ def dependency_errors(
         if layer in {"domain", "ports", "services"} and target.split(".")[0] in FRAMEWORKS:
             errors.append(f"{module}:{node.lineno}: framework dependency outside adapters")
         origin = symbol_origin(target, symbol, sources, packages)
+        if origin is not None and origin != app_target:
+            errors.extend(app_import_errors(module, origin, node.lineno))
+        if feature == "app" and (
+            target.split(".")[0] in FRAMEWORKS
+            or origin is not None
+            and origin.split(".")[0] in FRAMEWORKS
+        ):
+            errors.append(f"{module}:{node.lineno}: app cannot import framework dependencies")
         origin_layer = layer_of(origin) if origin is not None else None
         if origin is None and target in sources and symbol is not None:
             errors.append(f"{module}:{node.lineno}: {symbol} has no definition in {target}")
@@ -441,7 +516,8 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
         sources[module] = path.read_text(encoding="utf-8")
         if package:
             packages.add(module)
-    errors, module_graph, feature_graph = [], defaultdict(set), defaultdict(set)
+    errors = app_layout_errors(source_root)
+    module_graph, feature_graph = defaultdict(set), defaultdict(set)
     for module, source in sources.items():
         errors.extend(
             dependency_errors(
@@ -457,7 +533,7 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
             feature, other = feature_of(module), feature_of(origin) if origin is not None else None
             if feature and other and feature != other:
                 feature_graph[feature].add(other)
-        if module in {"pycode." + name for name in FEATURE_DEPENDENCIES}:
+        if module in {"pycode." + name for name in FEATURE_DEPENDENCIES if name != "app"}:
             exports = public_exports(source)
             if exports is None:
                 errors.append(f"{module}: public API requires a literal __all__")
@@ -502,7 +578,15 @@ def check_dependencies(root: Path = ROOT) -> list[str]:
         ):
             continue
         module, package = module_name(relative)
-        errors.extend(dependency_errors(path.read_text(encoding="utf-8"), module, package))
+        errors.extend(
+            dependency_errors(
+                path.read_text(encoding="utf-8"),
+                module,
+                package,
+                sources=sources,
+                packages=packages,
+            )
+        )
     return errors
 
 
@@ -639,7 +723,7 @@ def check_harness(root: Path = ROOT) -> list[str]:
     for locked in ("deepagents==0.7.23", "langchain[mcp]==1.4.4", "langgraph==1.2.14"):
         if locked not in dependencies:
             errors.append("Final harness dependency is missing: " + locked)
-    if project.get("scripts") != {"pycode": "pycode.app.cli:main"}:
+    if project.get("scripts") != {"pycode": "pycode.app.cli.main:main"}:
         errors.append("Only the pycode console entry point may be registered")
     for dependency in dependencies:
         name = re.split(r"[<>=\[ ]", dependency)[0]

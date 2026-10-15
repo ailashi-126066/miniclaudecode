@@ -69,7 +69,7 @@ def verify_distribution(directory):
     for name in wheel_files:
         if not name.startswith(("pycode/", "pycode-0.1.0.dist-info/")):
             raise ValueError("Wheel includes non-product content: " + name)
-    assert "pycode = pycode.app.cli:main" in entrypoints and "\npy =" not in entrypoints
+    assert "pycode = pycode.app.cli.main:main" in entrypoints and "\npy =" not in entrypoints
     for package, version in (
         ("deepagents", "0.7.23"),
         ("langchain", "1.4.4"),

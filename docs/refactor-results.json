@@ -139,5 +139,15 @@
     "http_400": false,
     "report": "tests/.runtime-tests/module-refactor-final-20261015/live-memory/report.json",
     "verifier_correction": "Initial verification incorrectly required explicit tool_choice; retained original report and corrected assertion against real automatic-choice request. No additional paid request."
+  },
+  "acceptance_scope": "Original five-stage and module-assembly acceptance; later app boundary follow-up has its own source identity and results.",
+  "latest_follow_up": {
+    "name": "app boundary organization",
+    "report": "docs/app-boundary-results.json",
+    "status": "passed",
+    "source_sha256": "ce0c633e8adf300d3253f66126582a27fb11f17939b0f409947114c77c83540d",
+    "pytest_passed": 1244,
+    "pytest_skipped": 1,
+    "new_paid_requests": 0
   }
 }

@@ -2,17 +2,15 @@
 
 from functools import partial
 
+from pycode.app.composition.hooks import build_lifecycle_hook_engine
 from pycode.app.composition.memory import build_memory_service
 from pycode.app.composition.modules import default_modules
-from pycode.app.composition.runtime import (
-    _outputs,
-    _skill_settings,
-    build_configured_run,
-    build_lifecycle_hook_engine,
-)
+from pycode.app.composition.outputs import build_outputs
+from pycode.app.composition.run import build_configured_run
+from pycode.app.composition.skills import skill_settings
 from pycode.app.composition.team import build_team, build_worktree_manager
-from pycode.app.config import credential_environment
-from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
+from pycode.app.configuration.credentials import credential_environment
+from pycode.app.lifecycle.session import ConfiguredRuntimeLauncher
 from pycode.context import InputBudget, SummarySettings
 from pycode.hooks import validate_hooks_recovery
 from pycode.kernel import ToolSpec, plain_data
@@ -66,7 +64,7 @@ async def open_agent_session(
     launcher = None
     try:
         await store.claim_writer()
-        outputs = _outputs(modules, session_id, store)
+        outputs = build_outputs(modules, session_id, store)
         await recover_conversation(store, outputs)
         if config.agent_id == "lead" and (modules.sessions.layout.project / "worktrees").exists():
             await build_worktree_manager(config, modules=modules).scan()
@@ -77,7 +75,7 @@ async def open_agent_session(
         current = await store.snapshot()
         if modules.skills is not None:
             skills_session = modules.skills.open_session(
-                _skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
+                skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
             )
             if pending_run_entry(current) is None and pending_revert(current) is None:
                 await skills_session.initialize()
@@ -213,7 +211,7 @@ async def build_session_view(
     modules = default_modules(config) if modules is None else modules
     if skills_session is None and modules.skills is not None:
         skills_session = modules.skills.open_session(
-            _skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
+            skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
         )
     skill_tools = ()
     if skills_session is not None and modules.skills is not None:
@@ -223,7 +221,7 @@ async def build_session_view(
         *tools,
         *skill_tools,
         *modules.tools.default_tools(
-            _outputs(modules, "view", store), modules.tools.question_prompt()
+            build_outputs(modules, "view", store), modules.tools.question_prompt()
         ),
     )
     specs = (
@@ -268,7 +266,7 @@ async def build_session_view(
 
     # Resolve factories that may fail before opening the request database.
     projector = modules.projector()
-    outputs = _outputs(modules, session_id, store)
+    outputs = build_outputs(modules, session_id, store)
     events = event_journal or MemoryEventJournal()
     records = modules.models.records()
     try:

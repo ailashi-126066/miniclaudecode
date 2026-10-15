@@ -8,7 +8,7 @@ from uuid import uuid4
 from pydantic import TypeAdapter, ValidationError
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import load_providers
+from pycode.app.configuration.providers import load_providers
 from pycode.kernel import DomainError, Message, RunResult, json_dumps, plain_data
 from pycode.session import RevertPlan
 

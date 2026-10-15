@@ -3,7 +3,7 @@ import threading
 from dataclasses import replace
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from tests.context.adapters.test_summary_http import seed
 from tests.support.execution import provider

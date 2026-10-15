@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from pycode.models.domain.models import ProviderConfig
 

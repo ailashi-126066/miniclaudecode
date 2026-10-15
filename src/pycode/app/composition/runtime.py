@@ -1,92 +1,28 @@
 """Connect feature-owned products for one run; do not construct their adapters here."""
 
-import os
-from collections.abc import Awaitable, Callable
-from contextlib import AsyncExitStack
-from dataclasses import dataclass
 from functools import partial
 
-from pycode.agent import RunContext, Runtime
-from pycode.agent.module import AgentModule
+from pycode.agent import RunContext
+from pycode.app.composition.bindings import build_runtime_bindings
 from pycode.app.composition.context import build_summary_generator
+from pycode.app.composition.hooks import build_hook_engine
 from pycode.app.composition.modules import default_modules
-from pycode.app.config import AppConfig, credential_environment
-from pycode.app.team_runtime import TeamDelegate
+from pycode.app.composition.outputs import build_outputs
+from pycode.app.composition.skills import skill_settings
+from pycode.app.configuration.credentials import credential_environment
+from pycode.app.configuration.settings import AppConfig
+from pycode.app.lifecycle.run import RunAssembly, RuntimeContainer
 from pycode.context import EvictionBudget, InputBudget, SummarySettings
-from pycode.hooks import ToolHookBridge, run_hook
-from pycode.kernel import EventStream, Purpose, ToolSpec, plain_data
+from pycode.hooks import ToolHookBridge
+from pycode.kernel import EventStream, Purpose
 from pycode.kernel.adapters.event_journal import MemoryEventJournal
-from pycode.models import (
-    ProviderConfig,
-    RequestStore,
-    model_selection,
-    selector_provider,
-)
-from pycode.models.module import MeteredModelOwner, ModelsModule
+from pycode.models import ProviderConfig, model_selection, selector_provider
 from pycode.session import (
     DurableInputs,
     PendingInputs,
     SessionCatalogWriteGuard,
     assign_initial_title,
 )
-from pycode.skills.module import SkillsSettings
-from pycode.tools.module import ToolsModule
-
-
-@dataclass
-class _RunAssembly:
-    """Rollback only resources created by a run that failed before ownership transfer."""
-
-    events: Callable[[], Awaitable[None]] | None = None
-    model: Callable[[], Awaitable[None]] | None = None
-    fallback: Callable[[], Awaitable[None]] | None = None
-    summary: Callable[[], Awaitable[None]] | None = None
-    hooks: Callable[[], Awaitable[None]] | None = None
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, error_type, error, traceback):
-        if error_type is not None:
-            async with AsyncExitStack() as pending:
-                for close in (self.events, self.model, self.fallback, self.summary, self.hooks):
-                    if close is not None:
-                        pending.push_async_callback(close)
-
-
-@dataclass
-class RuntimeContainer:
-    runtime: Runtime[RunContext]
-    context: RunContext
-    request_store: RequestStore
-    model_owner: MeteredModelOwner
-    owns_summary: bool = True
-    event_store: MemoryEventJournal | None = None
-    owns_hooks: bool = True
-    preparations: tuple[Callable[[], Awaitable[None]], ...] = ()
-
-    async def prepare_tools(self):
-        for prepare in self.preparations:
-            await prepare()
-
-    async def aclose(self):
-        try:
-            try:
-                if self.owns_hooks and self.context.hooks is not None:
-                    await self.context.hooks.aclose()
-            finally:
-                try:
-                    if self.owns_summary and self.context.summary is not None:
-                        await self.context.summary.aclose()
-                finally:
-                    if self.context.model_fallback is not None:
-                        await self.context.model_fallback.aclose()
-        finally:
-            try:
-                await self.model_owner.aclose()
-            finally:
-                if self.event_store is not None:
-                    await self.event_store.aclose()
 
 
 async def build_runtime(
@@ -121,13 +57,13 @@ async def build_runtime(
     outputs=None,
     modules=None,
 ) -> RuntimeContainer:
-    async with _RunAssembly() as assembling:
+    async with RunAssembly() as assembling:
         modules = default_modules(config) if modules is None else modules
         checkpointer = checkpointer if checkpointer is not None else modules.agent.checkpoint()
-        outputs = outputs or _outputs(modules, session_id, history_store)
+        outputs = outputs or build_outputs(modules, session_id, history_store)
         if skills_run is None and modules.skills is not None and history_store is not None:
             skills_session = modules.skills.open_session(
-                _skill_settings(config),
+                skill_settings(config),
                 history_store,
                 catalog_write_guard=SessionCatalogWriteGuard(),
             )
@@ -199,7 +135,7 @@ async def build_runtime(
                 credential_environment(config, (provider,)),
                 process_runner=modules.sandbox.process_runner,
                 passthrough=config.subprocess_passthrough,
-                delegate=TeamDelegate(team_member.team, provider, history_store, run_id)
+                delegate=modules.team.delegate(team_member.team, provider, history_store, run_id)
                 if config.allow_delegation and team_member is not None
                 else None,
             )
@@ -369,7 +305,7 @@ async def build_runtime(
             skills_run.extension
             if skills_run
             else (
-                modules.skills.standalone_extension(_skill_settings(config))
+                modules.skills.standalone_extension(skill_settings(config))
                 if modules.skills
                 else None
             )
@@ -377,7 +313,7 @@ async def build_runtime(
         if skills_run:
             routes.update(skills_run.routes)
         elif modules.skills:
-            routes.update(modules.skills.standalone_routes(_skill_settings(config)))
+            routes.update(modules.skills.standalone_routes(skill_settings(config)))
         instructions, instruction_backend = modules.context.instructions(
             config.workspace, config.user_data, trusted=config.project_trusted
         )
@@ -439,213 +375,6 @@ def _selection_owner(modules, provider, resolver, consumers):
         return owner
 
     return create
-
-
-def _skill_settings(config):
-    return SkillsSettings(
-        config.workspace, config.user_data, config.project_trusted, config.skill_index_budget
-    )
-
-
-def _outputs(modules, session_id, history):
-    return modules.tools.output_store(
-        modules.sessions.layout.sessions,
-        session_id,
-        history,
-        header_reader=modules.sessions.header_reader(),
-    )
-
-
-def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime, *, modules):
-    events = EventStream(
-        snapshot.header.session_id, lifetime, launcher.consumers, journal=launcher.event_journal
-    )
-    outputs = _outputs(modules, snapshot.header.session_id, store)
-    return build_hook_engine(
-        launcher.configured_hooks,
-        store,
-        modules.hooks.actions(
-            outputs,
-            modules.sandbox.shell(),
-            modules.sandbox.backend(),
-            launcher.config.sandbox,
-            dict(os.environ),
-            process_runner=modules.sandbox.process_runner,
-            passthrough=launcher.config.subprocess_passthrough,
-            delegate=TeamDelegate(
-                launcher.team_member.team, launcher.lifecycle_provider, store, lifetime
-            )
-            if launcher.config.allow_delegation and launcher.team_member is not None
-            else None,
-        ),
-        outputs,
-        events,
-        modules=modules,
-        snapshots=modules.snapshots.store(),
-        owned_tasks=launcher.hook_tasks,
-        plans=launcher.plans,
-        read_only=launcher.config.read_only,
-    )
-
-
-async def build_configured_run(
-    launcher, provider, store, run_id, *, modules, skills_session=None, mcp_session=None
-):
-    snapshot = await store.snapshot()
-    outputs = _outputs(modules, snapshot.header.session_id, store)
-    skills_run = None
-    if skills_session is not None:
-        fork_delegate = None
-        if launcher.config.allow_delegation and launcher.team_member is not None:
-
-            async def invoke_fork(instruction, *, fork_from=None, fork_entry_ids=None):
-                return await launcher.team_member.team.run_blocking(
-                    instruction,
-                    provider,
-                    run_id=run_id,
-                    fork_from=fork_from,
-                    fork_entry_ids=fork_entry_ids,
-                )
-
-            fork_delegate = invoke_fork
-        reserved = tuple(tool.spec.name for tool in launcher.tools)
-        skills_run = await skills_session.prepare_run(
-            outputs=outputs,
-            sandbox=modules.sandbox.worker(),
-            sandbox_settings=launcher.config.sandbox,
-            passthrough=launcher.config.subprocess_passthrough,
-            read_only=launcher.config.read_only,
-            reserved_tools=(
-                *reserved,
-                "read_file",
-                "write_file",
-                "edit_file",
-                "ls",
-                "glob",
-                "grep",
-                "execute",
-                "write_todos",
-                "task",
-            ),
-            fork_delegate=fork_delegate,
-        )
-    mcp_run = (
-        mcp_session.prepare_run(
-            store,
-            InputBudget.create(provider.context_window, provider.max_output_tokens).input_limit,
-        )
-        if mcp_session is not None and provider.supports_tools
-        else None
-    )
-    projected = modules.projector().project(snapshot)
-    inherited = tuple(
-        ToolSpec(**plain_data(item)) for item in projected.checkpoint.get("model_tools", ())
-    )
-    return await build_runtime(
-        launcher.config,
-        provider,
-        session_id=snapshot.header.session_id,
-        run_id=run_id,
-        journal=store,
-        tools=launcher.tools,
-        memory=launcher.memory,
-        team_member=launcher.team_member,
-        consumers=launcher.consumers,
-        history_store=store,
-        checkpointer=modules.agent.checkpoint(),
-        summary_service=launcher.summary,
-        model_resolver=launcher.model_resolver,
-        event_journal=launcher.event_journal,
-        configured_hooks=launcher.configured_hooks,
-        owned_hook_tasks=launcher.hook_tasks,
-        mcp_config_hash=launcher.mcp_config_hash,
-        plans=launcher.plans,
-        plan_backend=launcher.plan_backend,
-        durable_inputs=launcher.durable_inputs,
-        effective_tools=inherited,
-        skills_run=skills_run,
-        mcp_run=mcp_run,
-        outputs=outputs,
-        modules=modules,
-    )
-
-
-def build_hook_engine(
-    hooks,
-    history,
-    actions,
-    outputs,
-    events,
-    *,
-    modules,
-    snapshots=None,
-    owned_tasks=None,
-    plans=None,
-    read_only=False,
-):
-    def executor_factory(tools, *, plans=None, read_only=False):
-        return modules.tools.configured_executor(
-            tools, events, outputs, snapshots=snapshots, plans=plans, read_only=read_only
-        )
-
-    return modules.hooks.engine(
-        hooks,
-        history,
-        actions,
-        events,
-        bind_output=outputs.bind,
-        executor_factory=executor_factory,
-        owned_tasks=owned_tasks,
-        plans=plans,
-        read_only=read_only,
-    )
-
-
-def build_runtime_bindings(
-    *,
-    modules=None,
-    framework_extensions=(),
-    model_filters=(),
-    before_model=(),
-    tool_extensions=(),
-    native_bindings=(),
-    calibrator=None,
-    question_extensions=(),
-):
-    agent = modules.agent if modules is not None else AgentModule()
-    models = modules.models if modules is not None else ModelsModule
-    tools = modules.tools if modules is not None else ToolsModule()
-
-    def settlement_factory(bound: RunContext):
-        async def lifecycle(context, event, boundary, *, message="", error=""):
-            await run_hook(bound, event, boundary, message=message, error=error)
-
-        return tools.settlement(
-            publisher=agent.publisher(bound),
-            lifecycle=lifecycle,
-            converter=models.to_framework,
-            tool_extensions=tool_extensions,
-            native_bindings=native_bindings,
-        )
-
-    return agent.bindings(
-        to_framework=models.to_framework,
-        from_assistant=models.from_assistant,
-        make_framework_tool=partial(tools.framework_tool, native_bindings=native_bindings),
-        select_model_tools=models.select_model_tools,
-        calibrate_model_request=calibrator or models.calibrate_model_request,
-        model_request_step=models.model_request_step,
-        settlement_middleware_factory=settlement_factory,
-        run_hook=run_hook,
-        framework_extensions=framework_extensions,
-        model_filters=model_filters,
-        before_model=before_model,
-        question_extensions=question_extensions,
-    )
-
-
-def build_agent_runtime(model, **options):
-    return AgentModule().runtime(model, bindings=build_runtime_bindings(), **options)
 
 
 class BoundTitleAssignment:

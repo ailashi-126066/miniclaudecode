@@ -3,7 +3,7 @@
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.history import SessionEntry, SessionHeader
 from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.session import JsonlSessionStore

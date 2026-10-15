@@ -5,19 +5,19 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from tests.support.execution import provider
+from tests.support.skill_loading import read_skill
 
 from pycode.app.bootstrap import compose_application, default_modules
 from pycode.app.composition.team import ConfiguredChildSessions
-from pycode.app.config import AppConfig
-from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
+from pycode.app.configuration.settings import AppConfig
+from pycode.app.lifecycle.session import ConfiguredRuntimeLauncher
 from pycode.kernel import Message, ToolCall, ToolContext, ToolResult, ToolSpec
 from pycode.models.module import ModelsModule
 from pycode.session import SessionCatalogWriteGuard
 from pycode.session.module import SessionsModule
 from pycode.skills.module import SkillsSettings
 from pycode.tools.module import ToolsModule
-from tests.support.execution import provider
-from tests.support.skill_loading import read_skill
 
 
 def configuration(tmp_path):

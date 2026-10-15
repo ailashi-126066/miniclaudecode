@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import StructuredTool
 
-from pycode.app.composition.runtime import build_agent_runtime
+from pycode.app.composition.bindings import build_agent_runtime
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.messages import Message
 from pycode.kernel.services.events import EventStream

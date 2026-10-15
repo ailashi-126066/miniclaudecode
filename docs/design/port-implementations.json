@@ -83,7 +83,7 @@
     },
     {
       "port": "pycode.hooks.ports.runtime.HookExecutorFactory",
-      "implementation": "pycode.app.composition.runtime.build_hook_engine",
+      "implementation": "pycode.app.composition.hooks.build_hook_engine",
       "kind": "factory"
     },
     {
@@ -233,7 +233,7 @@
     },
     {
       "port": "pycode.session.ports.runtime.RuntimeLauncher",
-      "implementation": "pycode.app.runtime_launcher.ConfiguredRuntimeLauncher",
+      "implementation": "pycode.app.lifecycle.session.ConfiguredRuntimeLauncher",
       "kind": "class"
     },
     {
@@ -348,7 +348,7 @@
     },
     {
       "port": "pycode.tools.ports.publication.ToolLifecycle",
-      "implementation": "pycode.app.composition.runtime.build_runtime_bindings",
+      "implementation": "pycode.app.composition.bindings.build_runtime_bindings",
       "kind": "factory"
     },
     {

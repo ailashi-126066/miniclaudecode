@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message, ToolCall
 from pycode.kernel.domain.tools import ToolContext

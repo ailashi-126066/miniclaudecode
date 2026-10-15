@@ -3,7 +3,7 @@ import threading
 from dataclasses import replace
 
 from pycode.app.bootstrap import compose_application
-from pycode.app.config import AppConfig
+from pycode.app.configuration.settings import AppConfig
 from tests.session.adapters.test_revert_http import command_reply
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
