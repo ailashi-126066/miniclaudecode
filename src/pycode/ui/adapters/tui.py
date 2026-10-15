@@ -295,13 +295,13 @@ class PyApp(App):
                 self._live_phase.update("PYCODE")
             if self._live_text_widget is not None:
                 self._live_text_widget.update(self._live_text)
-            self.follow_conversation(force=True)
+            self.follow_conversation()
         elif event.kind == "thinking_delta":
             self._live_thinking += event.data["text"]
             if self._live_thinking_widget is not None:
                 self._live_thinking_widget.display = True
                 self._live_thinking_widget.update("思考中：\n" + thinking_preview(self._live_thinking))
-            self.follow_conversation(force=True)
+            self.follow_conversation()
         elif event.kind == "message_end":
             if event.data.get("role") == "assistant":
                 await self.clear_live_reply()
