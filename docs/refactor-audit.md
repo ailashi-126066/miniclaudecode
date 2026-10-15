@@ -1,7 +1,7 @@
 # 五阶段改造验收记录
 
 五阶段代码和用户要求的模块装配修订已完成，独立设计与代码审查通过。主线离线验收通过；
-真实模型验收也已全部通过，待最终推送。机器可读结果见 `refactor-results.json`。
+真实模型验收也已全部通过，并已普通快进推送GitHub main，远程SHA与本地一致。机器可读结果见 `refactor-results.json`。
 原开发提交接续 GitHub main 后的对应关系见 `git-history-map.json`。
 
 ## 实施要求与证据
@@ -26,7 +26,7 @@
 | 环境透传、正则/PATH 回归、测试专用 API | --pass-env 接 Bash/Hook/Python、凭据拒绝；回归通过；死 API 删除/用途说明完成 |
 | Python3.12 环境与旧产物清理 | 新根 .venv 按锁安装 dev/eval、pip check 通过；用户确认后397项清理全成功，盘点3337516KiB，保留历史/基线/报告/发行包 |
 | Git 原历史 | 原 main@4f61c2d 的47提交已是本地 main 祖先，19个重放提交逐个树等价、作者/作者日期保留 |
-| GitHub main 交付 | 用户已授权普通快进推送 main，全部验收完成，待推送；不开 PR、不加入 CI |
+| GitHub main 交付 | 已普通快进推送并验证代码/证据提交 `1e9cd36`；原47提交保留，不开PR、不加入CI |
 
 ## 主线离线验证
 
@@ -68,4 +68,4 @@ attempt0/completed、无400，共5767tokens，持久化两条测试长期偏好�
 
 清理于2026-10-15按用户确认清单执行：397/397项成功、0失败；按盘点3337516KiB（约3.183GiB）。
 新根.venv、evals/cache、原Git材料、两轮16K基线、当前报告与发行包均保留；清理明细见当前证据目录
-`cleanup-results.json`。GitHub main尚未推送。
+`cleanup-results.json`。GitHub main已推送并核对 `1e9cd36`，原main祖先验证通过。后续仅追加本次交付验证记录。

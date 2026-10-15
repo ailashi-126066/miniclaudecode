@@ -1,5 +1,5 @@
 {
-  "status": "all_acceptance_passed_pending_push",
+  "status": "complete",
   "tested_commit": "584237f1d5c48d161742f293aa5ae2a6392d5d39",
   "release_source_sha256": "58946e5cecb675654d5bf98ca8e173ae5d562e6c2c985fe40a00e07e3e9500ae",
   "pytest": {
@@ -38,9 +38,14 @@
     "target": "main",
     "original_remote_main": "4f61c2de0507da7160baf2c807f715f668b7ca89",
     "original_commit_count": 47,
-    "status": "ready_for_fast_forward_push",
+    "status": "pushed_and_verified",
     "history_connected_main": "e68ce6bc4bd35666910569f0e254938ad312fa8e",
-    "preserved_original_history": true
+    "preserved_original_history": true,
+    "verified_delivery_commit": "1e9cd366788ee0c890baf6ffb2b0ed608110d65b",
+    "verified_delivery_tree": "5a8c28be88d4518ac9db5b6501fc7fb55d515013",
+    "verified_at": "2026-10-15T10:12:10.769626+00:00",
+    "original_main_ancestor_verified": true,
+    "delivery_record_note": "verified_delivery_commit contains the accepted code and evidence. A following documentation-only commit records this verified push."
   },
   "live_deepseek": {
     "status": "passed",
