@@ -10,7 +10,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from record_verification import manifest
+from source_manifest import manifest
 
 from pycode.app.config import AppConfig, load_providers
 from pycode.app.container import build_background_model, build_memory_updater
@@ -19,7 +19,7 @@ from pycode.core.requests import RetryPolicy
 from pycode.core.values import plain_data
 from pycode.workflows.memory_rule_evaluation import DATASET_SHA, TASKS
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 async def main(source, resume=None):
@@ -39,7 +39,7 @@ async def main(source, resume=None):
     run_id = directory.name
     config = AppConfig(ROOT, directory / "data", credential_workspace=ROOT, memory_mode="off")
     provider = replace(
-        load_providers(ROOT / "tests/evals/providers-final.json")[0],
+        load_providers(ROOT / "evals/data/providers-final.json")[0],
         thinking={"type": "disabled"},
         max_output_tokens=4096,
     )

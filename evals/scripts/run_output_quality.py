@@ -11,7 +11,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from record_verification import manifest
+from source_manifest import manifest
 
 from pycode.adapters.storage.layout import StorageLayout
 from pycode.adapters.storage.requests import SQLiteRequestStore
@@ -28,7 +28,7 @@ from pycode.core.summaries import SummarySource
 from pycode.core.values import plain_data
 from pycode.workflows.summary import SummaryWorkflow
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 async def generate(case, config, provider, run_id, *, reuse=False, retry_memory=False):
@@ -105,11 +105,11 @@ async def main(resume_memory=None, only=None, retry_memory=False):
     from langsmith import tracing_context
     from openevals.llm import create_async_llm_as_judge
 
-    dataset = ROOT / "tests/evals/quality-cases.json"
+    dataset = ROOT / "evals/data/quality-cases.json"
     data = json.loads(dataset.read_bytes())
     directory = ROOT / "tests/.runtime-tests" / ("output-quality-" + uuid4().hex)
     directory.mkdir()
-    original = load_providers(ROOT / "tests/evals/providers-final.json")[0]
+    original = load_providers(ROOT / "evals/data/providers-final.json")[0]
     provider = replace(original, thinking={"type": "disabled"}, max_output_tokens=4096)
     report = {
         "kind": "real_component_outputs_official_openevals",

@@ -8,15 +8,15 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
-
-from pycode.adapters.evaluation.langfuse import LangfuseEvaluationSummary
-from pycode.adapters.evaluation.workspaces import EvaluationWorkspaces
-from pycode.app.config import AppConfig
-from pycode.app.container import build_evaluation_solver
-from pycode.services.evaluation import EvaluationRunner
 from tests.support.execution import provider
 from tests.support.http_provider import HTTPResponse, chat_completion, protocol_server
 from tests.workflows.test_skills_http import skill_reply
+
+from evals.coding.assembly import build_evaluation_solver
+from evals.coding.runner import EvaluationRunner
+from evals.coding.workspaces import EvaluationWorkspaces
+from evals.quality.langfuse import LangfuseEvaluationSummary
+from pycode.app.config import AppConfig
 
 
 @pytest.mark.parametrize("verify,telemetry_fault", [(True, False), (False, False), (True, True)])
@@ -25,10 +25,8 @@ async def test_fixed_model_three_task_smoke_is_real_local_protocol_control(
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     root = Path(__file__).parents[2]
-    definition = root / "tests/evals/manifest.json"
-    cache = Path(
-        os.environ.get("PYCODE_EVAL_CACHE", root / "tests/.runtime-tests/eval-cache/polyglot")
-    )
+    definition = root / "evals/data/manifest.json"
+    cache = Path(os.environ.get("PYCODE_EVAL_CACHE", root / "evals/cache/polyglot"))
     workspaces = EvaluationWorkspaces(definition, cache, tmp_path / "work", tmp_path / "results")
     replies = []
     for task in workspaces.tasks:

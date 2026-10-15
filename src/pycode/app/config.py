@@ -34,8 +34,10 @@ class AppConfig:
     agent_id: str = "lead"
     request_database: Path | None = None
     isolated_worker: bool = False
-    evaluation_files: tuple[str, ...] = ()
-    evaluation_tests: tuple[str, ...] = ()
+    # Embedding hooks: a gate replacing the default tool authorization chain and
+    # directories prepended to the Bash tool's PATH.
+    tool_gate: object | None = None
+    bash_path_prefix: tuple[str, ...] = ()
     credential_workspace: Path | None = None
 
     def __post_init__(self) -> None:

@@ -37,13 +37,15 @@ pycode --workspace C:\project session open "项目分析"
 
 在开发虚拟环境安装 `.[dev,eval]`，并使用 `requirements-dev.lock` 约束版本。
 OpenEvals 固定为 0.2.0，AgentEvals 固定为 0.0.9。数据集和评分标准在
-`tests/evals/quality-cases.json`，运行前固定；所有运行数据保存到 `tests/.runtime-tests/`。
+`evals/data/quality-cases.json`，运行前固定；所有运行数据保存到 `tests/.runtime-tests/`。
+评测代码位于独立的 `evals/` 包（pycode 不依赖它，wheel 不包含它）；
+`python -m evals --help` 列出全部评测入口。
 
 ```text
-python tools/run_output_quality.py
-python tools/run_trajectory_quality.py
+python evals/scripts/run_output_quality.py
+python evals/scripts/run_trajectory_quality.py
 python -m archive.tests_support.verify_live_inferred_rule_evaluation
-python tools/run_rule_comparison_quality.py --source tests/.runtime-tests/live/RUN/result.json
+python evals/scripts/run_rule_comparison_quality.py --source tests/.runtime-tests/live/RUN/result.json
 ```
 
 输出评估实际调用记忆应用服务、摘要工作流和官方规则优化器。轨迹评估执行当前
@@ -54,7 +56,7 @@ AgentSession，但使用本地 HTTP 服务注入可控选择、重试、fallback
 评估脚本支持只恢复未完成项：`run_output_quality.py --resume-memory-from DIR
 --only memory-preference --retry-memory`，`run_trajectory_quality.py --resume REPORT
 --only tool-selection`，以及规则裁判的 `--resume-positive-grades REPORT`。
-保留原始报告；`tools/summarize_quality_suite.py --help` 给出完整汇总参数。
+保留原始报告；`evals/scripts/summarize_quality_suite.py --help` 给出完整汇总参数。
 模型评分是固定小数据集诊断，不替代确定性测试和推断规则的运行时采用凭据。
 
 ## 主模型工具选择
@@ -192,8 +194,8 @@ TUI 使用 `/memory move ID user|project`，也支持 `--from-scope`。移动先
 会话删除必须明确操作。所有分支、fork、摘要、Plan、记忆和团队引用都参与保护。
 Git GC 只针对独立快照仓库。worktree 清理是独立的 30 天扫描。
 
-固定 Python 评测清单见 `tests/evals/manifest.json`：12 题、固定 3 题 smoke、精确提交和文件哈希。
-源码缓存、工作目录、结果目录分别在 `tests/evals/cache|work|results`，不进入发行包。
+固定 Python 评测清单见 `evals/data/manifest.json`：12 题、固定 3 题 smoke、精确提交和文件哈希。
+源码缓存、工作目录、结果目录分别在 `evals/cache|work|results`，不进入发行包。
 每题串行执行，Agent 只能修改 solution，测试由独立进程执行，捕获修改、错误、超时及真实 usage。
 默认清理工作区，结果保留；评测不创建 commit。可选 Langfuse 只上传摘要指标。
 每题具有独立的 baseline／workspace，创建仅用于 tree 快照的临时 Git 仓库，不创建 commit。
@@ -201,24 +203,24 @@ Git GC 只针对独立快照仓库。worktree 清理是独立的 30 天扫描。
 有界测试日志、压缩 JSONL 与 patch，并生成 `results.jsonl` 和 `summary.json`。
 无修改、禁止文件变化、未验证最新修改、明确的错误通过声明等分别分类，不能只看退出码。
 macOS 的评测命令默认启用 Seatbelt 并关闭网络；Windows 明确记录没有 OS 隔离。
-`pip install 'pycode[eval]'` 安装可选的锁定 Langfuse SDK。配置后提交 dataset／experiment、
+在源码目录 `pip install -e '.[eval]'` 安装可选的锁定 Langfuse SDK。配置后提交 dataset／experiment、
 模型与工具摘要 observation 和确定性 score；不上传代码、提示词、参数正文或大输出。
 遥测异常不改变本地成绩，SDK 提交完成也不等于独立确认远程落库成功。
 
 ```powershell
-pycode --memory-mode off eval --providers providers.json --work tests/evals/work/RUN --results tests/evals/results/RUN
+python -m evals --memory-mode off coding --providers providers.json --work evals/work/RUN --results evals/results/RUN
 ```
 
 固定模型控制 smoke 验证实际协议与测试流水线，不能代表真实模型编码质量。
 从新克隆的仓库运行完整测试前，安装开发依赖并准备固定评测缓存。首次准备缓存需要网络；
-缓存保持在被忽略的 `tests/evals/cache/` 中，不提交或打入发行包。
+缓存保持在被忽略的 `evals/cache/` 中，不提交或打入发行包。
 
 ```powershell
 python -m pip install -r requirements-dev.lock
-git clone --filter=blob:none --no-checkout https://github.com/Aider-AI/polyglot-benchmark.git tests/evals/cache/polyglot
-git -C tests/evals/cache/polyglot config core.autocrlf true
-git -C tests/evals/cache/polyglot sparse-checkout set python
-git -C tests/evals/cache/polyglot checkout --detach 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f
+git clone --filter=blob:none --no-checkout https://github.com/Aider-AI/polyglot-benchmark.git evals/cache/polyglot
+git -C evals/cache/polyglot config core.autocrlf true
+git -C evals/cache/polyglot sparse-checkout set python
+git -C evals/cache/polyglot checkout --detach 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f
 python -m pytest -q
 python scripts/check_architecture.py
 python scripts/verify_release.py

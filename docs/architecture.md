@@ -69,7 +69,9 @@ rejected); others use the ordinary approval interrupt. Deny patterns are defence
 Evaluation runs the same harness in isolated declared-file workspaces and tests independently.
 
 Build/tests operate here without initializing the project Git directory. Reference projects
-remain read-only. Temporary Git/worktree/evaluation operations are confined to tests-owned roots.
+remain read-only. Temporary Git/worktree operations are confined to tests-owned roots.
+Evaluation lives in the separate `evals/` package (pycode never imports it) and keeps its
+cache/work/results under `evals/` or `tests/.runtime-tests`.
 
 Review fixes: serial tools wait for preceding durable settlement
 or interrupt, rather than racing a lock and an outdated failure count. Live tool tasks are

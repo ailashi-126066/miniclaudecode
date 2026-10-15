@@ -72,7 +72,7 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
   增量组件、折叠/对象回读、live/expired 等待、Plan/memory/team、可读名称和 UTF-8 输出。
   `commands.py`、`completion.py` 参考只读 `code-python/mewcode/commands/{registry,parser,completion}.py`；
   仅注册本项目既有入口。原候选思路适配为 Textual OptionList，点击选择实际行，Enter 分开补全和提交。
-- `core/evaluation.py`、`services/evaluation.py`、`adapters/evaluation/*`：固定 GitHub corpus
+- `evals/coding/*`、`evals/quality/langfuse.py`（独立于 pycode 包）：固定 GitHub corpus
   12 Python 题、3 smoke、实际 harness、独立测试及摘要-only Langfuse。本项目新增流水线。
   上游 `Aider-AI/polyglot-benchmark@7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f`；
   Exercism Python MIT。manifest 含逐文件 hash，下载缓存/工作区/结果不进入发行包。

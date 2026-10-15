@@ -2,9 +2,8 @@
 
 from uuid import uuid4
 
-from tests.support.langfuse_server import langfuse_server
-
-from pycode.adapters.evaluation.langfuse import LangfuseEvaluationSummary
+from evals.quality.langfuse import LangfuseEvaluationSummary
+from evals.tests.langfuse_server import langfuse_server
 
 
 async def test_langfuse_ingestion_contains_only_aggregate_evaluation_fields():

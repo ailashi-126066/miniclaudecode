@@ -12,9 +12,6 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 
 from pycode import __version__
-from pycode.adapters.evaluation.langfuse import LangfuseEvaluationSummary
-from pycode.adapters.evaluation.provenance import installed_dependencies, package_manifest
-from pycode.adapters.evaluation.workspaces import EvaluationWorkspaces
 from pycode.adapters.hooks.actions import ConfiguredHookActions
 from pycode.adapters.hooks.config import load_hooks
 from pycode.adapters.mcp.config import load_servers
@@ -63,7 +60,6 @@ from pycode.adapters.ui.console import ConsoleOutput
 from pycode.adapters.ui.tui import PyApp
 from pycode.app.background_models import ConfiguredSummaryGenerator
 from pycode.app.config import AppConfig, credential_environment
-from pycode.app.evaluation_solver import ConfiguredEvaluationSolver
 from pycode.app.runtime_launcher import ConfiguredRuntimeLauncher
 from pycode.app.team_runtime import ConfiguredWorkers, SynchronousDelegate
 from pycode.core.context_budget import InputBudget
@@ -75,7 +71,6 @@ from pycode.core.messages import Purpose
 from pycode.core.models import ProviderConfig, model_selection
 from pycode.core.requests import RetryPolicy
 from pycode.core.revert_state import pending_revert
-from pycode.core.sandbox import SandboxSettings
 from pycode.core.session_tree import SessionTree
 from pycode.core.skill_selection import SkillSelection
 from pycode.core.skills import skill_tool_specs
@@ -90,8 +85,6 @@ from pycode.services.agent_session import AgentSession
 from pycode.services.application import ApplicationService
 from pycode.services.context_projector import ContextProjector
 from pycode.services.durable_inputs import DurableInputs
-from pycode.services.evaluation import EvaluationRunner
-from pycode.services.evaluation_gate import EvaluationToolGate
 from pycode.services.event_journal import MemoryEventJournal
 from pycode.services.events import EventStream
 from pycode.services.hooks import HookEngine
@@ -158,10 +151,10 @@ def build_model_control(catalog: ModelCatalog, store=None) -> ModelControl:
 
 def default_tools(config, outputs, shell, question_prompt=None, plans=None):
     environment = None
-    if config.evaluation_files:
+    if config.bash_path_prefix:
         environment = dict(os.environ)
-        environment["PATH"] = (
-            str(Path(sys.executable).parent) + os.pathsep + environment.get("PATH", "")
+        environment["PATH"] = os.pathsep.join(
+            (*config.bash_path_prefix, environment.get("PATH", ""))
         )
     tools = [
         ReadToolResult(outputs),
@@ -340,8 +333,8 @@ def build_runtime(
         if config.isolated_worker:
             gate = IsolatedWorkerToolGate(gate)
         gate = PlanToolGate(plans, gate)
-    if config.evaluation_files:
-        gate = EvaluationToolGate(config.evaluation_files, config.evaluation_tests)
+    if config.tool_gate is not None:
+        gate = config.tool_gate
     if history_store is not None:
         gate = SkillToolGate(history_store, gate)
     snapshots = GitSnapshotStore(
@@ -599,60 +592,6 @@ def build_worktree_manager(config):
     return WorktreeManager(config.workspace, layout.project / "worktrees")
 
 
-def build_evaluation_runner(config, providers, manifest, cache, work, results, *, langfuse=False):
-    evaluation_root = (config.workspace / "tests" / "evals").resolve()
-    runtime_root = (config.workspace / "tests" / ".runtime-tests").resolve()
-    for path in (manifest, cache, work, results):
-        allowed = (evaluation_root,) if path == manifest else (evaluation_root, runtime_root)
-        if not any(Path(path).resolve().is_relative_to(root) for root in allowed):
-            raise StorageError(
-                "evaluation_path_escape",
-                "Manifest must stay under tests/evals; "
-                "artifacts under tests/evals or tests/.runtime-tests",
-            )
-    settings = SandboxSettings("on" if sys.platform == "darwin" else "off", False)
-    config = replace(config, sandbox=settings)
-    workspaces = EvaluationWorkspaces(
-        manifest, cache, work, results, sandbox=build_sandbox(), sandbox_settings=settings
-    )
-    solver = build_evaluation_solver(config, providers)
-    telemetry = None
-    if langfuse:
-        public = os.environ.get("LANGFUSE_PUBLIC_KEY")
-        secret = os.environ.get("LANGFUSE_SECRET_KEY")
-        if public and secret:
-            telemetry = LangfuseEvaluationSummary(
-                os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"), public, secret
-            )
-    return EvaluationRunner(
-        workspaces,
-        solver.solve,
-        Path(sys.executable),
-        model_id=providers[0].model_id,
-        telemetry=telemetry,
-        solver_handles_timeout=True,
-    )
-
-
-def build_evaluation_solver(config, providers):
-    def identity():
-        versions = installed_dependencies()
-        lock = config.workspace / "requirements-dev.lock"
-        return {
-            "source_manifest": package_manifest(),
-            "dependencies": versions,
-            "dependency_hash": data_hash(versions),
-            "lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None,
-        }
-
-    def trace_path(selected, session_id):
-        return str(
-            StorageLayout(selected.workspace, selected.user_data).sessions
-            / session_id
-            / "entries.jsonl"
-        )
-
-    return ConfiguredEvaluationSolver(config, providers, open_agent_session, identity, trace_path)
 
 
 def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime):

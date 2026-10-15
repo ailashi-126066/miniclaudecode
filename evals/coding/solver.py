@@ -1,9 +1,12 @@
 """Coding evaluations use existing sessions and the exact configured model."""
 
 import asyncio
+import sys
 from dataclasses import replace
+from pathlib import Path
 from uuid import uuid4
 
+from evals.coding.gate import EvaluationToolGate
 from pycode.core.hashing import data_hash
 from pycode.core.messages import Message
 from pycode.core.values import plain_data
@@ -25,8 +28,8 @@ class ConfiguredEvaluationSolver:
             memory_mode="off",
             project_trusted=False,
             allow_delegation=False,
-            evaluation_files=task.solution_files,
-            evaluation_tests=task.test_files,
+            tool_gate=EvaluationToolGate(task.solution_files, task.test_files),
+            bash_path_prefix=(str(Path(sys.executable).parent),),
             credential_workspace=self.config.credential_workspace or self.config.workspace,
         )
         identity = self.metadata_factory()

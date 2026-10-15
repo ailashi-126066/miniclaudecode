@@ -12,7 +12,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from uuid import uuid4
 
-from record_verification import manifest
+from source_manifest import manifest
 
 from pycode.app.config import AppConfig, load_providers
 from pycode.app.container import build_background_model, build_memory_updater, open_agent_session
@@ -22,7 +22,7 @@ from pycode.core.requests import RetryPolicy
 from pycode.core.tools import ToolSpec
 from pycode.core.values import plain_data
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 
@@ -209,12 +209,12 @@ async def main(resume=None, only=None):
     from agentevals.trajectory.llm import create_async_trajectory_llm_as_judge
     from langsmith import tracing_context
 
-    dataset = ROOT / "tests/evals/quality-cases.json"
+    dataset = ROOT / "evals/data/quality-cases.json"
     definition = json.loads(dataset.read_bytes())
     directory = ROOT / "tests/.runtime-tests" / ("trajectory-quality-" + uuid4().hex)
     directory.mkdir()
     provider = replace(
-        load_providers(ROOT / "tests/evals/providers-final.json")[0],
+        load_providers(ROOT / "evals/data/providers-final.json")[0],
         thinking={"type": "disabled"},
         max_output_tokens=4096,
     )

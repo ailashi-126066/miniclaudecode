@@ -7,14 +7,14 @@ from pathlib import Path, PurePosixPath
 from urllib.request import urlopen
 from zipfile import ZipFile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
-    manifest = json.loads((ROOT / "tests/evals/manifest.json").read_bytes())
+    manifest = json.loads((ROOT / "evals/data/manifest.json").read_bytes())
     commit = manifest["commit"]
     url = f"https://codeload.github.com/Aider-AI/polyglot-benchmark/zip/{commit}"
-    destination = ROOT / "tests/.runtime-tests/eval-cache/polyglot"
+    destination = ROOT / "evals/cache/polyglot"
     if not destination.exists():
         with urlopen(url, timeout=60) as response:
             payload = response.read(100 * 1024 * 1024 + 1)

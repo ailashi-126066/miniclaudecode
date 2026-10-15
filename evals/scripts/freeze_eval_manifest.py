@@ -22,8 +22,8 @@ COMMIT = "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f"
 
 
 def main():
-    root = Path(__file__).resolve().parents[1]
-    cache = root / "tests/evals/cache/polyglot"
+    root = Path(__file__).resolve().parents[2]
+    cache = root / "evals/cache/polyglot"
     tasks = []
     for name in TASKS:
         relative = "python/exercises/practice/" + name
@@ -49,7 +49,7 @@ def main():
                 "smoke": name in TASKS[:3],
             }
         )
-    output = root / "tests/evals/manifest.json"
+    output = root / "evals/data/manifest.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(

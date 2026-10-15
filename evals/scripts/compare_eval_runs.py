@@ -102,13 +102,13 @@ def main():
     args = parser.parse_args()
     if args.first.resolve() == args.second.resolve():
         raise ValueError("Compare two distinct runs; one run is not two observations")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     for path in (args.first, args.second, args.output):
         if not path.resolve().is_relative_to((root / "tests/.runtime-tests").resolve()):
             raise ValueError("Evaluation comparison must remain under tests/.runtime-tests")
     if args.output.exists():
         raise ValueError("Use a fresh comparison output; retain previous reports")
-    manifest = root / "tests/evals/manifest.json"
+    manifest = root / "evals/data/manifest.json"
     tasks = [item["id"] for item in json.loads(manifest.read_bytes())["tasks"]]
     first, second = load_run(args.first, tasks), load_run(args.second, tasks)
     identities = {

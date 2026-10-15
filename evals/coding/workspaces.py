@@ -12,10 +12,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 
+from evals.coding.tasks import EvaluationTask
 from pycode.adapters.storage.path_io import atomic_write, file_sha256, owned_io
 from pycode.adapters.tools.process_runner import run_process
 from pycode.core.errors import StorageError
-from pycode.core.evaluation import EvaluationTask
 from pycode.core.messages import ToolResult
 from pycode.core.values import json_dumps
 

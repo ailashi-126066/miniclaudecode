@@ -4,11 +4,12 @@ import hashlib
 from importlib.metadata import distributions
 from pathlib import Path
 
+import pycode
 from pycode.core.values import json_dumps
 
 
 def package_manifest():
-    package = Path(__file__).resolve().parents[2]
+    package = Path(pycode.__file__).resolve().parent
     records = []
     for path in sorted(package.rglob("*")):
         if (

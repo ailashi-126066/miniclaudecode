@@ -14,7 +14,7 @@ from pycode.app.container import build_background_model, build_memory_updater
 from pycode.core.requests import RetryPolicy
 from pycode.core.values import plain_data
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def trajectory(names):
@@ -50,7 +50,7 @@ async def verify():
     directory = ROOT / "tests/.runtime-tests" / run_id
     directory.mkdir()
     provider = replace(
-        load_providers(ROOT / "tests/evals/providers-final.json")[0],
+        load_providers(ROOT / "evals/data/providers-final.json")[0],
         thinking={"type": "disabled"},
         max_output_tokens=1024,
         timeout_seconds=30,

@@ -6,8 +6,8 @@ import platform
 import time
 from datetime import datetime, timedelta, timezone
 
+from evals.coding.tasks import evaluation_outcome
 from pycode.core.errors import StorageError
-from pycode.core.evaluation import evaluation_outcome
 
 
 class EvaluationRunner:

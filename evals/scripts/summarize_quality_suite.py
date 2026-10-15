@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from record_verification import manifest
+from source_manifest import manifest
 
 
 def load(path):
@@ -30,13 +30,13 @@ def main():
     parser.add_argument("--rules", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     for path in vars(args).values():
         if not path.resolve().is_relative_to((root / "tests/.runtime-tests").resolve()):
             raise ValueError("Quality evidence must remain under tests/.runtime-tests")
     if args.output.exists():
         raise ValueError("Use a fresh aggregate report")
-    dataset = root / "tests/evals/quality-cases.json"
+    dataset = root / "evals/data/quality-cases.json"
     definition = load(dataset)
     reports = {
         key: load(getattr(args, key))

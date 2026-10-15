@@ -7,14 +7,15 @@ import platform
 import sys
 from pathlib import Path
 
-from pycode.adapters.evaluation.workspaces import EvaluationWorkspaces
 from pycode.app.container import build_sandbox
 from pycode.core.sandbox import SandboxSettings
 
 
 async def verify(args, root):
+    from evals.coding.workspaces import EvaluationWorkspaces
+
     spaces = EvaluationWorkspaces(
-        root / "tests/evals/manifest.json",
+        root / "evals/data/manifest.json",
         args.cache,
         args.work,
         args.output.parent / "logs",
@@ -47,20 +48,23 @@ async def verify(args, root):
 
 
 def main():
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--cache", type=Path, default=root / "tests/.runtime-tests/eval-cache/polyglot"
-    )
+    parser.add_argument("--cache", type=Path, default=root / "evals/cache/polyglot")
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    for path in (args.cache, args.work, args.output):
-        if not path.resolve().is_relative_to((root / "tests/.runtime-tests").resolve()):
+    runtime = (root / "tests/.runtime-tests").resolve()
+    cache_roots = ((root / "evals/cache").resolve(), runtime)
+    if not any(args.cache.resolve().is_relative_to(path) for path in cache_roots):
+        raise ValueError("The corpus cache must stay under evals/cache or tests/.runtime-tests")
+    for path in (args.work, args.output):
+        if not path.resolve().is_relative_to(runtime):
             raise ValueError("Baseline verification artifacts must stay under tests/.runtime-tests")
     if args.output.exists():
         raise ValueError("Use a fresh report path; retain previous evidence")
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(root))
     return asyncio.run(verify(args, root))
 
 

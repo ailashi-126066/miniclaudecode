@@ -10,7 +10,6 @@ from pydantic import TypeAdapter, ValidationError
 from pycode.app.config import load_providers
 from pycode.app.container import (
     build_console_output,
-    build_evaluation_runner,
     build_memory_service,
     build_session_repository,
     build_session_service,
@@ -137,19 +136,6 @@ async def command(args, config):
     if args.providers is None:
         raise DomainError("providers_required", "Execution requires --providers")
     providers = await asyncio.to_thread(read_providers, args.providers)
-    if args.command == "eval":
-        runner = build_evaluation_runner(
-            config,
-            providers,
-            Path(args.manifest),
-            Path(args.cache),
-            Path(args.work),
-            Path(args.results),
-            langfuse=args.langfuse,
-        )
-        value = await runner.run(smoke=not args.full, cleanup=not args.keep_work)
-        output.value({"model": providers[0].model_id, "results": value})
-        return 0 if all(result["outcome"] == "passed" for result in value) else 1
     if args.session is None and args.command not in {"run", "plan", "/plan"}:
         raise DomainError("session_required", "This command requires --session")
     if args.create and args.command not in {"run", "plan", "/plan", "hooks"}:

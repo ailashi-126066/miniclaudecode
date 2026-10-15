@@ -8,12 +8,13 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
-from pycode.adapters.evaluation.workspaces import EvaluationWorkspaces
-from pycode.app.config import AppConfig
-from pycode.app.container import build_evaluation_solver
-from pycode.services.evaluation import EvaluationRunner
 from tests.support.execution import provider
 from tests.support.http_provider import chat_completion, protocol_server
+
+from evals.coding.assembly import build_evaluation_solver
+from evals.coding.runner import EvaluationRunner
+from evals.coding.workspaces import EvaluationWorkspaces
+from pycode.app.config import AppConfig
 
 
 async def test_timeout_preserves_settled_request_usage_trace_and_independent_tests(
@@ -22,8 +23,8 @@ async def test_timeout_preserves_settled_request_usage_trace_and_independent_tes
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "local-test-key")
     root = Path(__file__).parents[2]
     workspaces = EvaluationWorkspaces(
-        root / "tests/evals/manifest.json",
-        root / "tests/.runtime-tests/eval-cache/polyglot",
+        root / "evals/data/manifest.json",
+        root / "evals/cache/polyglot",
         tmp_path / "work",
         tmp_path / "results",
     )
@@ -76,8 +77,8 @@ async def test_timeout_preserves_settled_request_usage_trace_and_independent_tes
 async def test_unavailable_baseline_preserves_failure_and_never_calls_model(tmp_path, monkeypatch):
     root = Path(__file__).parents[2]
     workspaces = EvaluationWorkspaces(
-        root / "tests/evals/manifest.json",
-        root / "tests/.runtime-tests/eval-cache/polyglot",
+        root / "evals/data/manifest.json",
+        root / "evals/cache/polyglot",
         tmp_path / "work",
         tmp_path / "results",
     )

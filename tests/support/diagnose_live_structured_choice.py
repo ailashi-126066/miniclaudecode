@@ -22,7 +22,7 @@ async def main():
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + "-structured-diagnostic"
     directory = ROOT / "tests/.runtime-tests/live" / run_id
     directory.mkdir(parents=True)
-    provider = load_providers(ROOT / "tests/evals/providers-final.json")[0]
+    provider = load_providers(ROOT / "evals/data/providers-final.json")[0]
     config = AppConfig(ROOT, directory / "data", credential_workspace=ROOT)
     key = credential_environment(config, (provider,)).get(provider.api_key_env, "")
     report = {"model": provider.model_id, "thinking": provider.thinking, "tool_choice": "any"}

@@ -21,7 +21,7 @@ async def main():
         credential_workspace=ROOT,
         allow_delegation=False,
     )
-    provider = load_providers(ROOT / "tests/evals/providers-final.json")[0]
+    provider = load_providers(ROOT / "evals/data/providers-final.json")[0]
     session = None
     report = {"acceptance": "resume_only_memory_jobs", "session_id": SESSION_ID}
     try:

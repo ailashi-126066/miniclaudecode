@@ -49,17 +49,6 @@ def build_parser():
     tui.add_argument("--session")
     doctor = commands.add_parser("doctor", help="Inspect workspace capabilities")
     doctor.add_argument("--json", action="store_true")
-    evaluation = commands.add_parser(
-        "eval", help="Run fixed isolated Python coding evaluations serially"
-    )
-    evaluation.add_argument("--providers", required=True)
-    evaluation.add_argument("--manifest", default="tests/evals/manifest.json")
-    evaluation.add_argument("--cache", default="tests/evals/cache/polyglot")
-    evaluation.add_argument("--work", required=True)
-    evaluation.add_argument("--results", required=True)
-    evaluation.add_argument("--full", action="store_true")
-    evaluation.add_argument("--keep-work", action="store_true")
-    evaluation.add_argument("--langfuse", action="store_true")
     model = commands.add_parser("model", aliases=["/model"], help="List or select models")
     model.add_argument("--providers", required=True)
     model.add_argument("--cached", action="store_true")

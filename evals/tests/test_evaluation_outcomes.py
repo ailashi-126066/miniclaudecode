@@ -2,7 +2,7 @@
 
 import pytest
 
-from pycode.core.evaluation import evaluation_outcome
+from evals.coding.tasks import evaluation_outcome
 
 
 @pytest.mark.parametrize(
