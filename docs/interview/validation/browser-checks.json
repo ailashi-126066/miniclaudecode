@@ -9,7 +9,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "组装入口：一句任务怎样交给各个模块",
+      "title": "01　组装入口：一句任务怎样交给各个模块",
       "topLevelGuides": 22
     },
     {
@@ -54,7 +54,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "读 parser.py、改文件，再把结果交回模型",
+      "title": "06　读 parser.py、改文件，再把结果交回模型",
       "topLevelGuides": 15
     },
     {
@@ -63,7 +63,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "测试命令怎样启动，又怎样被可靠地停止",
+      "title": "07　测试命令怎样启动，又怎样被可靠地停止",
       "topLevelGuides": 15
     },
     {
@@ -72,7 +72,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "改错 parser.py 以后，怎样只撤回这次修改",
+      "title": "08　改错 parser.py 以后，怎样只撤回这次修改",
       "topLevelGuides": 11
     },
     {
@@ -81,7 +81,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "先读 review 指令，再按需要使用 Skill",
+      "title": "09　先读 review 指令，再按需要使用 Skill",
       "topLevelGuides": 16
     },
     {
@@ -90,7 +90,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "review需要外部信息时，MCP怎样把服务接进来",
+      "title": "10　review需要外部信息时，MCP怎样把服务接进来",
       "topLevelGuides": 16
     },
     {
@@ -99,7 +99,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "编辑前自动检查，测试后自动做事：Hook怎样接进流程",
+      "title": "11　编辑前自动检查，测试后自动做事：Hook怎样接进流程",
       "topLevelGuides": 17
     },
     {
@@ -108,7 +108,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "会话：修到一半退出，下一次怎么接着做",
+      "title": "12　会话：修到一半退出，下一次怎么接着做",
       "topLevelGuides": 19
     },
     {
@@ -117,7 +117,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "记忆：下一次修代码，怎样还记得用户偏好",
+      "title": "13　记忆：下一次修代码，怎样还记得用户偏好",
       "topLevelGuides": 11
     },
     {
@@ -126,7 +126,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "计划：先让我看修法，再允许改 parser.py",
+      "title": "14　计划：先让我看修法，再允许改 parser.py",
       "topLevelGuides": 12
     },
     {
@@ -135,7 +135,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "团队：把 parser 的测试分出去，怎样收回结果",
+      "title": "15　团队：把 parser 的测试分出去，怎样收回结果",
       "topLevelGuides": 15
     },
     {
@@ -144,7 +144,7 @@
       "framework": true,
       "hasAssembly": true,
       "openCodes": 0,
-      "title": "界面：用户怎样看到审批、测试输出和取消结果",
+      "title": "16　界面：用户怎样看到审批、测试输出和取消结果",
       "topLevelGuides": 10
     }
   ],
@@ -188,5 +188,111 @@
   },
   "consoleErrors": [],
   "preview": "http://127.0.0.1:8766/index.html#chapter=01-application.md",
-  "offline_file_url": "The in-app browser blocks file URLs; UI checks use a docs-only localhost HTTP server."
+  "offline_file_url": "The in-app browser blocks file URLs; UI checks use a docs-only localhost HTTP server.",
+  "chapterNumbering": {
+    "tested_at": "2026-10-15T12:36:07.125Z",
+    "chapters": [
+      {
+        "correct": true,
+        "file": "00-overview.md",
+        "title": "00　先跟着一次修代码任务，把整个程序走一遍"
+      },
+      {
+        "correct": true,
+        "file": "01-application.md",
+        "title": "01　组装入口：一句任务怎样交给各个模块"
+      },
+      {
+        "correct": true,
+        "file": "02-kernel.md",
+        "title": "02　程序先怎样记住：用户让它修 parser.py 并跑测试"
+      },
+      {
+        "correct": true,
+        "file": "03-models.md",
+        "title": "03　把“修 parser.py”真正交给模型"
+      },
+      {
+        "correct": true,
+        "file": "04-context.md",
+        "title": "04　读过文件、跑过测试以后，下一次模型该读什么"
+      },
+      {
+        "correct": true,
+        "file": "05-agent.md",
+        "title": "05　把读代码、修改和测试接成一次Agent运行"
+      },
+      {
+        "correct": true,
+        "file": "06-tools.md",
+        "title": "06　读 parser.py、改文件，再把结果交回模型"
+      },
+      {
+        "correct": true,
+        "file": "07-sandbox.md",
+        "title": "07　测试命令怎样启动，又怎样被可靠地停止"
+      },
+      {
+        "correct": true,
+        "file": "08-snapshot.md",
+        "title": "08　改错 parser.py 以后，怎样只撤回这次修改"
+      },
+      {
+        "correct": true,
+        "file": "09-skills.md",
+        "title": "09　先读 review 指令，再按需要使用 Skill"
+      },
+      {
+        "correct": true,
+        "file": "10-mcp.md",
+        "title": "10　review需要外部信息时，MCP怎样把服务接进来"
+      },
+      {
+        "correct": true,
+        "file": "11-hooks.md",
+        "title": "11　编辑前自动检查，测试后自动做事：Hook怎样接进流程"
+      },
+      {
+        "correct": true,
+        "file": "12-session.md",
+        "title": "12　会话：修到一半退出，下一次怎么接着做"
+      },
+      {
+        "correct": true,
+        "file": "13-memory.md",
+        "title": "13　记忆：下一次修代码，怎样还记得用户偏好"
+      },
+      {
+        "correct": true,
+        "file": "14-plans.md",
+        "title": "14　计划：先让我看修法，再允许改 parser.py"
+      },
+      {
+        "correct": true,
+        "file": "15-team.md",
+        "title": "15　团队：把 parser 的测试分出去，怎样收回结果"
+      },
+      {
+        "correct": true,
+        "file": "16-ui.md",
+        "title": "16　界面：用户怎样看到审批、测试输出和取消结果"
+      },
+      {
+        "correct": true,
+        "file": "17-evaluation.md",
+        "title": "17　修完之后，怎样确认它真的做对了"
+      },
+      {
+        "correct": true,
+        "file": "18-operations.md",
+        "title": "18　跑不起来或数据太多时，从哪里开始检查"
+      },
+      {
+        "correct": true,
+        "file": "19-interview.md",
+        "title": "19　把这次任务再讲一遍，检查自己是否读懂"
+      }
+    ],
+    "bodyMatchesNavigation": true
+  }
 }

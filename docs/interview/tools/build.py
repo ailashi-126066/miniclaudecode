@@ -184,6 +184,9 @@ def build(check=False):
     )
     for template in templates:
         raw = template.read_text(encoding="utf-8")
+        chapter_number = re.match(r"(\d{2})-", template.name)
+        if chapter_number:
+            raw = re.sub(r"\A# ", f"# {chapter_number[1]}　", raw, count=1)
         if re.match(r"\d\d-", template.name) and template.name[:2] not in {"00", "19"}:
             missing = [word for word in REQUIRED if word not in raw]
             if missing:
