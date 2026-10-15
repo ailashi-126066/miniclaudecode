@@ -131,7 +131,9 @@ class PyApp(App):
       border: none;}
     #conversation Static {height: auto;}
     #conversation Markdown {margin-bottom: 1;}
-    #pending {height: auto; max-height: 22; overflow-y: auto;}
+    #transcript, #pending {height: auto;}
+    .approval-block {height: auto; margin-bottom: 1; color: $text-muted;}
+    .approval-block > CollapsibleTitle {color: $text-muted;}
     #entry {height: auto; padding: 0 3;}
     #chat-input {height: 3; min-height: 3; max-height: 10; border: none;}
     #chat-input:focus {border: none;}
@@ -226,9 +228,10 @@ class PyApp(App):
     def compose(self) -> ComposeResult:
         yield Static(f"PYCODE\nv{__version__}", id="brand", markup=False)
         with Vertical(id="main"):
-            yield VerticalScroll(id="conversation")
+            with VerticalScroll(id="conversation"):
+                yield Vertical(id="transcript")
+                yield Vertical(id="pending")
             yield Button("回到最新消息", id="back-to-bottom")
-            yield Vertical(id="pending")
         yield Static("", id="notice", markup=False)
         with Vertical(id="entry"):
             yield CompletionPopup(id="command-completion")
@@ -318,7 +321,7 @@ class PyApp(App):
                     collapsed=True,
                     classes="tool-block",
                 )
-                await self.query_one("#conversation", VerticalScroll).mount(card)
+                await self.transcript().mount(card)
                 self._running_tools[identifier] = (card, body)
                 self.follow_conversation()
         elif event.kind == "tool_execution_update":
@@ -366,10 +369,19 @@ class PyApp(App):
         else:
             self.query_one("#back-to-bottom", Button).display = True
 
+    def transcript(self):
+        return self.query_one("#transcript", Vertical)
+
+    def collapse_parent(self, widget):
+        for parent in widget.ancestors:
+            if isinstance(parent, Collapsible):
+                parent.collapsed = True
+                return
+
     async def start_live_reply(self):
         await self.clear_live_reply()
         turn = Vertical(classes="live-turn")
-        await self.query_one("#conversation", VerticalScroll).mount(turn)
+        await self.transcript().mount(turn)
         phase = Static("PYCODE 正在思考…", markup=False, classes="live-phase")
         thinking = Static("", markup=False, classes="live-thinking")
         text = Static("", markup=False, classes="live-text")
@@ -413,24 +425,25 @@ class PyApp(App):
             return
         state = await self.active_session.inspect(presentation=True)
         area = self.query_one("#conversation", VerticalScroll)
+        transcript = self.transcript()
         history = state["history"]
         identifiers = [item["entry_id"] for item in history]
         at_bottom = area.is_vertical_scroll_end
         added = len(identifiers) > len(self._displayed_entries)
         prefix = identifiers[: len(self._displayed_entries)] == self._displayed_entries
         if self._displayed_session != self.session_id or not prefix:
-            await area.remove_children()
+            await transcript.remove_children()
             self._displayed_entries = []
             self._displayed_session = self.session_id
         for item in history[len(self._displayed_entries) :]:
             entry_id = item["entry_id"]
             if item["kind"] == "compaction":
-                await area.mount(Static(item["text"], markup=False, classes="message-usage"))
+                await transcript.mount(Static(item["text"], markup=False, classes="message-usage"))
                 self._displayed_entries.append(entry_id)
                 continue
             message = item["message"]
             if message["tool_result"] is not None:
-                await area.mount(
+                await transcript.mount(
                     Collapsible(
                         ToolOutputCard(
                             entry_id, message["tool_result"], self.active_session.read_tool_result
@@ -441,10 +454,10 @@ class PyApp(App):
                     )
                 )
             elif message["role"] == "assistant":
-                await area.mount(Static("PYCODE", classes="assistant-label", markup=False))
+                await transcript.mount(Static("PYCODE", classes="assistant-label", markup=False))
                 if message["thinking"]:
                     thinking = "\n\n".join(item["text"] for item in message["thinking"])
-                    await area.mount(
+                    await transcript.mount(
                         Collapsible(
                             Static(thinking, markup=False, classes="message-thinking"),
                             title="思考过程",
@@ -452,12 +465,12 @@ class PyApp(App):
                             classes="thinking-block",
                         )
                     )
-                await area.mount(Markdown(message["text"], id="message-" + entry_id))
+                await transcript.mount(Markdown(message["text"], id="message-" + entry_id))
                 metadata = reply_metadata(message)
                 if metadata:
-                    await area.mount(Static(metadata, markup=False, classes="message-usage"))
+                    await transcript.mount(Static(metadata, markup=False, classes="message-usage"))
             else:
-                await area.mount(
+                await transcript.mount(
                     Static("› " + message["text"], markup=False, classes="user-message")
                 )
             self._displayed_entries.append(entry_id)
@@ -492,23 +505,29 @@ class PyApp(App):
         if pending:
             payload = pending[0]
             if payload["kind"] == "permission":
+                panel = ApprovalPanel(
+                    payload["operation_id"],
+                    payload["call"]["name"],
+                    json_dumps(
+                        {
+                            "arguments": payload["call"]["arguments"],
+                            "details": payload.get("approval_details", {}),
+                            "sandbox": payload.get("sandbox"),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    agent_id=child_source["agent_id"] if child_source else None,
+                    source=(child_source["agent_id"] + " · " + child_source["role"][:80])
+                    if child_source
+                    else "",
+                )
                 await self.query_one("#pending", Vertical).mount(
-                    ApprovalPanel(
-                        payload["operation_id"],
-                        payload["call"]["name"],
-                        json_dumps(
-                            {
-                                "arguments": payload["call"]["arguments"],
-                                "details": payload.get("approval_details", {}),
-                                "sandbox": payload.get("sandbox"),
-                            },
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        agent_id=child_source["agent_id"] if child_source else None,
-                        source=(child_source["agent_id"] + " · " + child_source["role"][:80])
-                        if child_source
-                        else "",
+                    Collapsible(
+                        panel,
+                        title=payload["call"]["name"] + " · 等待批准",
+                        collapsed=False,
+                        classes="approval-block",
                     )
                 )
             elif payload["kind"] == "plan":
@@ -638,7 +657,9 @@ class PyApp(App):
 
     def on_approval_panel_responded(self, event):
         event.stop()
-        self.query_one("#perm-inline", ApprovalPanel).disabled = True
+        panel = self.query_one("#perm-inline", ApprovalPanel)
+        panel.disabled = True
+        self.collapse_parent(panel)
         if event.agent_id is not None:
             task = asyncio.create_task(self.answer_child(event.agent_id, event.answer))
             self._team_tasks.add(task)
