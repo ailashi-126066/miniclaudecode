@@ -2,6 +2,7 @@ import asyncio
 import threading
 from dataclasses import replace
 
+import pytest
 from textual.widgets import Static
 
 from pycode.app.bootstrap import compose_application
@@ -190,3 +191,7 @@ async def test_closing_tui_collects_active_request_and_reopening_keeps_recovery_
                 assert reopened.state["pending_run_id"] is None and len(requests) == 2
         finally:
             release.set()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

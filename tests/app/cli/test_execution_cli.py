@@ -331,3 +331,7 @@ def test_revert_cli_exports_review_plan_applies_explicit_mode_then_continues(
         )
         assert main([*common, "run", "continue", *execution, "--output-format", "json"]) == 0
         assert rows(capsys)[0]["outcome"] == "completed" and len(requests) == 3
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

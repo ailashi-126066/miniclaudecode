@@ -11,9 +11,7 @@ from pydantic import TypeAdapter, ValidationError
 from pycode.kernel import DomainError
 from pycode.models import (
     CapabilityOverride,
-    ModelReference,
     ProviderConfig,
-    ToolSelectorSettings,
     is_loopback_host,
 )
 
@@ -34,7 +32,6 @@ def load_providers(path: Path) -> tuple[ProviderConfig, ...]:
             raise DomainError("invalid_provider_config", "Provider names must be stable and unique")
         names.add(config.name)
         validate_provider(config)
-    validate_provider_references(providers, names)
     return tuple(providers)
 
 
@@ -43,24 +40,13 @@ def validate_provider_fields(objects):
     if not isinstance(objects, list):
         raise ValueError("Providers must be a list")
     for item in objects:
+        if isinstance(item, dict) and "fallback_models" in item:
+            raise DomainError(
+                "unsupported_provider_option",
+                "Automatic model fallback was removed; delete fallback_models",
+            )
         if not isinstance(item, dict) or not set(item) <= allowed_fields:
             raise ValueError("Unexpected Provider field")
-        selector = item.get("tool_selector", {})
-        selector_fields = {field.name for field in fields(ToolSelectorSettings)}
-        if not isinstance(selector, dict) or not set(selector) <= selector_fields:
-            raise ValueError("Unexpected tool selector field")
-        fallbacks = item.get("fallback_models", [])
-        if not isinstance(fallbacks, list) or len(fallbacks) > 4:
-            raise ValueError("Use at most four fallback model references")
-        for fallback in fallbacks:
-            if not isinstance(fallback, dict) or set(fallback) != {"provider", "model_id"}:
-                raise ValueError("Invalid fallback model reference")
-        reference = selector.get("model")
-        reference_fields = {field.name for field in fields(ModelReference)}
-        if reference is not None and (
-            not isinstance(reference, dict) or set(reference) != reference_fields
-        ):
-            raise ValueError("Invalid tool selector model reference")
         overrides = item.get("model_overrides", {})
         override_fields = {field.name for field in fields(CapabilityOverride)}
         if not isinstance(overrides, dict):
@@ -154,26 +140,6 @@ def validate_provider_overrides(config: ProviderConfig):
             and capabilities.context_window <= capabilities.max_output_tokens
         ):
             raise DomainError("invalid_provider_config", "Model override leaves no input capacity")
-
-
-def validate_provider_references(providers, names):
-    for provider in providers:
-        references = [
-            (reference.provider, reference.model_id) for reference in provider.fallback_models
-        ]
-        if (
-            len(references) != len(set(references))
-            or (provider.name, provider.model_id) in references
-        ):
-            raise DomainError(
-                "invalid_provider_config",
-                "Fallback references must be unique and exclude the primary model",
-            )
-        if any(reference.provider not in names for reference in provider.fallback_models):
-            raise DomainError("invalid_provider_config", "Fallback Provider is not configured")
-        reference = provider.tool_selector.model
-        if reference is not None and reference.provider not in names:
-            raise DomainError("invalid_provider_config", "Tool selector Provider is not configured")
 
 
 def validate_thinking(config: ProviderConfig) -> None:

@@ -5,16 +5,14 @@ from dataclasses import dataclass, field
 
 from pycode.agent.ports import (
     DurableInputDelivery,
-    FallbackControl,
     HistoryProjector,
     InputQueue,
     RequestTracking,
-    SelectorSettingsView,
     TeamMailbox,
     WorkspaceReadback,
 )
 from pycode.context import SummaryService, ToolEvictionService
-from pycode.hooks import HookEngine
+from pycode.hooks import Hooks
 from pycode.kernel import (
     EventSink,
     HistoryJournal,
@@ -57,9 +55,7 @@ class RunContext:
     workspace_files: WorkspaceReadback | None = None
     model_tools: tuple[ToolSpec, ...] = ()
     system_hash: str = ""
-    model_fallback: FallbackControl | None = None
-    tool_selector: SelectorSettingsView | None = None
-    selected_tool_names: tuple[str, ...] | None = None
+    disclosed_tool_names: tuple[str, ...] | None = None
     read_only: bool = False
     failure_guard: dict = field(default_factory=dict)
     serial_failure_signature: str | None = None
@@ -67,7 +63,7 @@ class RunContext:
     duplicate_calls: asyncio.Condition = field(default_factory=asyncio.Condition)
     dispatched_calls: set[str] = field(default_factory=set)
     team: TeamMailbox | None = None
-    hooks: HookEngine | None = None
+    hooks: Hooks | None = None
     mcp_config_hash: str = ""
     assistant: Message | None = None
     call_order: list[str] = field(default_factory=list)

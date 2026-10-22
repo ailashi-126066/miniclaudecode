@@ -56,7 +56,7 @@
         "name": "ToolExecutor.execute",
         "purpose": "检查允许以后才运行，回来补齐结果",
         "notes": [
-          "validator.validate和gate.authorize排在action之前；MCPCall解析出目标后还要重新验目标参数，通用调用器不能省掉目标检查。",
+          "validator.validate和gate.authorize排在action之前；直接使用具体工具身份校验参数，MCP 还会检查远端定义。",
           "输出和after快照在返回前补齐；如果文件已经改了、快照却失败，就抛snapshot_settlement_failed，而不是把效果不确定说成普通工具失败。"
         ],
         "helpers": [
@@ -151,7 +151,7 @@
               "readonly与非read类别先被拒绝，MCP和Hook来源也不能借子会话获得未隔离的外部效果。",
               "constraints之后还检查sandbox状态并走mandatory，说明mode=worker不是全部放行，也不能拿cwd冒充系统写隔离。"
             ],
-            "guide": "子Agent已经提出一个具体动作，这里先确认它有没有超出自己的工作方式。只读任务不能写，未隔离的外部服务也不能成为绕行通道；父会话原有的拒绝仍要执行。对于命令和Python资源，还要确认真正启用了系统限制，之后才进入必须的审批，检查通过也只允许当前这个动作继续。"
+            "guide": "子Agent已经提出一个具体动作，这里先确认它有没有超出自己的工作方式。只读任务不能写，未隔离的外部服务也不能成为绕行通道；父会话原有的拒绝仍要执行。对于命令和Bash 执行的 Skill 脚本，还要确认真正启用了系统限制，之后才进入必须的审批，检查通过也只允许当前这个动作继续。"
           },
           {
             "file": "src/pycode/tools/adapters/permissions.py",
@@ -172,7 +172,7 @@
         "name": "ToolSettlementMiddleware.declaration_error",
         "purpose": "确认这次确实给模型提供过这个工具",
         "notes": [
-          "未在selected_tool_names中的调用只走validate_call和plans.guard，不调用可能准备外部效果的before_call，也不会弹出审批。",
+          "未在disclosed_tool_names中的调用只走validate_call和plans.guard，不调用可能准备外部效果的before_call，也不会弹出审批。",
           "ToolError统一交tool_failure，保证参数错误里的秘密被隐藏、文本受限；已提供的定义还比较schema、implementation_hash和policy_hash。"
         ],
         "edge": "框架工具回调中的声明预检",
@@ -412,7 +412,7 @@
     "why": "配置on不等于系统能执行，必须把available/enabled/auto_approve分开。",
     "nodes": [
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.sandbox_status",
         "purpose": "应用门面公开隔离状态",
         "notes": [
@@ -519,7 +519,7 @@
           "返回的是用于本次子进程的明确env，不让create_subprocess_exec默认继承父进程里全部服务密钥。"
         ],
         "edge": "创建进程前的独立参数构造；非runner事后调用",
-        "guide": "Bash、Python资源或Hook即将创建进程，调用方先把原始环境交到这里。函数按明确名单留下PATH、语言和临时目录等必需项，拒绝凭据型名称，再返回一份新字典给启动函数。它只解决环境继承，不替代文件访问限制，因此off模式是否能读磁盘上的凭据仍要另看OS权限和沙箱。"
+        "guide": "Bash、Bash 执行的 Skill 脚本或Hook即将创建进程，调用方先把原始环境交到这里。函数按明确名单留下PATH、语言和临时目录等必需项，拒绝凭据型名称，再返回一份新字典给启动函数。它只解决环境继承，不替代文件访问限制，因此off模式是否能读磁盘上的凭据仍要另看OS权限和沙箱。"
       }
     ],
     "result": [
@@ -575,7 +575,7 @@
   "07-sandbox:worker": {
     "title": "严格worker与已验证Skill只读根",
     "input_label": "真实命令、事件或框架入口",
-    "request": "worker要运行Python Skill或Bash，settings强制开启隔离",
+    "request": "worker要运行本地 Skill 脚本或Bash，settings强制开启隔离",
     "intro": "先通过子会话硬门，再由资源专用只读grant进入RequiredSandbox。",
     "why": "cwd和普通approve都不能替代真正的写隔离。",
     "nodes": [
@@ -587,7 +587,7 @@
           "readonly与非read类别先被拒绝，MCP和Hook来源也不能借子会话获得未隔离的外部效果。",
           "constraints之后还检查sandbox状态并走mandatory，说明mode=worker不是全部放行，也不能拿cwd冒充系统写隔离。"
         ],
-        "guide": "子Agent已经提出一个具体动作，这里先确认它有没有超出自己的工作方式。只读任务不能写，未隔离的外部服务也不能成为绕行通道；父会话原有的拒绝仍要执行。对于命令和Python资源，还要确认真正启用了系统限制，之后才进入必须的审批，检查通过也只允许当前这个动作继续。"
+        "guide": "子Agent已经提出一个具体动作，这里先确认它有没有超出自己的工作方式。只读任务不能写，未隔离的外部服务也不能成为绕行通道；父会话原有的拒绝仍要执行。对于命令和Bash 执行的 Skill 脚本，还要确认真正启用了系统限制，之后才进入必须的审批，检查通过也只允许当前这个动作继续。"
       },
       {
         "file": "src/pycode/sandbox/module.py",
@@ -598,7 +598,7 @@
           "返回后仍要launch再次检查隔离和原权限，读取授权不是命令批准，也不是新的工作区写许可。"
         ],
         "edge": "资源工具执行时注入的grant回调",
-        "guide": "Python Skill已经核对了自己的文档和脚本，启动前却可能被严格沙箱挡住用户目录读取。资源工具这时才调用注入的函数，请求读取那一个验证过的根目录。函数对严格包装增加有限只读能力，再把沙箱交回启动步骤；它不批准脚本，也不开放整个用户目录或改变子Agent的写入位置。"
+        "guide": "本地 Skill 脚本已经核对了自己的文档和脚本，启动前却可能被严格沙箱挡住用户目录读取。Bash 工具这时调用沙箱能力，请求读取那一个验证过的根目录。函数对严格包装增加有限只读能力，再把沙箱交回启动步骤；它不批准脚本，也不开放整个用户目录或改变子Agent的写入位置。"
       },
       {
         "file": "src/pycode/sandbox/adapters/seatbelt.py",
@@ -639,7 +639,7 @@
         "name": "ToolExecutor.execute",
         "purpose": "检查允许以后才运行，回来补齐结果",
         "notes": [
-          "validator.validate和gate.authorize排在action之前；MCPCall解析出目标后还要重新验目标参数，通用调用器不能省掉目标检查。",
+          "validator.validate和gate.authorize排在action之前；直接使用具体工具身份校验参数，MCP 还会检查远端定义。",
           "输出和after快照在返回前补齐；如果文件已经改了、快照却失败，就抛snapshot_settlement_failed，而不是把效果不确定说成普通工具失败。"
         ],
         "guide": "上一步已经找到了工具实现，但还缺真正运行前的检查。这里先验参数、处理前置Hook并检查权限，需要时保存文件旧版，然后才调用工具或框架传来的函数。工具回来后再准备输出和修改后的快照，返回统一结果给结算器；它自己不抢先保存模型工具消息，也不提前宣布结束。"
@@ -873,16 +873,16 @@
         "purpose": "把Skill请求与参数变成可回放用户消息",
         "notes": [
           "request先查可信目录再给路径，避免直接把用户名字拼到物理文件系统上。",
-          "fork只改变提示中的任务入口，最后仍self.run；真实指令读取和加载记录要等模型工具成功，不能在这里提前伪造。"
+          "Skill load 准备用户消息，随后由会话调用 self.run；真实指令读取和加载记录要等模型工具成功，不能在这里提前伪造。"
         ],
         "helpers": [
           {
-            "file": "src/pycode/skills/services/skills.py",
-            "name": "SkillService.request",
+            "file": "src/pycode/skills/api.py",
+            "name": "Skills.load",
             "purpose": "从当前可信扫描解析一个明确Skill",
             "notes": [
               "name和args必须是有界文本，目录中的真实entry决定返回路径，不允许输入任意磁盘位置。",
-              "返回的mode与context给后续普通或fork任务使用，但此处不创建子Agent，也不改变当前已加载指令。"
+              "返回的mode与context给后续普通任务使用，但此处不创建子Agent，也不改变当前已加载指令。"
             ],
             "guide": "父Session想把用户说的名字变成可执行任务提示，但还不知道这个名字是否存在。这里验证名称和参数，再扫描当前可信目录，匹配后返回文档路径、模式、上下文选择和任务参数。找不到就明确报错，父函数不会继续让模型打开一个猜测路径；找到也只代表选中了指令，并不表示已经读过或批准资源脚本。"
           }
@@ -898,10 +898,10 @@
           "资源、记录器和限制通过SkillsRun分别返回，应用能把它们接到恰当步骤，而不把所有行为压进一次“加载”。"
         ],
         "edge": "配置run工厂在模型调用前创建产物",
-        "guide": "用户请求已经进了会话，任务开始前应用需要把这次可用的Skill接好。这里扫描目录，根据明确选择准备只读文件路由，再创建资源查询、加载记录和权限检查。返回这些能力以后，应用才交给文件工具、Agent和结算器；这个函数并不因为发现了Python文件，就在准备阶段把它导入或执行。"
+        "guide": "用户请求已经进了会话，任务开始前应用需要把这次可用的Skill接好。这里扫描目录，根据明确选择准备只读文件路由，再创建目录挂载、加载记录和权限检查。返回这些能力以后，应用才交给文件工具、Agent和结算器；这个函数并不因为发现了Python文件，就在准备阶段把它导入或执行。"
       },
       {
-        "file": "src/pycode/skills/adapters/extension.py",
+        "file": "src/pycode/skills/framework.py",
         "name": "SkillsToolExtension.after_persist",
         "purpose": "成功读取提交后才登记激活",
         "notes": [
@@ -910,7 +910,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/skills/services/skill_resources.py",
+            "file": "src/pycode/skills/framework.py",
             "name": "SkillLoadRecorder.record",
             "purpose": "读成功后，记住指令版本和来源消息",
             "notes": [
@@ -929,143 +929,6 @@
       "reload更新目录，不自动伪造已读取或已执行。"
     ]
   },
-  "09-skills:resource": {
-    "title": "SDK按需提供给模型与授权后Python资源执行",
-    "input_label": "真实命令、事件或框架入口",
-    "request": "模型读完Skill后，SDK请求pycode_skill_<name>组，随后模型调用资源工具",
-    "intro": "原生SkillsMiddleware控制提供给模型，资源实现只有授权后才进入worker。",
-    "why": "扫描、声明和执行必须分开，既限制上下文又避免导入副作用。",
-    "nodes": [
-      {
-        "file": "src/pycode/skills/adapters/extension.py",
-        "name": "SkillsFrameworkExtension.middleware",
-        "purpose": "把文档和以后才运行的资源查询交给框架",
-        "notes": [
-          "tools=resolve是延后回调，只有SDK需要组时才调用resources.resolve_group，不在构图阶段解析并执行全部Python。",
-          "model_boundary也作为函数传入，SDK准备好当次指令和schema后才继续工具选择与容量校准，避免提前放行候选资源。"
-        ],
-        "helpers": [
-          {
-            "file": "src/pycode/skills/adapters/skills.py",
-            "name": "PycodeSkillsMiddleware.awrap_model_call",
-            "purpose": "框架先加好指令与工具，再准备模型请求",
-            "notes": [
-              "super().awrap_model_call先处理指令和资源，不能在它之前把全部候选算成已提供工具。",
-              "内部disclosed_request才调用model_boundary，保持先提供真实内容、再选择和计量的顺序，也避免同一次请求重复选择。"
-            ],
-            "edge": "已安装middleware由SDK在模型请求时回调",
-            "guide": "Agent即将请求模型，框架需要先把刚读过的Skill指令和相关工具加进这次请求。这个包装函数让原来的SkillsMiddleware完成那一步，再调用应用传进来的模型准备函数。后面的选择器和容量计算看到的才是模型实际会收到的内容，而不是整个目录；完成后继续原handler，不另外发起一轮Skill模型循环。"
-          },
-          {
-            "file": "src/pycode/skills/services/skill_resources.py",
-            "name": "SkillResources.resolve_group",
-            "purpose": "lazy解析资源并拒绝名称/版本冲突",
-            "notes": [
-              "已加载版本的资源摘要不符就不返回新实现，避免指令还是旧版、实际工具却悄悄换成新版。",
-              "reserved_tools和已有工具定义都检查冲突，资源不能用Bash、团队控制或其它现有工具名遮蔽真正实现。"
-            ],
-            "edge": "tools=resolve的SDK lazy resolver回调",
-            "guide": "框架已经读到某份Skill，提出需要它附带的资源组，这里才去查对应条目和tool.json。函数先确认当前加载版本没有被换掉，再验证资源工具参数说明并创建普通工具对象，检查是否与已有工具重名。返回给框架的只是经过检查的声明，实际Python要等模型选择并通过统一执行器后才运行。"
-          }
-        ],
-        "edge": "Agent构图时调用feature扩展工厂；resolve稍后由SDK回调",
-        "guide": "应用正在构建Agent，需要把可信文件路由和资源解析交给框架。这个工厂返回Skills中间件，并把一个以后才运行的resolve函数交进去：框架读到相应指令、需要资源组时，再取资源声明和转换工具。工厂本身不执行资源，也不请求模型；下一次真正模型调用时，中间件才按已读内容补充指令。"
-      },
-      {
-        "file": "src/pycode/skills/adapters/extension.py",
-        "name": "SkillsToolExtension.lookup",
-        "purpose": "只找这次确实提供给模型的资源工具",
-        "notes": [
-          "disclosed_skill_tool_names来自SDK实际处理后的状态，不能用包含全部候选的catalog代替。",
-          "resources.get_tool只取已经解析的对象；通用结算还要查当次模型名单和定义，查询成功也不是一次执行授权。"
-        ],
-        "edge": "框架工具回调时的能力查询",
-        "guide": "模型已经发出一个资源工具名，结算器需要寻找它的实现。这里不只看内存里有没有这个工具，还先查SDK记下的本次已提供名称；没给过模型的名字直接返回没有。通过后才把已解析的资源交回结算器，后面仍要比较最终定义并检查权限，所以知道目录里存在某工具不等于可以执行它。"
-      },
-      {
-        "file": "src/pycode/skills/adapters/python_tool.py",
-        "name": "PythonSkillTool.execute",
-        "purpose": "授权后复核资源并启动独立worker",
-        "notes": [
-          "verify_resources排在启动前，批准后文件若被替换也不能照旧执行；带路径参数还要限制到允许工作区。",
-          "worker使用明确解释器和过滤环境，沙箱只增加已验证资源根的读取，超时和取消继续由共享runner收拢。"
-        ],
-        "edge": "统一ToolExecutor校验、scope和授权之后才调用",
-        "guide": "模型选中了附带的Python检查工具，统一执行器也完成了参数与权限检查，这里才开始资源执行。函数先复核目录中的实现，规范需要的工作区路径，再取得有限的Skill读取许可，启动独立worker并通过stdin传请求。输出交给共享runner保存，回来仍是普通工具结果，不会在父Agent里直接import脚本。"
-      },
-      {
-        "file": "src/pycode/skills/adapters/python_worker.py",
-        "name": "execute",
-        "purpose": "子进程检查真实字节后才导入执行",
-        "notes": [
-          "resource_hash与script_hash分别检查集合和目标字节，防止只验证文档却运行刚被改过的实现。",
-          "只有校验完才exec并调用execute，awaitable也真正等待；返回错误或进程失败会经父runner成为明确结果。"
-        ],
-        "edge": "独立Python进程从stdin读请求后的执行入口",
-        "guide": "父工具已经启动独立Python进程并通过stdin送来资源信息，这个入口还会检查磁盘上的实际文件。先核对整个实现集合和脚本摘要，再把确切字节编译进临时模块，找到execute函数并等待同步或异步结果。结果打印给父进程收集，因此脚本导入发生在授权之后，检查失败也不会被父Agent当成成功工具输出。"
-      }
-    ],
-    "result": [
-      "资源工具schema只在实际需要时提供给模型；实现版本与权限均校验。",
-      "Python输出经完整输出对象与普通工具消息结算，不单建执行账本。"
-    ]
-  },
-  "09-skills:fork": {
-    "title": "fork Skill的隔离激活与近期上下文",
-    "input_label": "真实命令、事件或框架入口",
-    "request": "用户load一个mode=fork Skill → 父模型task(subagent_type=skill-reviewer)",
-    "intro": "Skill适配器决定继承范围，Team只提供readonly run_blocking能力。",
-    "why": "子任务读指令不能隐式更改父会话激活；recent空集合不能退回full。",
-    "nodes": [
-      {
-        "file": "src/pycode/skills/adapters/fork.py",
-        "name": "ForkSkillDelegate.spec",
-        "purpose": "告诉框架以后怎样调用这个review任务",
-        "notes": [
-          "返回的是runnable描述而非执行结果，函数赋值那一刻没有发生模型请求。",
-          "skill-前缀区分可选择任务，具体指令、上下文和结果检查留在invoke，Team只提供通用只读委派能力。"
-        ],
-        "guide": "应用准备允许独立review时，先需要告诉框架这个子任务叫什么、怎样进入。这里返回skill名称、描述和包住invoke的RunnableLambda，供task工具选择；它没有立刻创建子会话。等父模型真的选中这个入口，框架才运行invoke，再决定继承哪些消息和读哪份指令，避免构图就悄悄发起额外检查。"
-      },
-      {
-        "file": "src/pycode/skills/adapters/fork.py",
-        "name": "ForkSkillDelegate.invoke",
-        "purpose": "选择上下文和参数，委派readonly子任务",
-        "notes": [
-          "recent在run_start处保留之前的起始用户消息，空列表也原样转发，不能用or None意外带上全部旧对话。",
-          "run_blocking由应用传入，Skill不自行组装另一套Team；只有completed才转换成父框架可用的最终消息。"
-        ],
-        "edge": "SDK task执行runnable回调",
-        "guide": "父模型已通过task选择这份review Skill，框架现在进入实际委派。函数从当前用户请求取参数，按full、recent或none选择带给子任务的消息，再通过注入的函数启动只读检查。它提醒子任务先读指定文档，等最终结果返回父框架；子任务失败就明确失败，父会话不会因此被记成读过子任务的指令。"
-      },
-      {
-        "file": "src/pycode/team/services/team.py",
-        "name": "AgentTeam.run_blocking",
-        "purpose": "在统一Team内拥有只读委派寿命",
-        "notes": [
-          "spawn明确使用readonly和delegate类型，委派不继承任意写权限，也不能自行无限再委派。",
-          "等待与收尾仍跟随Team的driver和会话管理，调用方必须检查返回状态，不能把子任务中断当作review完成。"
-        ],
-        "edge": "组合根注入的run_blocking回调；非Skills导入Team实现",
-        "guide": "Skill或Hook已经决定委派一个只读检查，应用传入的函数把请求交到Team这里。函数创建有独立身份和历史的只读子任务，等待它的运行结束，再把结果返回调用者。即使它以同步等待的方式使用Team，也仍由同一套任务管理和取消流程收尾，不会启动一个不受主会话控制的额外服务。"
-      },
-      {
-        "file": "src/pycode/app/composition/team.py",
-        "name": "ConfiguredChildSessions.open",
-        "purpose": "创建子会话并保留空recent语义",
-        "notes": [
-          "fork来源临时打开的history句柄先关闭，再打开实际子会话，避免创建过程中泄漏写者。",
-          "用is not None区分空集合与未限制，recent没有可带内容时仍保持空，不意外把旧对话交给子Agent。"
-        ],
-        "edge": "Team通过ChildSessions端口调用应用装配实现",
-        "guide": "Team已决定创建哪一个子任务，但需要应用把历史、模型和工作区真正接好。这里按子任务配置打开会话，需要继承时先复制指定来源，再设置近期消息选择。空选择集合也会明确写入限制，不能退成完整父历史。返回真实子Session以后，Team才能运行并关闭它，而不是仅得到一份看似完成的配置。"
-      }
-    ],
-    "result": [
-      "父Skill激活不变，子会话拥有自己的skill_load与结果历史。",
-      "full继承全部允许路径，recent只保近期集合，none不继承父对话。"
-    ]
-  },
   "09-skills:install": {
     "title": "固定GitHub提交的Skill安装",
     "input_label": "真实命令、事件或框架入口",
@@ -1074,8 +937,8 @@
     "why": "安装是外部效果；下载成功前不能覆盖当前可用版本。",
     "nodes": [
       {
-        "file": "src/pycode/skills/services/skills.py",
-        "name": "SkillService.install",
+        "file": "src/pycode/skills/api.py",
+        "name": "Skills.install",
         "purpose": "安装成功后刷新目录并记下来源",
         "notes": [
           "没有installer明确报不可用，不能返回一个没有实际文件的成功安装。",
@@ -1084,7 +947,7 @@
         "guide": "用户明确要求安装或更新Skill，服务先把下载发布工作交给installer。只有完整安装成功，才刷新可搜索目录并保存安装信息；返回给用户的是安装结果，而不是已加载指令或脚本执行结果。这样后面的load仍必须真正读取新文档，不能因为文件已经下载就假装模型已经知道并批准使用它。"
       },
       {
-        "file": "src/pycode/skills/adapters/install.py",
+        "file": "src/pycode/skills/install.py",
         "name": "GitHubSkillInstaller.install",
         "purpose": "拥有暂存、网络客户端与安装lease",
         "notes": [
@@ -1093,7 +956,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/skills/adapters/github_source.py",
+            "file": "src/pycode/skills/install.py",
             "name": "parse_skill_url",
             "purpose": "把URL规范化成受限GitHub来源",
             "notes": [
@@ -1106,7 +969,7 @@
         "guide": "服务已确认要安装一个GitHub来源，这里先验证地址、取得安装锁并建立暂存目录，再把ref解析为固定commit下载。完整内容检查完才调用publish，最后无论成功失败都清理暂存和锁。它把网络获取与目录发布连成可解释过程，返回报告供服务刷新目录，不让半份下载直接成为用户当前可用的Skill。"
       },
       {
-        "file": "src/pycode/skills/adapters/install.py",
+        "file": "src/pycode/skills/install.py",
         "name": "GitHubSkillInstaller.publish",
         "purpose": "验证完成后发布并保留替换依据",
         "notes": [
@@ -1125,7 +988,7 @@
   "10-mcp:catalog": {
     "title": "review需要外部资料，先连到服务并记住目录",
     "input_label": "真实命令、事件或框架入口",
-    "request": "打开主会话准备外部检查服务；模型请求前更新可用工具",
+    "request": "发现远端工具 → 统一 ToolSearch 加载 → 直接调用具体工具",
     "intro": "配置、连接发现和把工具交给当前模型分开进行，服务目录也要写进对话。",
     "why": "模型调用哪一版远端工具必须可解释，重连不能偷换正在等待的调用。",
     "nodes": [
@@ -1139,7 +1002,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/adapters/config.py",
+            "file": "src/pycode/mcp/config.py",
             "name": "load_servers",
             "purpose": "只读取并合并配置，不启动server",
             "notes": [
@@ -1149,7 +1012,7 @@
             "guide": "父模块已经决定哪些配置文件可以读取，这个函数按顺序解析它们，交给parse_servers验证，再按server名字合并。返回值只是明确的server设置，没有启动进程或访问远端工具。用户文件和受信项目文件的覆盖关系因此能解释清楚，读取失败也不会被当成空目录，让后面的连接阶段误以为一切正常。"
           },
           {
-            "file": "src/pycode/mcp/adapters/config.py",
+            "file": "src/pycode/mcp/config.py",
             "name": "parse_servers",
             "purpose": "验证传输、路径、凭据引用和加载策略",
             "notes": [
@@ -1162,7 +1025,7 @@
         "guide": "应用准备让这次review使用外部服务，先到这里读取允许的配置并核对是否与未结束的执行相符。确实需要连接且有启用的server，才创建连接管理器并安排发现任务。返回的会话对象保留连接和配置摘要，后面的run据此准备工具；只验证配置的模式不会启动服务，完全禁用则连这个入口都不调用。"
       },
       {
-        "file": "src/pycode/mcp/adapters/manager.py",
+        "file": "src/pycode/mcp/connection.py",
         "name": "MCPAdapterConnections.discover",
         "purpose": "并发发现但保留每个server明确状态",
         "notes": [
@@ -1171,7 +1034,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/adapters/manager.py",
+            "file": "src/pycode/mcp/connection.py",
             "name": "MCPAdapterConnections.describe",
             "purpose": "检查服务提供的工具定义，交回目录",
             "notes": [
@@ -1181,7 +1044,7 @@
             "guide": "发现任务已经选中一个server，这里取得其连接、刷新工具，并按服务能力读取资源和prompt目录。每个工具先检查唯一名称和工具参数说明，再附上配置、工具参数说明摘要及远端注释，返回给总目录。后面的授权依赖这些字段判断它是否可信和只读，所以不能把SDK列出的任意对象原样当作可以执行的工具。"
           },
           {
-            "file": "src/pycode/mcp/adapters/connection.py",
+            "file": "src/pycode/mcp/connection.py",
             "name": "MCPAdapterConnection.connect_locked",
             "purpose": "建立一个服务的客户端，成功后再交出",
             "notes": [
@@ -1207,17 +1070,17 @@
         "guide": "整个会话已经连上外部服务，现在应用要把它用于当前这次修改任务。这里创建读取历史目录的service、控制工具，以及把SDK工具和用户问题接回Agent的函数，返回给应用组装。它不会另开一套连接，也不替模型立即调用远端；没有连接时直接返回没有这项能力，后面模型前刷新才真正更新可用工具。"
       },
       {
-        "file": "src/pycode/mcp/services/mcp_bindings.py",
-        "name": "MCPRuntimeBindings.refresh",
+        "file": "src/pycode/mcp/framework.py",
+        "name": "MCPRun.refresh",
         "purpose": "模型请求前，更新当前对话可用的服务工具",
         "notes": [
           "首次initialize保存必要的目录事实，refresh再根据传入预算决定工具定义怎样进入当前registry。",
-          "register_dispatch明确告诉执行器如何处理MCPCall，通用参数解析和真实目标校验因此能接到同一条执行流程。"
+          "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/services/mcp.py",
-            "name": "MCPService.initialize",
+            "file": "src/pycode/mcp/api.py",
+            "name": "MCP.initialize",
             "purpose": "保存远端目录或保留pending旧目录",
             "notes": [
               "变化写tool_set_change，让历史能解释前后定义差异，而不是只覆盖内存字典。",
@@ -1226,8 +1089,8 @@
             "guide": "模型前准备第一次需要服务目录，函数先等远端发现结果，再与当前分支已经记录的版本比较。新目录需要时写进JSONL；有未结束执行时则保留原来的有效目录并记录变化。返回以后工具刷新才会使用这份确定版本，所以重连发现了新工具也不能直接替换用户正在回答或批准的旧调用。"
           },
           {
-            "file": "src/pycode/mcp/services/mcp.py",
-            "name": "MCPService.refresh",
+            "file": "src/pycode/mcp/api.py",
+            "name": "MCP.refresh",
             "purpose": "按策略创建并替换mcp来源声明",
             "notes": [
               "choose_tools只决定提供方式，factory创建声明对象而不发送远端业务请求。",
@@ -1237,7 +1100,7 @@
           }
         ],
         "edge": "Agent模型前before_model准备回调",
-        "guide": "Agent即将请求模型，应用登记的准备函数进入这里，确保这轮使用当前对话记录的MCP目录。第一次先初始化，随后把service生成的工具更新进registry，并登记MCPCall怎样解析真实目标。完成后模型包装器才能取这些定义发送给模型；这里没有执行目录里的所有工具，只是让之后的调用有一致依据。"
+        "guide": "使用具体 MCP 工具身份进入公共执行边界，完成参数、权限和远端定义校验。"
       }
     ],
     "result": [
@@ -1248,27 +1111,17 @@
   "10-mcp:call": {
     "title": "direct/dispatch汇合到目标权限和native scope",
     "input_label": "真实命令、事件或框架入口",
-    "request": "direct: mcp__srv__echo(value=...)\ndispatch: MCPCall(server=srv,tool=echo,arguments={...})",
+    "request": "发现远端工具 → 统一 ToolSearch 加载 → 直接调用具体工具",
     "intro": "dispatch只增加目标解析，不能缩短schema、权限或远端契约校验。",
     "why": "通用调用器不是权限旁路；远端效果由同一个ToolExecutor掌握。",
     "nodes": [
-      {
-        "file": "src/pycode/mcp/adapters/tools.py",
-        "name": "MCPCall.resolve",
-        "purpose": "仅dispatch入口把通用参数解析成真实目标调用",
-        "notes": [
-          "target过滤未启用工具，不能通过填写一个off名称绕过模型没有直接看到的定义。",
-          "返回真实目标名以后，执行器再次校验其schema和类别；外层MCPCall的通用object输入不能代替这一步。"
-        ],
-        "guide": "模型选择了先搜索再调用，传来server、tool和通用arguments，执行器这时调用这里找到真实目标。函数只从当前启用目录查名称，保持原call ID，把参数交给目标调用返回。随后执行器还要重新验目标工具参数说明和权限，因此这个通用入口只是换了一种找工具的方法，不能给模型任意调用远端服务的通行证。"
-      },
       {
         "file": "src/pycode/tools/services/tool_executor.py",
         "name": "ToolExecutor.execute",
         "purpose": "检查允许以后才运行，回来补齐结果",
         "notes": [
-          "validator.validate和gate.authorize排在action之前；MCPCall解析出目标后还要重新验目标参数，通用调用器不能省掉目标检查。",
-          "输出和after快照在返回前补齐；如果文件已经改了、快照却失败，就抛snapshot_settlement_failed，而不是把效果不确定说成普通工具失败。"
+          "输出和after快照在返回前补齐；如果文件已经改了、快照却失败，就抛snapshot_settlement_failed，而不是把效果不确定说成普通工具失败。",
+          "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
         ],
         "edge": "通用执行器在内部调dispatcher；direct从同一目标校验点进入",
         "guide": "上一步已经找到了工具实现，但还缺真正运行前的检查。这里先验参数、处理前置Hook并检查权限，需要时保存文件旧版，然后才调用工具或框架传来的函数。工具回来后再准备输出和修改后的快照，返回统一结果给结算器；它自己不抢先保存模型工具消息，也不提前宣布结束。"
@@ -1283,16 +1136,16 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/adapters/manager.py",
+            "file": "src/pycode/mcp/connection.py",
             "name": "MCPAdapterConnections.tool_call",
             "purpose": "再核对远端定义，然后进入实际调用",
             "notes": [
               "没有声明立即拒绝；validate_call成功后才进入连接的tool_call，不让旧或不存在的工具借原生句柄运行。",
-              "这个上下文由native binding提供，使用真实目标声明，而不是MCPCall外层通用名字，否则无法核对正确的schema。"
+              "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
             ],
             "helpers": [
               {
-                "file": "src/pycode/mcp/adapters/manager.py",
+                "file": "src/pycode/mcp/connection.py",
                 "name": "MCPAdapterConnections.validate_call",
                 "purpose": "确认参数定义和只读说明没有改变",
                 "notes": [
@@ -1306,7 +1159,7 @@
             "guide": "结算层已经拿到了真实目标名，绑定的回调把目标声明交到这个上下文。进入时先重新验证远端当前定义，再取得对应连接的调用环境，随后框架handler才发送请求。退出时控制回到结算层处理结果，因此这个检查包围的是一次真实工具调用，不是发现目录时做过便永远有效的确认。"
           },
           {
-            "file": "src/pycode/mcp/adapters/connection.py",
+            "file": "src/pycode/mcp/connection.py",
             "name": "MCPAdapterConnection.tool_call",
             "purpose": "在SDK客户端中运行一次有超时的调用",
             "notes": [
@@ -1321,16 +1174,16 @@
         "guide": "执行器已经完成授权，现在需要让原来的框架工具处理器真正运行。函数根据当前工具选择普通只读重试、工作区搜索记录，或进入MCP提供的调用上下文，再等待handler。返回结果交给上层翻译成统一工具结果，所以这些实现差异只影响怎样调用，不会让MCP或原生文件工具跳过前面的检查。"
       },
       {
-        "file": "src/pycode/mcp/adapters/native.py",
-        "name": "MCPNativeBinding.normalize",
+        "file": "src/pycode/mcp/framework.py",
+        "name": "MCPRun.normalize",
         "purpose": "把SDK返回值变成可保存的工具结果",
         "notes": [
-          "declaration查询使用实际目标名，否则MCPCall外层名字找不到对应远端schema，审计身份会丢失。",
-          "这里只转换已经返回的数据，不再次发网络请求；输出保存和工具完成通知继续沿普通结算流程。"
+          "这里只转换已经返回的数据，不再次发网络请求；输出保存和工具完成通知继续沿普通结算流程。",
+          "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/domain/mcp.py",
+            "file": "src/pycode/mcp/types.py",
             "name": "result_from_mcp",
             "purpose": "将文本和resource/媒体块映射为统一ToolResult",
             "notes": [
@@ -1341,7 +1194,7 @@
           }
         ],
         "edge": "框架handler返回ToolMessage之后结算翻译",
-        "guide": "SDK已经返回了工具消息，通用结算还需要一份能保存到会话的结果。这个适配函数取真实目标的目录信息，把内容、状态和附加数据交给统一翻译函数，保留服务和原始工具身份。翻译结果随后交保存记录行器，外层MCPCall名字由执行器恢复，既能配对模型调用，也不会丢掉实际调用了谁。"
+        "guide": "使用具体 MCP 工具身份进入公共执行边界，完成参数、权限和远端定义校验。"
       }
     ],
     "result": [
@@ -1349,71 +1202,15 @@
       "schema改变或不确定效果明确失败，不能自动重新发送外部写调用。"
     ]
   },
-  "10-mcp:elicitation": {
-    "title": "原生询问的持久化与回答恢复",
-    "input_label": "真实命令、事件或框架入口",
-    "request": "MCP server在工具执行中要求form或url elicitation → 用户accept/decline/cancel",
-    "intro": "询问暂停原图，不生成假的默认答案，也不当成普通工具失败。",
-    "why": "用户必须看到当前问题，答案还要符合远端requested_schema。",
-    "nodes": [
-      {
-        "file": "src/pycode/agent/adapters/agent.py",
-        "name": "AgentRuntime.invoke",
-        "purpose": "等待图完成，或把真实问题交给用户",
-        "notes": [
-          "checkpoint来自实际graph状态，不根据磁盘上的一段问题文字猜测可以恢复的位置。",
-          "question扩展先prepare再发送needs_input，界面看到的问题已经有需要的保存边界；取消和异常则收集本轮工具任务。"
-        ],
-        "guide": "应用已经让当前图执行或恢复，这个入口等待框架给出完成状态或中断问题。遇到服务向用户提问时，它取得真实检查点，把问题交给已安装的扩展补充记录，再返回needs_input。没有问题才返回正常结果，因此通用Agent不必了解MCP表单字段，也不会把暂停误当工具失败或任务已经完成。"
-      },
-      {
-        "file": "src/pycode/mcp/services/answers.py",
-        "name": "MCPQuestionExtension.prepare",
-        "purpose": "把真实服务问题记下来再展示给用户",
-        "notes": [
-          "非MCP问题原样返回，扩展不接管普通工具批准或其它模块的询问格式。",
-          "保存前按interrupt ID查已有记录，既保留来源又避免重复追加；问题记录存在不代表进程重启后原图仍然可恢复。"
-        ],
-        "edge": "Agent注入的question准备回调",
-        "guide": "Agent已经从原生图取得一个问题，但通用流程不知道它是否来自MCP。这个扩展只处理相应类型，补上界面识别信息，并在需要时保存一次询问记录，再把问题交回Agent展示。相同interrupt不会重复写，所以下一次合法回答仍对应同一个问题，而不是每刷新界面就产生一份看起来不同的请求。"
-      },
-      {
-        "file": "src/pycode/agent/adapters/agent.py",
-        "name": "AgentRuntime.resume",
-        "purpose": "验证活checkpoint并按ID送回答",
-        "notes": [
-          "先检查graph和真实interrupts，再构造Command(resume=...)，避免把重启后的历史重建误当作恢复旧图。",
-          "普通批准与MCP表单各自验证后才恢复；多个问题必须按interrupt ID对应，不能用一份回答不加区别地填所有问题。"
-        ],
-        "edge": "CLI/TUI用户答复后进入resume",
-        "guide": "用户已经回答了刚才的问题，但程序还要确认本进程真的停在那一次调用上。这里读取图的检查点和等待的问题，按问题ID验证答案，再把回答交回同一个执行位置。没有活图或已经没有待答问题就明确拒绝，不能因为历史里还有问题文字，就自动重新执行可能产生过效果的旧工具。"
-      },
-      {
-        "file": "src/pycode/mcp/services/answers.py",
-        "name": "MCPQuestionExtension.validate",
-        "purpose": "继续调用前，确认用户回答符合当前问题",
-        "notes": [
-          "回答key必须与当前requests精确对应，不能把另一份表单的答案套进来。",
-          "form加accept才做requested_schema校验，decline与cancel也明确返回；坏答案在继续远端调用之前就被挡住。"
-        ],
-        "edge": "通用resume校验中调用MCP所有者的纯答案验证",
-        "guide": "用户已经对MCP问题作出选择，通用resume在继续图以前让这个扩展检查答案。它核对请求和回答的key，确认是接受、拒绝还是取消；接受表单时还验证字段符合服务给的工具参数说明。只有成功才回到Agent恢复原调用，因此模型或界面不能用缺字段的默认值替用户随便答应远端要求。"
-      }
-    ],
-    "result": [
-      "合法答案恢复同一live graph；拒绝/取消也明确送server。",
-      "进程丢失内存图时不宣称可以恢复原checkpoint。"
-    ]
-  },
   "10-mcp:recovery": {
     "title": "配置恢复守卫、目录历史与连接关闭",
     "input_label": "真实命令、事件或框架入口",
-    "request": "重开会话/pending配置校验；会话aclose释放发现任务与clients",
+    "request": "发现远端工具 → 统一 ToolSearch 加载 → 直接调用具体工具",
     "intro": "恢复校验和关闭是独立入口，不把close图示为校验函数的直接后继。",
     "why": "旧执行契约与当前配置不一致时必须停下来，连接也要由明确所有者回收。",
     "nodes": [
       {
-        "file": "src/pycode/mcp/services/configuration.py",
+        "file": "src/pycode/mcp/config.py",
         "name": "validate_mcp_recovery",
         "purpose": "pending执行绑定当前server配置摘要",
         "notes": [
@@ -1423,7 +1220,7 @@
         "guide": "应用重新打开会话时，可能发现上一次仍有等待处理的调用。模块已经算出当前server配置摘要，这个小检查把它同原执行记录比较；不一致就要求先解决旧执行，不能继续套用新配置。没有未结束调用时，新任务可以使用新设置，因此它约束的是恢复时偷换内容，不是永远禁止用户更新服务配置。"
       },
       {
-        "file": "src/pycode/mcp/services/projection.py",
+        "file": "src/pycode/mcp/history.py",
         "name": "MCPProjection.contribute",
         "purpose": "纯历史贡献者恢复目录文本和checkpoint",
         "notes": [
@@ -1434,7 +1231,7 @@
         "guide": "历史查看或下一次模型投影需要重建当时的服务目录，不需要再连接服务。这个函数从已保存的目录或压缩记录取得文本和内容，返回给通用投影器；没有MCP记录就只移除自己负责的字段。这样即使运行模块已关闭，用户仍看得懂旧对话，而查看历史不会意外启动远端进程或偷换成今天的新目录。"
       },
       {
-        "file": "src/pycode/mcp/adapters/manager.py",
+        "file": "src/pycode/mcp/connection.py",
         "name": "MCPAdapterConnections.aclose",
         "purpose": "关闭整个session拥有的发现与连接",
         "notes": [
@@ -1443,7 +1240,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/mcp/adapters/connection.py",
+            "file": "src/pycode/mcp/connection.py",
             "name": "MCPAdapterConnection.aclose",
             "purpose": "锁住连接，退出SDK并清空工具",
             "notes": [
@@ -1480,7 +1277,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/hooks/adapters/config.py",
+            "file": "src/pycode/hooks/config.py",
             "name": "load_hooks",
             "purpose": "读取有限JSON并按稳定ID合并",
             "notes": [
@@ -1490,11 +1287,11 @@
             "guide": "模块已经决定允许读哪些配置文件，这个函数按顺序打开它们，检查大小和JSON格式，再交给parse_hooks验证各条规则。相同ID由后面的来源覆盖，最后返回确定的规则列表。它只读数据，不执行动作；读取出错也明确返回配置错误，让应用不能把一份坏的安全检查配置误当成没有规则而继续。"
           },
           {
-            "file": "src/pycode/hooks/adapters/config.py",
+            "file": "src/pycode/hooks/config.py",
             "name": "parse_hooks",
             "purpose": "确认规则能在正确时机执行或拒绝",
             "notes": [
-              "只有pre_tool_use能reject，而且它不能background，检查时机直接决定能否阻止原工具。",
+              "只有pre_tool_use能reject，而且它只支持同步执行，检查时机直接决定能否阻止原工具。",
               "动作类型、文本、数量与超时都有边界，配置可以描述有限行为，但不能借陌生字段执行另一套未检查逻辑。"
             ],
             "guide": "加载器已经得到外部JSON，这里逐项确认它能表示一条合法自动规则。函数检查事件、名称、条件、动作和超时，尤其拒绝后台前置检查或其它事件的reject。只有这些限制都满足才返回Hook对象，后面的引擎才有可能在真正编辑前完成检查，而不是编辑已经发生后才说刚才不允许。"
@@ -1525,8 +1322,8 @@
         "guide": "前一步已经准备了规则、动作、历史和输出，这里把它们接成真正的Hook引擎。关键是提供一个以后创建动作执行器的函数，让Hook也受计划、只读、快照和输出处理约束。函数只返回接好依赖的引擎，实际动作仍等fire触发；应用因此不必了解prompt或command各自怎样实现。"
       },
       {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.__init__",
+        "file": "src/pycode/hooks/api.py",
+        "name": "Hooks.__init__",
         "purpose": "接好动作、结果保存和后台任务管理",
         "notes": [
           "HookActionTool把动作转换成可校验的声明，再交executor_factory，不让配置命令另开一个免检查入口。",
@@ -1553,13 +1350,13 @@
         "name": "ToolExecutor.execute",
         "purpose": "检查允许以后才运行，回来补齐结果",
         "notes": [
-          "validator.validate和gate.authorize排在action之前；MCPCall解析出目标后还要重新验目标参数，通用调用器不能省掉目标检查。",
+          "validator.validate和gate.authorize排在action之前；直接使用具体工具身份校验参数，MCP 还会检查远端定义。",
           "输出和after快照在返回前补齐；如果文件已经改了、快照却失败，就抛snapshot_settlement_failed，而不是把效果不确定说成普通工具失败。"
         ],
         "guide": "上一步已经找到了工具实现，但还缺真正运行前的检查。这里先验参数、处理前置Hook并检查权限，需要时保存文件旧版，然后才调用工具或框架传来的函数。工具回来后再准备输出和修改后的快照，返回统一结果给结算器；它自己不抢先保存模型工具消息，也不提前宣布结束。"
       },
       {
-        "file": "src/pycode/hooks/services/tool_bridge.py",
+        "file": "src/pycode/hooks/api.py",
         "name": "ToolHookBridge.fire",
         "purpose": "把真实工具信息交给自动规则检查",
         "notes": [
@@ -1570,8 +1367,8 @@
         "guide": "原工具已经走到执行前或执行后的某个真实位置，需要把当前信息交给Hook。这个桥接函数把操作ID、工具名、参数、文件路径和结果整理成HookContext，再等待引擎处理。返回的可能是拒绝文本，交保存记录行器决定是否继续；它自己不执行原工具，也不改写模型参数或旧消息。"
       },
       {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.fire",
+        "file": "src/pycode/hooks/api.py",
+        "name": "Hooks.fire",
         "purpose": "事件到了，决定同步等待还是安排后台动作",
         "notes": [
           "key包含会话、完整规则和边界，once只固定边界部分；更改配置会得到新身份，而不是永远复用同名字结果。",
@@ -1579,7 +1376,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/hooks/adapters/actions.py",
+            "file": "src/pycode/hooks/actions.py",
             "name": "ConfiguredHookActions.matches",
             "purpose": "有限条件在独立worker中判断",
             "notes": [
@@ -1593,8 +1390,8 @@
         "guide": "Agent或工具执行器已经到达一个事件位置，引擎现在从规则中找相符项。同步规则先检查条件，再等待执行结果，需要拒绝时把文本返回原工具；后台规则则建立稳定身份并安排任务，稍后运行。它只决定本事件怎样触发，结果记录和未知中断判断仍交execute_one，所以不会把安排成功当作动作已经成功。"
       },
       {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.execute_one",
+        "file": "src/pycode/hooks/api.py",
+        "name": "Hooks.execute_one",
         "purpose": "先查有没有做过，再保存开始和结果",
         "notes": [
           "hook_call写在外部效果之前，崩溃后才知道这次可能已经执行，不会因为缺结果就默认再发一次命令。",
@@ -1608,129 +1405,5 @@
       "reject时原工具没有效果，生成hook_rejected工具结果。",
       "Hook自身失败保留独立日志与完整输出，不假装检查通过。"
     ]
-  },
-  "11-hooks:background": {
-    "title": "后台once动作与持久去重",
-    "input_label": "真实命令、事件或框架入口",
-    "request": "turn_end/post_tool_use等事件触发 async Hook；once可选",
-    "intro": "后台任务立即获得所有者，但真正完成仍以JSONL result为准。",
-    "why": "内存_tasks避免同进程重复，持久hook_call/result解决崩溃后的不确定效果。",
-    "nodes": [
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.fire",
-        "purpose": "事件到了，决定同步等待还是安排后台动作",
-        "notes": [
-          "key包含会话、完整规则和边界，once只固定边界部分；更改配置会得到新身份，而不是永远复用同名字结果。",
-          "同步失败明确报hook_failed；后台任务存入_tasks，前置reject又禁止后台，避免原工具先产生效果再收到迟到拒绝。"
-        ],
-        "guide": "Agent或工具执行器已经到达一个事件位置，引擎现在从规则中找相符项。同步规则先检查条件，再等待执行结果，需要拒绝时把文本返回原工具；后台规则则建立稳定身份并安排任务，稍后运行。它只决定本事件怎样触发，结果记录和未知中断判断仍交execute_one，所以不会把安排成功当作动作已经成功。"
-      },
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.execute_background",
-        "purpose": "在后台独立匹配条件再执行",
-        "notes": [
-          "后台仍先matches再execute_one，条件判断没有因为异步运行被跳过。",
-          "任务结果交collect等待，不能只create_task后丢掉；前置拒绝在配置阶段已禁止这种后台方式。"
-        ],
-        "edge": "fire创建的异步任务稍后运行",
-        "guide": "fire已经把一条后台规则安排成任务，任务真正开始时才进入这里。它仍要判断本次上下文是否匹配，匹配才进入execute_one写开始和结果记录；不匹配便结束。返回值或异常由引擎后续收集，因此后台只是原任务不在这里等，不意味着动作可以无人管理，也不能拿它事后拒绝已经执行的编辑。"
-      },
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.execute_one",
-        "purpose": "先查有没有做过，再保存开始和结果",
-        "notes": [
-          "hook_call写在外部效果之前，崩溃后才知道这次可能已经执行，不会因为缺结果就默认再发一次命令。",
-          "hook_result先保存再completed；成功prompt另写hook_context，下一轮模型看新增内容而不是被篡改的旧消息。"
-        ],
-        "helpers": [
-          {
-            "file": "src/pycode/hooks/adapters/actions.py",
-            "name": "ConfiguredHookActions.execute",
-            "purpose": "按声明动作分支执行，仍受上层executor约束",
-            "notes": [
-              "prompt和agent提示拒绝ENV秘密展开；command只显式绑定需要的值，子进程环境仍按名单构造。",
-              "command先sandbox.launch，再使用共享runner和writer；agent同样有超时，具体活动都必须等待后返回工具结果。"
-            ],
-            "edge": "HookActionTool经配置执行器调用HookActions.execute端口",
-            "guide": "Hook自己的执行器已经允许这条动作，这里才按类型做具体工作。prompt展开有限上下文文字；agent通过传入的只读委派函数等待结果；command构造受限制的进程和完整输出。返回值交回引擎保存，不能提前修改历史或宣布原工具已通过，也不能把这三种动作都理解为又调用一次模型。"
-          }
-        ],
-        "guide": "引擎已经决定运行某条规则，这里先锁住本次身份并查历史。已有结果就返回原结果；只有开始记录却没有结果，说明效果可能发生过，返回中断而不盲重做。全新动作则先写hook_call，再用执行器运行，随后保存结果、绑定输出并通知调用方，前置检查这时才能据结果决定是否让原工具继续。"
-      },
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.collect",
-        "purpose": "等待或取消收集全部拥有的后台任务",
-        "notes": [
-          "gather等待全部任务，cancel=True不是发完取消信号就返回，命令和输出仍有机会完成各自清理。",
-          "非取消异常继续抛出，不把后台出错当成所有检查成功；已经写入的失败结果仍是独立可查记录。"
-        ],
-        "edge": "显式collect或aclose清理时调用",
-        "guide": "会话准备结束或显式等待后台动作时，引擎需要处理自己登记过的所有Task。这个函数可以先请求取消，再等待它们全部返回并清空集合；普通异常还要向上报告。调用方等它结束后才继续关闭历史，因此不会出现界面已经退出，后台动作却还在往被释放的会话里写结果的情况。"
-      }
-    ],
-    "result": [
-      "同会话同Hook配置的once边界有稳定结果或明确interrupted事实。",
-      "后台不能拒绝已经进入执行的原工具，关闭仍等待它的收尾。"
-    ]
-  },
-  "11-hooks:reconcile": {
-    "title": "人工对账和关闭路径",
-    "input_label": "真实命令、事件或框架入口",
-    "request": "pycode hooks <operation_id> result|retry|abandon；session关闭",
-    "intro": "用户处理未知效果和关闭收集是独立入口。",
-    "why": "重启不知道命令效果时不能自行重放；关闭也不能让后台继续写已释放history。",
-    "nodes": [
-      {
-        "file": "src/pycode/app/cli/commands.py",
-        "name": "execute_hooks",
-        "purpose": "将用户裁决交给既有会话",
-        "notes": [
-          "session.reconcile_hook接收明确operation ID，不能用模糊的规则名字替代那次发生过的动作。",
-          "输出只是reviewed等审阅信息，不伪造一次命令成功；真正结果和重试记录由后续服务追加。"
-        ],
-        "guide": "用户已经确认某条旧Hook的效果需要人工处理，CLI把操作ID、选择和确认文本送到当前Session。这里不补跑shell，也不直接改旧结果，而是等待会话完成reconcile，再输出已审阅的信息。后面的引擎负责保存新决定和是否允许重试，因此一个维护命令不会绕过真实执行历史。"
-      },
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.reconcile",
-        "purpose": "记录裁决，显式重试或终结未知效果",
-        "notes": [
-          "hook_review先记录用户决定，result和abandon各有明确含义；放弃不等于效果已撤销。",
-          "retry要求完整Hook配置仍匹配，并以审阅记录生成新ID，避免一次旧批准被当成任意新动作的许可。"
-        ],
-        "guide": "用户已经选择确认结果、重试或放弃，这里先找到原hook_call并保存这次审阅。确认与放弃写入新的结果说明；重试则要求当前规则仍与原配置相符，再生成新执行身份。它把未知效果的判断交还给人，也给下一次执行留清楚来历，不能悄悄覆盖旧日志，或在规则已换内容时重复一条别的命令。"
-      },
-      {
-        "file": "src/pycode/hooks/services/configuration.py",
-        "name": "validate_hooks_recovery",
-        "purpose": "pending执行不接受偷换的Hook配置",
-        "notes": [
-          "pending存在才比较hook_config_hash，问题定位为旧执行期间配置变化，不是普通文件更新错误。",
-          "摘要对应完整配置，相同ID不代表相同行为；不一致时明确抛错，后面不能因为对象构造成功就继续旧调用。"
-        ],
-        "edge": "重开会话时的独立配置恢复守卫",
-        "guide": "应用重开会话时已经读到当前Hook配置，如果旧执行尚未结束，就需要在继续之前核对它有没有变化。这个函数比较开始时记录的摘要，不同就停下来要求处理旧执行。它不运行Hook，也不禁止用户永远改配置；只是防止用户正在核对旧命令效果时，程序悄悄换成同名的新规则继续做事。"
-      },
-      {
-        "file": "src/pycode/hooks/services/hooks.py",
-        "name": "HookEngine.aclose",
-        "purpose": "关闭时取消并等待后台动作",
-        "notes": [
-          "调用collect(cancel=True)同时处理取消和等待，后台动作不能在历史关闭后继续写。",
-          "资源拥有者仍是调用这个close的run或launcher，Hook只收自己的活动，避免重复关闭别人传入的历史。"
-        ],
-        "edge": "会话/run所有者的资源关闭回调",
-        "guide": "本次run或整个会话的上层管理者要释放资源，先来这里要求Hook引擎结束。函数委托collect取消并等待登记的后台任务，让命令、只读委派和输出都有机会收尾。返回后上层才可以关闭历史；Hook只负责自己安排的活动，不会替别人关闭共享存储，也不把丢掉Task集合当作已经停止执行。"
-      }
-    ],
-    "result": [
-      "retry、确认结果、放弃都写入新的人工审阅记录。",
-      "关闭等待后台任务收拢，未知效果保持可见而非伪造回滚。"
-    ],
-    "groups": true
   }
 }

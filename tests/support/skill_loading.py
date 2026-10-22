@@ -9,9 +9,8 @@ from uuid import uuid4
 
 from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.kernel.domain.values import plain_data
-from pycode.skills.adapters.backend import SkillBackend
-from pycode.skills.domain.skills import active_skills
-from pycode.skills.services.skill_resources import SkillLoadRecorder
+from pycode.skills.framework import SkillBackend, SkillLoadRecorder
+from pycode.skills.types import active_skills
 from pycode.tools.adapters.backend import PycodeBackend
 
 

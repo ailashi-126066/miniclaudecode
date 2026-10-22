@@ -28,7 +28,7 @@ from pycode.kernel import (
     truncate,
 )
 from pycode.kernel import HistoryJournal as SessionStore
-from pycode.kernel.adapters.path_io import atomic_write, io_path
+from pycode.kernel.adapters.path_io import atomic_write, io_path, owned_io
 from pycode.tools.adapters.read_range import read_range
 from pycode.tools.domain.outputs import OutputMetadata
 from pycode.tools.ports.outputs import SessionHeaderReader
@@ -74,7 +74,7 @@ def preview_text(text, mode, identifier, small):
 def entry_result(entry):
     if entry.message is not None:
         return entry.message.tool_result
-    if entry.type in {"hook_result", "hook_review_result"}:
+    if entry.type == "hook_result":
         return ToolResult(**entry.data["result"])
     return None
 
@@ -99,12 +99,8 @@ class FileToolOutputStore:
 
     async def run_io(self, operation):
         async with self._lock:
-            owned = asyncio.create_task(asyncio.to_thread(operation))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(operation)
             except (OSError, ValueError, TypeError, KeyError) as error:
                 raise ToolError("output_storage_error", "Tool output storage failed") from error
 

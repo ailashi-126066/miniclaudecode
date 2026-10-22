@@ -30,7 +30,7 @@ def test_project_dependency_direction():
             "from pycode.models.adapters.factory import ModelFactory",
         ),
         ("pycode.app.cli.main", "from pycode.skills.module import SkillsModule"),
-        ("pycode.skills.adapters.catalog", "from pycode.skills.module import SkillsModule"),
+        ("pycode.skills.catalog", "from pycode.skills.module import SkillsModule"),
         ("pycode.mcp.module", "from pycode.skills.module import SkillsModule"),
         ("evals.coding.runner", "from pycode.app.composition import build_runtime"),
         ("pycode.agent.ports.runtime", "from langchain_core.messages import AIMessage"),
@@ -450,10 +450,36 @@ def test_actual_app_layout_contains_only_named_scope_packages():
     assert app_layout_errors(ROOT / "src") == []
     assert {
         path.name for path in app.iterdir() if path.is_file() and not path.name.startswith(".")
-    } == {"__init__.py", "bootstrap.py", "README.md"}
+    } == {"__init__.py", "api.py", "bootstrap.py", "README.md"}
     assert {
         path.name
         for path in app.iterdir()
         if path.is_dir() and not path.name.startswith((".", "__"))
     } == APP_PACKAGES
     assert all((app / name / "__init__.py").is_file() for name in APP_PACKAGES)
+
+
+def test_scripts_can_use_public_assembly_data_but_not_private_factories(tmp_path):
+    package_file(
+        tmp_path,
+        "pycode/app/api.py",
+        "from .composition.inputs import RunOptions, SessionResources\n",
+    )
+    package_file(
+        tmp_path,
+        "pycode/app/composition/inputs.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True)\nclass RunOptions:\n    run_id: str\n"
+        "@dataclass(frozen=True)\nclass SessionResources:\n    session_id: str\n",
+    )
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    caller = scripts / "verify.py"
+    caller.write_text("from pycode.app.api import RunOptions, SessionResources\n")
+    assert check_dependencies(tmp_path) == []
+    caller.write_text("from pycode.app.composition.inputs import RunOptions\n")
+    assert any("application assembly requires" in error for error in check_dependencies(tmp_path))
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

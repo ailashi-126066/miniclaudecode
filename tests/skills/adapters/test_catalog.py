@@ -5,9 +5,7 @@ from pathlib import Path
 import pytest
 
 from pycode.kernel.domain.errors import ToolError
-from pycode.skills.adapters.catalog import FileSkillCatalog
-from pycode.skills.adapters.parser import parse_skill
-from pycode.tools.adapters.schema import JsonSchemaValidator
+from pycode.skills.catalog import FileSkillCatalog, parse_skill
 
 VECTORS = json.loads(
     (Path(__file__).parents[2] / "fixtures/skill-baselines.json").read_text(encoding="utf-8")
@@ -35,7 +33,7 @@ async def test_recursive_sources_override_in_fixed_order_without_importing_scrip
             "raise RuntimeError('must never import')", encoding="utf-8"
         )
         roots.append((source, root))
-    catalog = FileSkillCatalog(tuple(roots), validator=JsonSchemaValidator())
+    catalog = FileSkillCatalog(tuple(roots))
     index = await catalog.scan()
     assert len(index.entries) == 1 and index.entries[0].source == "project"
     assert (await catalog.read(index.entries[0])).entry.description == "project"

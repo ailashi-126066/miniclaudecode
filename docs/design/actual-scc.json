@@ -2022,7 +2022,7 @@
       "source": "pycode.app.container",
       "target": "pycode.services.hooks",
       "symbols": [
-        "HookEngine"
+        "Hooks"
       ],
       "line": 96
     },
@@ -2038,7 +2038,7 @@
       "source": "pycode.app.container",
       "target": "pycode.services.mcp",
       "symbols": [
-        "MCPService"
+        "MCP"
       ],
       "line": 98
     },
@@ -2147,7 +2147,7 @@
       "source": "pycode.app.container",
       "target": "pycode.services.skills",
       "symbols": [
-        "SkillService",
+        "Skills",
         "SkillToolGate"
       ],
       "line": 116
@@ -3032,7 +3032,7 @@
       "source": "pycode.services.agent_session",
       "target": "pycode.services.skills",
       "symbols": [
-        "SkillService"
+        "Skills"
       ],
       "line": 31
     },

@@ -6,10 +6,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-import pycode.skills.adapters.install as installation
+import pycode.skills.install as installation
 from pycode.kernel.domain.errors import ToolError
-from pycode.skills.adapters.github_source import parse_skill_url
-from pycode.skills.adapters.install import GitHubSkillInstaller
+from pycode.skills.install import GitHubSkillInstaller, parse_skill_url
 
 VECTORS = json.loads(
     (Path(__file__).parents[2] / "fixtures/skill-install-baselines.json").read_text(

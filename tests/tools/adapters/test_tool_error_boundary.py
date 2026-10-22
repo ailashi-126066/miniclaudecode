@@ -37,7 +37,6 @@ async def test_existing_error_result_is_preserved_without_a_second_wrapper():
         StorageError("save_failed", "test"),
         SnapshotError("snapshot_failed", "test"),
         RuntimeError("program defect"),
-        ToolError("hook_failed", "critical"),
         GraphInterrupt(()),
     ],
 )
@@ -219,3 +218,7 @@ async def test_executed_write_error_retains_before_after_snapshot_binding():
         "after": "tree-2",
         "paths": ["changed.txt"],
     }
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

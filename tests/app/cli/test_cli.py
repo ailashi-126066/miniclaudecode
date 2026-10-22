@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.cli.commands import command
 from pycode.app.cli.main import main
@@ -82,3 +84,7 @@ async def test_cli_prints_forwarded_child_approval_and_exits_two(tmp_path, monke
     assert await command(args, config) == 2
     assert "12345678" in capsys.readouterr().out
     session.aclose.assert_awaited_once()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

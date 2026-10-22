@@ -28,6 +28,13 @@ class Crash:
 
 
 async def main():
+    from pycode.tools.adapters.discovery import ToolDiscovery
+
+    async def disclosed(self, request):
+        return request
+
+    ToolDiscovery.disclose = disclosed
+
     workspace, url, boundary = sys.argv[1:]
     root = Path(workspace)
     config = AppConfig(root, root / "data", summary_keep_recent_tokens=20, memory_mode="off")

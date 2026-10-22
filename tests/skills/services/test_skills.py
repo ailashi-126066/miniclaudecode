@@ -9,17 +9,15 @@ from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.history import EntryDraft
 from pycode.kernel.domain.messages import Message, ToolCall
 from pycode.kernel.domain.tools import ToolSpec
-from pycode.sandbox.module import SandboxModule
 from pycode.session import SessionCatalogWriteGuard
-from pycode.skills import SkillsProjection, SkillsScopeConstraint
-from pycode.skills.adapters.backend import SkillBackend
-from pycode.skills.adapters.catalog import FileSkillCatalog
-from pycode.skills.adapters.install import GitHubSkillInstaller
-from pycode.skills.domain.skills import active_skills
+from pycode.skills import SkillsProjection
+from pycode.skills.api import Skills
+from pycode.skills.catalog import FileSkillCatalog
+from pycode.skills.framework import SkillBackend, SkillsScopeConstraint
+from pycode.skills.install import GitHubSkillInstaller
 from pycode.skills.module import SkillsModule, SkillsSettings
-from pycode.skills.services.skills import SkillService
+from pycode.skills.types import active_skills
 from pycode.tools.adapters.backend import PycodeBackend
-from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.module import ToolsModule
 from tests.models.services.test_model_control import store_for
 from tests.skills.adapters.test_install import URL, download_transport
@@ -52,9 +50,9 @@ async def prepare(tmp_path, *, budget=2000):
     path = await write_skill(root)
     store = store_for(tmp_path)
     await store.append_message(Message("u1", "user", "Task"))
-    service = SkillService(
+    service = Skills(
         store,
-        FileSkillCatalog((("user", root),), validator=JsonSchemaValidator()),
+        FileSkillCatalog((("user", root),)),
         index_budget=budget,
         catalog_write_guard=SessionCatalogWriteGuard(),
     )
@@ -84,9 +82,9 @@ async def test_reload_keeps_identical_prefix_and_honors_changed_index_budget(tmp
         catalog = await service.refresh()
         assert await store.snapshot() == before
         assert not catalog["dispatch"] and "Instructions" not in catalog["text"]
-        bounded = SkillService(
+        bounded = Skills(
             store,
-            FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator()),
+            FileSkillCatalog((("user", path.parent.parent),)),
             index_budget=1,
             catalog_write_guard=SessionCatalogWriteGuard(),
         )
@@ -101,9 +99,9 @@ async def test_install_refreshes_catalog_but_never_activates_downloaded_skill(tm
     root = tmp_path / "skills"
     store = store_for(tmp_path)
     await store.append_message(Message("u1", "user", "install"))
-    service = SkillService(
+    service = Skills(
         store,
-        FileSkillCatalog((("user", root),), validator=JsonSchemaValidator()),
+        FileSkillCatalog((("user", root),)),
         installer=GitHubSkillInstaller(root, transport=download_transport()),
         catalog_write_guard=SessionCatalogWriteGuard(),
     )
@@ -117,7 +115,7 @@ async def test_install_refreshes_catalog_but_never_activates_downloaded_skill(tm
         assert not active_skills((await store.snapshot()).entries)
         loaded = await read_skill(
             store,
-            FileSkillCatalog((("user", root),), validator=JsonSchemaValidator()),
+            FileSkillCatalog((("user", root),)),
             "vendor-sample",
         )
         assert "Sample SOP" in loaded["text"]
@@ -127,8 +125,8 @@ async def test_install_refreshes_catalog_but_never_activates_downloaded_skill(tm
 
 async def test_exact_snapshot_survives_disk_change_restart_and_explicit_reload(tmp_path):
     service, store, path = await prepare(tmp_path)
-    catalog = FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator())
-    requested = await service.request("example", 'keep "quotes"')
+    catalog = FileSkillCatalog((("user", path.parent.parent),))
+    requested = await service.load("example", 'keep "quotes"')
     assert requested["arguments"] == 'keep "quotes"'
     original = await read_skill(store, catalog, "example")
     assert "Instructions $ARGUMENTS" in original["text"]
@@ -140,9 +138,9 @@ async def test_exact_snapshot_survives_disk_change_restart_and_explicit_reload(t
     await write_skill(path.parent.parent, body="New instructions $ARGUMENTS")
     await store.aclose()
     restored = store_for(tmp_path)
-    service = SkillService(
+    service = Skills(
         restored,
-        FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator()),
+        FileSkillCatalog((("user", path.parent.parent),)),
         catalog_write_guard=SessionCatalogWriteGuard(),
     )
     try:
@@ -173,7 +171,7 @@ async def test_branch_and_compaction_preserve_only_current_activations(tmp_path)
         before = (await store.snapshot()).leaf_id
         loaded = await read_skill(
             store,
-            FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator()),
+            FileSkillCatalog((("user", path.parent.parent),)),
             "example",
         )
         await store.append_message(Message("u2", "user", "Keep this"))
@@ -221,7 +219,7 @@ async def test_resources_are_on_demand_and_scope_rejects_escape(tmp_path):
         backend = SkillBackend(PycodeBackend(path.parent.parent, read_only=True))
         await read_skill(
             store,
-            FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator()),
+            FileSkillCatalog((("user", path.parent.parent),)),
             "example",
         )
         projection = ContextProjector((SkillsProjection(),)).project(await store.snapshot())
@@ -252,7 +250,7 @@ async def test_allowed_tools_intersect_and_cannot_bypass_parent_gate(tmp_path):
     parent = ParentGate()
     gate = ToolsModule.gate(None, None, custom=parent, scope=SkillsScopeConstraint(store))
     try:
-        catalog = FileSkillCatalog((("user", path.parent.parent),), validator=JsonSchemaValidator())
+        catalog = FileSkillCatalog((("user", path.parent.parent),))
         await read_skill(store, catalog, "second")
         with pytest.raises(ToolError) as error:
             await gate.authorize(None, ToolSpec("Bash", "command", {}), ToolCall("b1", "Bash", {}))
@@ -272,12 +270,7 @@ async def test_allowed_tools_intersect_and_cannot_bypass_parent_gate(tmp_path):
 
 
 def configured_skill_service(config, store):
-    module = SkillsModule(
-        schema=JsonSchemaValidator(),
-        process_runner=SandboxModule.process_runner,
-        backend_factory=ToolsModule.backend,
-        skill_read_grant=SandboxModule.skill_read_grant,
-    )
+    module = SkillsModule(backend_factory=ToolsModule.backend)
     settings = SkillsSettings(
         config.workspace, config.user_data, config.project_trusted, config.skill_index_budget
     )
@@ -286,7 +279,7 @@ def configured_skill_service(config, store):
     ).service
 
 
-async def test_project_sources_require_explicit_trust_and_fork_does_not_activate(tmp_path):
+async def test_project_sources_require_explicit_trust_and_request_does_not_activate(tmp_path):
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     await write_skill(config.workspace / ".agents/skills", "private")
     store = store_for(tmp_path)
@@ -296,10 +289,10 @@ async def test_project_sources_require_explicit_trust_and_fork_does_not_activate
         assert not any(item["name"] == "private" for item in (await service.index())["entries"])
         trusted = configured_skill_service(replace(config, project_trusted=True), store)
         await trusted.refresh()
-        requested = await trusted.request("private")
+        requested = await trusted.load("private")
         assert requested["path"].startswith("/skills/project-agents/")
-        requested_fork = await trusted.request("review")
-        assert requested_fork["path"].startswith("/skills/builtin/")
+        requested_review = await trusted.load("review")
+        assert requested_review["path"].startswith("/skills/builtin/")
         assert all(
             item["name"] != "review" for item in active_skills((await store.snapshot()).entries)
         )

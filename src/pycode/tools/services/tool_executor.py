@@ -64,13 +64,6 @@ class ToolExecutor:
                 tool = self.registry.get(call.name)
             arguments = clone_value(call.arguments)
             self.validator.validate(spec.input_schema, arguments)
-            dispatcher = self.registry.dispatcher(call.name)
-            if dispatcher is not None:
-                call = dispatcher.resolve(call)
-                tool = self.registry.get(call.name)
-                spec = self.registry.get_spec(call.name)
-                arguments = clone_value(call.arguments)
-                self.validator.validate(spec.input_schema, arguments)
             hook_call = replace(call, arguments=arguments)
             if self.hooks is not None:
                 rejected = await self.hooks.fire("pre_tool_use", context, hook_call, spec)

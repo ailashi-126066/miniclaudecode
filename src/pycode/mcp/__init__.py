@@ -1,23 +1,9 @@
-"""Public native contracts, policies and services for mcp."""
+"""MCP tools, search and managed connections; runtime assembly lives in module.py."""
 
-from pycode.mcp.domain.mcp import active_mcp, choose_tools, result_from_mcp
-from pycode.mcp.ports.mcp import MCPConnections
-from pycode.mcp.ports.schema import SchemaChecker
-from pycode.mcp.services.answers import validate_elicitation_answer
-from pycode.mcp.services.configuration import validate_mcp_recovery
-from pycode.mcp.services.mcp import MCPService
-from pycode.mcp.services.mcp_bindings import MCPRuntimeBindings
-from pycode.mcp.services.projection import MCPProjection
+from pycode.mcp.api import MCP
+from pycode.mcp.config import validate_mcp_recovery
+from pycode.mcp.framework import MCPRun
+from pycode.mcp.history import MCPProjection
+from pycode.mcp.types import MCPServer
 
-__all__ = [
-    "validate_elicitation_answer",
-    "MCPProjection",
-    "MCPConnections",
-    "MCPRuntimeBindings",
-    "MCPService",
-    "SchemaChecker",
-    "active_mcp",
-    "choose_tools",
-    "result_from_mcp",
-    "validate_mcp_recovery",
-]
+__all__ = ["MCP", "MCPServer", "MCPRun", "MCPProjection", "validate_mcp_recovery"]

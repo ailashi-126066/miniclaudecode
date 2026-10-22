@@ -38,10 +38,11 @@ from pycode.kernel.domain.values import clone_value, freeze_value, json_dumps, p
 from pycode.kernel.ports.events import EventConsumer, EventJournal, EventSink
 from pycode.kernel.ports.history import HistoryJournal, MessageJournal
 from pycode.kernel.ports.timing import Timing
-from pycode.kernel.ports.tools import ExecutableTool
+from pycode.kernel.ports.tools import ArgumentValidator, ExecutableTool
 from pycode.kernel.services.events import EventStream
 
 __all__ = [
+    "ArgumentValidator",
     "DomainError",
     "EntryDraft",
     "EventConsumer",

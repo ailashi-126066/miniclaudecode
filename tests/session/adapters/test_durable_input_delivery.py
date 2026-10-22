@@ -149,3 +149,7 @@ async def test_real_process_death_does_not_drop_or_redeliver_durable_inputs(
         finally:
             await reader.aclose()
         await restored.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

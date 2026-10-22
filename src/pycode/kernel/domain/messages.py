@@ -14,7 +14,6 @@ Purpose = Literal[
     "summary",
     "memory_extract",
     "memory_select",
-    "tool_selection",
     "plan",
     "subagent",
     "retry",

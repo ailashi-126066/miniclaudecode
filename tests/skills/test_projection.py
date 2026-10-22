@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from pycode.mcp.services.projection import MCPProjection
-from pycode.skills.services.projection import SkillsProjection
+from pycode.mcp.history import MCPProjection
+from pycode.skills.history import SkillsProjection
 
 
 def test_empty_history_removes_only_owned_checkpoint():
@@ -16,7 +16,7 @@ def test_empty_history_removes_only_owned_checkpoint():
 
 
 def test_mcp_projection_uses_persisted_catalog_only():
-    catalog = {"hash": "hash", "text": "catalog"}
+    catalog = {"hash": "hash", "tools": [], "text": "catalog"}
     entry = SimpleNamespace(id="catalog-entry", type="mcp_catalog", data=catalog)
     projected = MCPProjection().contribute(SimpleNamespace(), (entry,), (), {})
     assert projected.entries[0].entry_id == "catalog-entry"

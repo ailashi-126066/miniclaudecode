@@ -2,6 +2,8 @@ import asyncio
 import threading
 from dataclasses import replace
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -60,3 +62,7 @@ async def test_summary_can_publish_ready_while_main_runtime_is_closed_and_user_i
         finally:
             release.set()
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

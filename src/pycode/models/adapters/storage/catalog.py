@@ -2,12 +2,13 @@
 
 import asyncio
 import json
+from dataclasses import fields
 from pathlib import Path
 
 from pydantic import TypeAdapter
 
 from pycode.kernel import StorageError, json_dumps, plain_data
-from pycode.kernel.adapters.path_io import atomic_write
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 from pycode.models.domain.models import CatalogSnapshot
 
 
@@ -18,12 +19,8 @@ class FileCatalogStore:
 
     async def run_io(self, operation):
         async with self._lock:
-            owned = asyncio.create_task(asyncio.to_thread(operation))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(operation)
             except (OSError, ValueError, TypeError, KeyError) as error:
                 raise StorageError(
                     "invalid_catalog_cache", "Cannot read or publish model catalog"
@@ -34,9 +31,15 @@ class FileCatalogStore:
             if not self._path.exists():
                 return None
             payload = json.loads(self._path.read_bytes())
-            if payload["schema_version"] != 1:
+            if (
+                not isinstance(payload, dict)
+                or type(payload.get("schema_version")) is not int
+                or payload["schema_version"] != 1
+            ):
                 raise ValueError("Unsupported catalog schema")
             payload.pop("schema_version")
+            if set(payload) - {field.name for field in fields(CatalogSnapshot)}:
+                raise ValueError("Unsupported catalog fields")
             return TypeAdapter(CatalogSnapshot).validate_json(json_dumps(payload), strict=True)
 
         return await self.run_io(read)

@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.support.execution import provider
@@ -61,3 +63,7 @@ async def test_process_crash_has_unknown_fact_without_replaying_effect_or_old_ap
                 tool.executed == 0
                 and (tmp_path / "effect.txt").read_text(encoding="utf-8") == "wire"
             )
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

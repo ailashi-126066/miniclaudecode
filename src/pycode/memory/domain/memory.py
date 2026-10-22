@@ -54,14 +54,11 @@ class StoredMemory(BaseModel):
 
 
 class MemorySnapshot(BaseModel):
-    # Older files also carry processed_batches and *_receipts from the removed pipeline;
-    # they are ignored on read and dropped on the next write. migration stays readable.
-    model_config = ConfigDict(extra="ignore")
-    schema_version: Literal[1] = 1
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1]
     namespace: tuple[Identity, ...]
-    revision: Annotated[int, Field(ge=0)] = 0
-    records: dict[Identity, StoredMemory] = Field(default_factory=dict)
-    migration: dict[str, Any] | None = None
+    revision: Annotated[int, Field(ge=0)]
+    records: dict[Identity, StoredMemory]
 
 
 def normalize_value(value):
@@ -84,13 +81,10 @@ def normalize_value(value):
 
 
 def memory_text(value):
-    """Readable text of current entries and of legacy Semantic/Episodic/Procedural entries."""
+    """Display current text memories or structured content without legacy conversions."""
     content = value["content"]
     if isinstance(content.get("content"), str):
         return content["content"]
-    if isinstance(content.get("body"), str):
-        title = content.get("title")
-        return f"{title}: {content['body']}" if isinstance(title, str) else content["body"]
     return json_dumps(content, ensure_ascii=False, sort_keys=True)
 
 

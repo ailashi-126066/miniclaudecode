@@ -1,9 +1,7 @@
 """Explicit registration; modules never self-register during import."""
 
+from pycode.kernel import ArgumentValidator, ToolError, ToolSpec, clone_value
 from pycode.kernel import ExecutableTool as Tool
-from pycode.kernel import ToolError, ToolSpec, clone_value
-from pycode.tools.ports.dispatch import ToolDispatch
-from pycode.tools.ports.tools import ArgumentValidator
 
 
 class ToolRegistry:
@@ -11,7 +9,6 @@ class ToolRegistry:
         self._validator = validator
         self._tools: dict[str, Tool] = {}
         self._specs: dict[str, ToolSpec] = {}
-        self._dispatch: dict[str, ToolDispatch] = {}
         for tool in tools:
             self.register(tool)
 
@@ -52,10 +49,3 @@ class ToolRegistry:
 
     def model_specs(self):
         return tuple(spec for spec in self.list_specs() if spec.model_visible)
-
-    def register_dispatch(self, name, dispatcher: ToolDispatch):
-        self.get(name)
-        self._dispatch[name] = dispatcher
-
-    def dispatcher(self, name):
-        return self._dispatch.get(name)

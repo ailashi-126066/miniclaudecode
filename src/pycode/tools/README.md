@@ -31,3 +31,5 @@ executor factory building block for Hooks. `settlement` and `framework_tool` rec
 
 The module owns no global task lifetime. Streaming writers own open output handles; the Agent/run
 owner cancels and settles in-flight tool tasks before closing shared runtime resources.
+
+统一 ToolSearch 提供本地、框架和 MCP 工具分类简表，按名称/关键词加载完整定义。工具查找不调用模型，完整定义只有在成功保存搜索结果后才在下一轮披露。

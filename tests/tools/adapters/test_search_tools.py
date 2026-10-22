@@ -129,3 +129,6 @@ async def test_outside_directory_link_uses_real_link_without_reading_target(tmp_
     backend = PycodeBackend(root)
     assert (await backend.aglob("linked/*.txt")).matches == []
     assert (await backend.agrep("marker", path="/linked")).error.startswith("outside_workspace")
+
+
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

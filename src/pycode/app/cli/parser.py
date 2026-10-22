@@ -109,6 +109,15 @@ def build_parser():
     install.add_argument("url")
     install.add_argument("--ref")
     install.add_argument("--path", dest="subpath")
+    read_skill = skill_commands.add_parser("read", help="Read a Skill and its revision")
+    read_skill.add_argument("name")
+    for operation in ("create", "update"):
+        author = skill_commands.add_parser(operation, help=f"{operation.title()} a local Skill")
+        author.add_argument("name")
+        author.add_argument("--file", required=True, help="UTF-8 SKILL.md source file")
+        author.add_argument("--scope", choices=("user", "project"), default="user")
+        if operation == "update":
+            author.add_argument("--revision", required=True, help="Current SHA-256 revision")
     memory = commands.add_parser(
         "memory", aliases=["/memory"], help="Inspect and edit durable JSON memory"
     )
@@ -128,12 +137,6 @@ def build_parser():
     remove.add_argument("memory_id")
     remove.add_argument("--scope", choices=["user", "project"])
     memory_actions.add_parser("undo", help="Undo the latest automatic memory update")
-    hooks = commands.add_parser("hooks", help="Review an uncertain background Hook operation")
-    execution_options(hooks, suppress=True)
-    hooks.add_argument("operation_id")
-    hooks.add_argument("action", choices=("result", "retry", "abandon"))
-    hooks.add_argument("--text", default="")
-    hooks.add_argument("--is-error", action="store_true")
     revert = commands.add_parser("revert", help="Preview, apply or recover an explicit revert")
     execution_options(revert, suppress=True)
     revert_commands = revert.add_subparsers(dest="revert_command", required=True)

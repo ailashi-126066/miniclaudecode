@@ -10,7 +10,7 @@ import pytest
 
 from pycode.kernel.domain.errors import ToolError
 from pycode.snapshot.adapters.git_tree import GitSnapshotStore
-from pycode.team.adapters.worktrees import WorktreeManager
+from pycode.team.worktrees import WorktreeManager
 from tests.snapshot.adapters.test_git_tree import git, repository
 
 
@@ -374,7 +374,7 @@ def test_git_timeout_has_a_stable_error_code(tmp_path, monkeypatch):
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired("git", 60)
 
-    monkeypatch.setattr("pycode.team.adapters.worktrees.subprocess.run", timeout)
+    monkeypatch.setattr("pycode.team.worktrees.subprocess.run", timeout)
     with pytest.raises(ToolError) as failed:
         manager.git(["status"])
     assert failed.value.code == "worktree_git_timeout"

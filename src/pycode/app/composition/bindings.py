@@ -11,18 +11,17 @@ from pycode.tools.module import ToolsModule
 
 def build_runtime_bindings(
     *,
-    modules=None,
+    agent,
+    models,
+    tools,
     framework_extensions=(),
     model_filters=(),
     before_model=(),
     tool_extensions=(),
     native_bindings=(),
-    calibrator=None,
-    question_extensions=(),
 ):
-    agent = modules.agent if modules is not None else AgentModule()
-    models = modules.models if modules is not None else ModelsModule
-    tools = modules.tools if modules is not None else ToolsModule()
+    converter = partial(tools.framework_tool, native_bindings=native_bindings)
+    discovery = tools.discovery(converter)
 
     def settlement_factory(bound: RunContext):
         async def lifecycle(context, event, boundary, *, message="", error=""):
@@ -39,18 +38,23 @@ def build_runtime_bindings(
     return agent.bindings(
         to_framework=models.to_framework,
         from_assistant=models.from_assistant,
-        make_framework_tool=partial(tools.framework_tool, native_bindings=native_bindings),
-        select_model_tools=models.select_model_tools,
-        calibrate_model_request=calibrator or models.calibrate_model_request,
+        make_framework_tool=converter,
+        disclose_model_tools=discovery.disclose,
+        calibrate_model_request=models.calibrate_model_request,
         model_request_step=models.model_request_step,
         settlement_middleware_factory=settlement_factory,
         run_hook=run_hook,
         framework_extensions=framework_extensions,
         model_filters=model_filters,
         before_model=before_model,
-        question_extensions=question_extensions,
     )
 
 
 def build_agent_runtime(model, **options):
-    return AgentModule().runtime(model, bindings=build_runtime_bindings(), **options)
+    return AgentModule().runtime(
+        model,
+        bindings=build_runtime_bindings(
+            agent=AgentModule(), models=ModelsModule, tools=ToolsModule()
+        ),
+        **options,
+    )

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from pycode.hooks.adapters.config import parse_hooks
-from pycode.hooks.domain.hooks import HOOK_EVENTS, HookContext, parse_condition
+from pycode.hooks.config import parse_hooks
+from pycode.hooks.types import HOOK_EVENTS, HookContext, parse_condition
 from pycode.kernel.domain.errors import DomainError
 
 VECTORS = json.loads(

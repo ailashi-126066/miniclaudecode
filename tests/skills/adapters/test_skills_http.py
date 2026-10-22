@@ -192,3 +192,7 @@ async def test_model_install_needs_persisted_approval_and_restart_settles_same_o
             assert not (config.user_data / "skills").exists()
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

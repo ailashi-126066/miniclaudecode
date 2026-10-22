@@ -27,8 +27,8 @@ async def test_changed_server_schema_is_recorded_but_pending_call_keeps_old_cont
     with protocol_server(
         [
             skill_reply(
-                "MCPCall",
-                {"server": "srv", "tool": "mutate", "arguments": {"value": "old"}},
+                "mcp__srv__mutate",
+                {"value": "old"},
                 "mutate",
             ),
             chat_completion(),
@@ -64,7 +64,8 @@ async def test_changed_server_schema_is_recorded_but_pending_call_keeps_old_cont
                 if entry["message"] and entry["message"]["role"] == "tool"
             ]
             assert (
-                results[-1]["error_code"] == "tool_interrupted" and results[-1]["name"] == "MCPCall"
+                results[-1]["error_code"] == "tool_interrupted"
+                and results[-1]["name"] == "mcp__srv__mutate"
             )
             assert len(requests) == 2
         finally:
@@ -125,9 +126,7 @@ async def test_actual_parent_exit_reuses_confirmed_mcp_result_without_second_ser
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     await mcp_config(config, mode="dispatch")
-    reply = skill_reply(
-        "MCPCall", {"server": "srv", "tool": "mutate", "arguments": {"value": "once"}}, "mutate"
-    )
+    reply = skill_reply("mcp__srv__mutate", {"value": "once"}, "mutate")
     with protocol_server([reply, chat_completion()]) as (url, requests):
         configured = provider(url)
         request = {
@@ -161,3 +160,7 @@ async def test_actual_parent_exit_reuses_confirmed_mcp_result_without_second_ser
             assert (tmp_path / "effects.txt").read_text().splitlines() == ["once"]
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

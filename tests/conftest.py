@@ -18,3 +18,18 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.get_closest_marker("requires_rg") is not None:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def disclosed_tools(monkeypatch):
+    """Execution-only regressions start with definitions already available.
+
+    Discovery integration tests do not use this fixture. Permission filters and
+    calibration still run, so a disclosed definition is never execution approval.
+    """
+    from pycode.tools.adapters.discovery import ToolDiscovery
+
+    async def disclose(self, request):
+        return request
+
+    monkeypatch.setattr(ToolDiscovery, "disclose", disclose)

@@ -94,3 +94,7 @@ async def test_current_unsupported_host_still_requires_explicit_approval_even_wh
             assert len(requests) == 2
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

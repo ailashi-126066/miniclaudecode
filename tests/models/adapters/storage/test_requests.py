@@ -101,3 +101,27 @@ def test_constructor_failure_closes_connection_before_returning(
     assert len(opened) == 1
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         opened[0].execute("SELECT 1")
+
+
+async def test_removed_candidate_record_is_rejected_without_rewriting_payload(tmp_path):
+    import json
+    import sqlite3
+    from dataclasses import asdict
+
+    path = tmp_path / "runtime.sqlite"
+    store = SQLiteRequestStore(path)
+    await store.start(initial_record())
+    await store.aclose()
+    old = {**asdict(initial_record()), "candidate_index": 1}
+    payload = json.dumps(old)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE model_requests SET payload=?", (payload,))
+    store = SQLiteRequestStore(path)
+    try:
+        with pytest.raises(StorageError) as error:
+            await store.list_requests()
+        assert error.value.code == "invalid_request_record"
+    finally:
+        await store.aclose()
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT payload FROM model_requests").fetchone()[0] == payload

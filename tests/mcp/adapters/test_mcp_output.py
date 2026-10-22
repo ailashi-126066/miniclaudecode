@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -17,9 +19,7 @@ async def test_large_mcp_result_is_complete_on_disk_and_pageable_through_read_to
     await mcp_config(config, mode="dispatch")
     with protocol_server(
         [
-            skill_reply(
-                "MCPCall", {"server": "srv", "tool": "big", "arguments": {"lines": 2400}}, "big"
-            ),
+            skill_reply("mcp__srv__big", {"lines": 2400}, "big"),
             chat_completion(),
         ]
     ) as (url, requests):
@@ -80,8 +80,8 @@ async def test_dispatch_uses_target_name_for_hook_rejection_and_never_calls_serv
     with protocol_server(
         [
             skill_reply(
-                "MCPCall",
-                {"server": "srv", "tool": "mutate", "arguments": {"value": "blocked"}},
+                "mcp__srv__mutate",
+                {"value": "blocked"},
                 "mutate",
             ),
             chat_completion(),
@@ -99,6 +99,10 @@ async def test_dispatch_uses_target_name_for_hook_rejection_and_never_calls_serv
                 for entry in state["snapshot"]["entries"]
                 if entry["message"] and entry["message"]["role"] == "tool"
             )
-            assert result["name"] == "MCPCall" and result["error_code"] == "hook_rejected"
+            assert result["name"] == "mcp__srv__mutate" and result["error_code"] == "hook_rejected"
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

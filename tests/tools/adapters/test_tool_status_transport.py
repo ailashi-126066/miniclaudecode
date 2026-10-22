@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -39,3 +41,7 @@ async def test_nonzero_command_exit_is_visible_in_real_openai_tool_content(tmp_p
         )
         assert "ordinary output" in content and "exit code 7" in content and "Tool error" in content
         await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

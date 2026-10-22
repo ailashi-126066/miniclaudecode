@@ -125,7 +125,7 @@
         ]
       },
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.open_session",
         "purpose": "让评测进入与日常使用相同的会话",
         "notes": [
@@ -291,7 +291,7 @@
         "edge": "用户执行doctor命令"
       },
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.status",
         "purpose": "从同一个应用入口取得工作区状态",
         "notes": [
@@ -350,7 +350,7 @@
         "edge": "用户选择storage子命令"
       },
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.storage",
         "purpose": "用已有模块创建本地数据管理服务",
         "notes": [

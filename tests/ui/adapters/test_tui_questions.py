@@ -1,3 +1,4 @@
+import pytest
 from textual.widgets import Button, Checkbox, Input, Select, TabbedContent
 
 from pycode.app.bootstrap import compose_application
@@ -101,3 +102,7 @@ async def test_tui_question_reopen_has_one_interrupted_pair_and_cannot_answer_ol
                 if item["tool_result"]
             ]
             assert len(outputs) == 1 and outputs[0]["error_code"] == "tool_interrupted"
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

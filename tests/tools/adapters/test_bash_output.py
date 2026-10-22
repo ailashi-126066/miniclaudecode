@@ -127,7 +127,7 @@ async def test_evaluation_path_prefix_survives_final_child_environment_filter(
     context = replace(context, call_id="path-prefix", tool_name="Bash")
     prefix = tmp_path / "evaluation-python-bin"
     config = AppConfig(tmp_path, tmp_path / "state", bash_path_prefix=(str(prefix),))
-    bash = compose_application(config).modules.sandbox.bash(outputs)
+    bash = compose_application(config)._modules.sandbox.bash(outputs)
     captured = {}
 
     async def capture_process(argv, workspace, writer, result, **options):
@@ -251,3 +251,7 @@ async def test_descendant_output_after_parent_exit_is_not_cut_off_by_fixed_grace
     assert not result.is_error
     assert "HEAD" in result.text and "TICK5" in result.text
     await journal.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

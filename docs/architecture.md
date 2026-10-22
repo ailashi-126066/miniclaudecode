@@ -1,4 +1,10 @@
+# 当前工具发现流程
+
+2026-10-22：模型工具选择器已删除，本地与 MCP 统一采用名称/一句话分类目录和 ToolSearch 按需加载。详见 [统一工具发现](design/tool-discovery.md)。
+
 # Final architecture and ownership
+
+> 2026-10-22：本文包含精简前的设计/教学记录；当前 Skills、MCP、Hooks、Team 以[组件精简说明](design/component-simplification.md)和组件 README 为准。
 
 `app/bootstrap.py:compose_application` is the single public composition entry. It returns
 an Application with explicitly selected `ApplicationModules`. CLI, TUI wiring, coding evaluations
@@ -169,12 +175,10 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `agent.ports.runtime.TeamMailbox` | `team.services.team.TeamMember` |
 | `agent.ports.runtime.TitleAssignment` | `app.composition.runtime.BoundTitleAssignment` |
 | `agent.ports.runtime.WorkspaceReadback` | `tools.adapters.backend.PycodeBackend` |
-| `agent.ports.runtime.FallbackControl` | `models.adapters.model_fallback.ModelFallback` |
-| `agent.ports.runtime.SelectorSettingsView` | `models.adapters.tool_selection.ToolSelector` |
 | `context.ports.summaries.SummaryGenerator` | `context.adapters.background.ConfiguredSummaryGenerator` |
 | `context.ports.summaries.SummaryStore` | `context.adapters.storage.summaries.FileSummaryStore` |
 | `hooks.ports.hooks.HookActions` | `hooks.adapters.actions.ConfiguredHookActions` |
-| `hooks.ports.lifecycle.LifecycleHooks` | `hooks.services.hooks.HookEngine` |
+| `hooks.ports.lifecycle.LifecycleHooks` | `hooks.services.hooks.Hooks` |
 | `hooks.ports.lifecycle.LifecycleContext` | `agent.services.context.RunContext` |
 | `hooks.ports.runtime.HookExecution` | `tools.services.tool_executor.ToolExecutor` |
 | `hooks.ports.runtime.HookPlanGuard` | `plans.services.plans.PlanService` |
@@ -217,7 +221,7 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `skills.ports.sandbox.SkillReadGrant` | `sandbox.module.skill_read_grant` (factory/callback) |
 | `skills.ports.skills.SkillCatalog` | `skills.adapters.catalog.FileSkillCatalog` |
 | `skills.ports.skills.SkillResourceToolFactory` | `skills.adapters.python_tool.PythonSkillToolFactory` (factory/callback) |
-| `skills.ports.skills.SkillCatalogCommands` | `skills.services.skills.SkillService` |
+| `skills.ports.skills.SkillCatalogCommands` | `skills.services.skills.Skills` |
 | `skills.ports.skills.SkillInstaller` | `skills.adapters.install.GitHubSkillInstaller` |
 | `snapshot.ports.snapshots.SnapshotStore` | `snapshot.adapters.git_tree.GitSnapshotStore` |
 | `team.ports.team.ChildSession` | `session.services.agent_session.AgentSession` |
@@ -225,7 +229,6 @@ Private adapter-local SDK Protocols are implemented by injected PycodeBackend/fr
 | `team.ports.team.Worktrees` | `team.adapters.worktrees.WorktreeManager` |
 | `team.ports.team.WorktreeSnapshot` | `snapshot.adapters.git_tree.GitSnapshotStore` |
 | `team.ports.team.WorktreeSnapshotFactory` | `snapshot.adapters.git_tree.GitSnapshotStore` (factory/callback) |
-| `tools.ports.dispatch.ToolDispatch` | `mcp.adapters.tools.MCPCall` |
 | `tools.ports.hooks.ToolHooks` | `hooks.services.tool_bridge.ToolHookBridge` |
 | `tools.ports.outputs.OutputWriter` | `tools.adapters.output_store.StreamingOutputWriter` |
 | `tools.ports.outputs.ToolOutputStore` | `tools.adapters.output_store.FileToolOutputStore` |

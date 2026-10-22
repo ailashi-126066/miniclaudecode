@@ -4,12 +4,7 @@ from pycode.kernel import SessionTree
 
 
 def run_belongs_to_session(header, entry) -> bool:
-    owner = entry.data.get("execution_session_id")
-    if owner is not None:
-        return owner == header.session_id
-    # Native legacy runs belong to their original session. Fork copies only
-    # conversation entries and never acquires its parent's execution owner.
-    return header.parent_session_id is None
+    return entry.data["execution_session_id"] == header.session_id
 
 
 def pending_run_entry(snapshot):

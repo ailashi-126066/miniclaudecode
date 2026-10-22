@@ -235,7 +235,11 @@ async def test_saved_input_without_first_checkpoint_is_not_automatically_schedul
     store = await compose_application(config).session_repository().open("s1", create=True)
     await store.append_message(Message("u1", "user", "unstarted task"))
     await store.append_entry(
-        EntryDraft("custom", data={"kind": "run_start", "input_id": "u1"}, run_id="unstarted-run")
+        EntryDraft(
+            "custom",
+            data={"kind": "run_start", "input_id": "u1", "execution_session_id": "s1"},
+            run_id="unstarted-run",
+        )
     )
     await store.aclose()
     with protocol_server([chat_completion()]) as (url, received):
@@ -332,3 +336,7 @@ async def test_independent_sessions_can_execute_concurrently_with_shared_request
         finally:
             for session in sessions:
                 await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -1,6 +1,15 @@
 """Local team policies, capabilities and services; concrete adapters stay private."""
 
-from pycode.team.domain.team import (
+from pycode.team.api import AgentTeam, TeamMember
+from pycode.team.contracts import (
+    ChildSession,
+    ChildSessions,
+    Worktrees,
+    WorktreeSnapshot,
+    WorktreeSnapshotFactory,
+)
+from pycode.team.tasks import TeamManager
+from pycode.team.types import (
     ACTIVE_AGENT_STATES,
     AGENT_STATES,
     TASK_STATES,
@@ -14,15 +23,6 @@ from pycode.team.domain.team import (
     valid_record,
     validate_dependencies,
 )
-from pycode.team.ports.team import (
-    ChildSession,
-    ChildSessions,
-    Worktrees,
-    WorktreeSnapshot,
-    WorktreeSnapshotFactory,
-)
-from pycode.team.services.team import AgentTeam, TeamMember
-from pycode.team.services.team_tasks import TeamManager
 
 __all__ = [
     "ACTIVE_AGENT_STATES",

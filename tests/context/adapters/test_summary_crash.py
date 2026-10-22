@@ -79,3 +79,7 @@ async def test_real_summary_process_death_uses_completed_object_or_regenerates_l
                 for record in attempts
             )
         await records.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

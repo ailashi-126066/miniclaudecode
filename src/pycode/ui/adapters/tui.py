@@ -25,7 +25,6 @@ from pycode.ui.adapters.approval import ApprovalPanel
 from pycode.ui.adapters.chat_input import ChatInput
 from pycode.ui.adapters.commands import CommandRegistry
 from pycode.ui.adapters.completion import CompletionPopup
-from pycode.ui.adapters.mcp import MCPElicitationPanel
 from pycode.ui.adapters.memory import MemoryPanel
 from pycode.ui.adapters.model_picker import ModelPicker
 from pycode.ui.adapters.plans import PlanPanel
@@ -303,7 +302,9 @@ class PyApp(App):
             self._live_thinking += event.data["text"]
             if self._live_thinking_widget is not None:
                 self._live_thinking_widget.display = True
-                self._live_thinking_widget.update("思考中：\n" + thinking_preview(self._live_thinking))
+                self._live_thinking_widget.update(
+                    "思考中：\n" + thinking_preview(self._live_thinking)
+                )
             self.follow_conversation()
         elif event.kind == "message_end":
             if event.data.get("role") == "assistant":
@@ -534,8 +535,6 @@ class PyApp(App):
                 await self.query_one("#pending", Vertical).mount(PlanPanel(payload))
             elif payload["kind"] == "ask_user":
                 await self.query_one("#pending", Vertical).mount(QuestionPanel(payload))
-            elif payload["kind"] == "mcp_elicitation":
-                await self.query_one("#pending", Vertical).mount(MCPElicitationPanel(payload))
             else:
                 self.notice(
                     "Pending operation review; use /resume or explicit reconciliation", "warning"
@@ -561,7 +560,11 @@ class PyApp(App):
         self.query_one("#chat-input", ChatInput).update_completion()
         selected = self.view_state["context"]["selection"]
         label = "模型：" + selected["model_id"] if selected else "模型：等待首轮请求"
-        pieces = [plan_status(self.view_state.get("plan")), label, context_text(self.view_state["context_usage"])]
+        pieces = [
+            plan_status(self.view_state.get("plan")),
+            label,
+            context_text(self.view_state["context_usage"]),
+        ]
         self.query_one("#status", Static).update(" · ".join(piece for piece in pieces if piece))
         if not pending and not self.query_one("#chat-input", ChatInput).disabled:
             self.query_one("#chat-input", ChatInput).focus()
@@ -680,11 +683,6 @@ class PyApp(App):
         self.start_operation(self.active_session.resume, answer)
 
     def on_plan_panel_responded(self, event):
-        self.respond(event.answer)
-
-    def on_mcpelicitation_panel_responded(self, event):
-        event.stop()
-        self.query_one("#mcp-elicitation-inline", MCPElicitationPanel).disabled = True
         self.respond(event.answer)
 
     def on_question_panel_responded(self, event):
@@ -869,17 +867,33 @@ class PyApp(App):
     async def command_skills(self, args):
         self.start_operation(self.search_skills, " ".join(args))
 
-    async def command_hooks(self, args):
-        if len(args) < 2 or args[1] not in {"result", "retry", "abandon"}:
-            return False
-        self.start_operation(
-            self.active_session.reconcile_hook, args[0], args[1], " ".join(args[2:])
-        )
-
     async def command_skill(self, args):
-        if len(args) != 2 or args[0] != "install":
+        if len(args) == 2 and args[0] == "install":
+            self.start_operation(self.install_skill, args[1])
+        elif len(args) >= 3 and args[0] == "create":
+            self.start_operation(self.create_skill, args[1], " ".join(args[2:]))
+        elif len(args) == 2 and args[0] == "read":
+            self.start_operation(self.read_skill, args[1])
+        else:
             return False
-        self.start_operation(self.install_skill, args[1])
+
+    async def create_skill(self, name, description):
+        content = (
+            "---\nname: "
+            + json_dumps(name, ensure_ascii=False)
+            + "\ndescription: "
+            + json_dumps(description, ensure_ascii=False)
+            + "\n---\n\n"
+            + description
+            + "\n"
+        )
+        report = await self.active_session.save_skill(name, content)
+        self.notice("Skill 已创建：" + report["path"])
+        await self.refresh_state()
+
+    async def read_skill(self, name):
+        document = await self.active_session.read_skill(name)
+        self.notice(document.raw + "\nRevision: " + document.entry.content_hash)
 
     async def command_load_skill(self, name, arguments):
         self.start_operation(self.load_skill, name, arguments)

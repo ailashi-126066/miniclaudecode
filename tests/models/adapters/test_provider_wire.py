@@ -2,6 +2,7 @@ from dataclasses import replace
 
 import pytest
 
+from pycode.app.api import RunOptions, SessionResources
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -40,13 +41,8 @@ async def test_unfinished_stream_retries_before_executing_partial_calls(tmp_path
         container = await compose_application(
             AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
         ).runtime(
-            provider,
-            session_id="s1",
-            run_id="r1",
-            journal=journal,
-            tools=(tool,),
-            consumers=(),
-            retry_policy=RetryPolicy(base_delay=0),
+            SessionResources(session_id="s1", journal=journal, tools=(tool,), consumers=()),
+            RunOptions(provider=provider, run_id="r1", retry_policy=RetryPolicy(base_delay=0)),
         )
         try:
             result = await container.runtime.run(
@@ -102,12 +98,10 @@ async def test_public_provider_sdk_tool_loop_over_real_http(tmp_path, monkeypatc
         container = await compose_application(
             AppConfig(tmp_path, tmp_path / "user-data", memory_mode="off")
         ).runtime(
-            provider,
-            session_id="wire-session",
-            run_id="wire-run",
-            journal=journal,
-            tools=(tool,),
-            consumers=(recorder,),
+            SessionResources(
+                session_id="wire-session", journal=journal, tools=(tool,), consumers=(recorder,)
+            ),
+            RunOptions(provider=provider, run_id="wire-run"),
         )
         try:
             result = await container.runtime.run(
@@ -174,13 +168,8 @@ async def test_actual_sdk_http_error_retry_counts_are_owned_by_runtime(
         container = await compose_application(
             AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
         ).runtime(
-            provider,
-            session_id="s1",
-            run_id="r1",
-            journal=Journal(),
-            tools=(),
-            consumers=(recorder,),
-            retry_policy=RetryPolicy(base_delay=0),
+            SessionResources(session_id="s1", journal=Journal(), tools=(), consumers=(recorder,)),
+            RunOptions(provider=provider, run_id="r1", retry_policy=RetryPolicy(base_delay=0)),
         )
         try:
             result = await container.runtime.run(
@@ -195,3 +184,7 @@ async def test_actual_sdk_http_error_retry_counts_are_owned_by_runtime(
             assert "fake-wire-key" not in repr(recorder.events)
         finally:
             await container.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

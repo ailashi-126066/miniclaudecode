@@ -29,8 +29,6 @@ async def execute_tool_errors(call, spec, action):
         nonlocal failure
         if not isinstance(error, (ToolError, OSError)):
             return None
-        if isinstance(error, ToolError) and error.code == "hook_failed":
-            return None
         failure = tool_failure(error, call, executed=True, uncertain=spec.category != "read")
         return json_dumps(
             {"error_code": failure.error_code, "message": failure.text}, ensure_ascii=False

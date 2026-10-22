@@ -15,7 +15,7 @@ from tests.support.http_provider import chat_completion, protocol_server
 
 def instruction_paths(config):
     application = compose_application(config)
-    paths, _ = application.modules.context.instructions(
+    paths, _ = application._modules.context.instructions(
         config.workspace, config.user_data, trusted=config.project_trusted
     )
     return paths
@@ -110,3 +110,7 @@ def test_project_agents_md_cannot_escape_through_a_symlink(tmp_path):
     with pytest.raises(StorageError) as error:
         instruction_paths(AppConfig(workspace, tmp_path / "data", project_trusted=True))
     assert error.value.code == "instructions_outside_workspace"
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

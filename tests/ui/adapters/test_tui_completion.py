@@ -62,7 +62,8 @@ async def test_registered_commands_and_live_skills_share_dispatch_and_completion
             entry.clear()
             await app.command("/unknown")
             assert app.query_one("#notice", Static).has_class("warning")
-            assert "/memory" in str(app.query_one("#notice", Static).render())
+            assert "输入 /" in str(app.query_one("#notice", Static).render())
+            assert "/memory" in {spec.name for spec in COMMANDS}
             await app.command("/session malformed")
             assert app.session_id == session_id
             with pytest.raises(StorageError, match="No closing quotation"):
@@ -106,3 +107,7 @@ async def test_invalid_no_argument_command_does_not_invoke_handler(name, monkeyp
     monkeypatch.setattr(app, "notice", lambda *args: calls.append(args))
     await app.command(name + " unexpected")
     assert len(calls) == 1 and calls[0][1] == "warning"
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

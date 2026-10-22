@@ -80,8 +80,6 @@ class MemoryService:
     async def initialize(self):
         if self.mode is None:
             self.mode = await self.store.get_mode(self.user_namespace)
-            if self.mode == "review":
-                self.mode = "auto"
         if self.mode not in {"auto", "off"}:
             raise StorageError("invalid_memory_mode", "Choose auto or off")
 

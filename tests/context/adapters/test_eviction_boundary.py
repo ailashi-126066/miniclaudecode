@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from pycode.app.composition.bindings import build_agent_runtime
@@ -75,3 +76,7 @@ async def test_next_framework_request_uses_persistent_evictions_not_original_gra
     ]
     assert len(original) == 6 and all(len(text) == 50000 for text in original)
     await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

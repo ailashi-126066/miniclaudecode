@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.skills.adapters.test_skills_http import skill_reply
@@ -54,3 +56,7 @@ async def test_tui_skill_arguments_reload_and_new_session_do_not_leak_activation
                 "Updated $ARGUMENTS" in str(item["content"])
                 for item in requests[-1]["body"]["messages"]
             )
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

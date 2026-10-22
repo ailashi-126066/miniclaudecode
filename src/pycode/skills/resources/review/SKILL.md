@@ -6,8 +6,7 @@ allowedTools:
   - Read
   - Grep
   - Glob
-mode: fork
-context: none
+mode: inline
 ---
 
 # 任务

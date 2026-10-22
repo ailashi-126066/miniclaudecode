@@ -165,3 +165,7 @@ async def test_cancelling_backoff_leaves_no_phantom_next_attempt():
         await running
     assert model.call_index == 1
     assert len(await store.list_requests()) == 1
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

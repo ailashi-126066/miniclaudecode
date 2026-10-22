@@ -3,6 +3,8 @@ import json
 import threading
 from dataclasses import replace
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.context.adapters.summary import SUMMARY_SYSTEM
@@ -319,3 +321,7 @@ async def test_default_auto_memory_does_not_hide_capacity_or_interrupt_backgroun
                 pending.cancel()
                 await asyncio.gather(pending, return_exceptions=True)
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

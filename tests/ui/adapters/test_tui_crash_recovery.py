@@ -88,3 +88,7 @@ async def test_actual_process_exit_after_revert_branch_is_recovered_by_tui_contr
             await app.send_text("continue after recovery")
             await settled(app)
             assert app.state["pending_run_id"] is None and len(requests) == 3
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

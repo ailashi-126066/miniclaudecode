@@ -173,3 +173,7 @@ async def test_worker_review_merge_requires_live_user_approval_then_cleans_workt
             assert not Path(session._team.records[identifier]["workspace"]).exists()  # noqa: ASYNC240
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

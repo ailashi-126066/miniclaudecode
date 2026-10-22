@@ -34,6 +34,13 @@ async def test_fixed_model_three_task_smoke_is_real_local_protocol_control(
             continue
         canonical = cache / task.source_path / ".meta/example.py"
         solution = await asyncio.to_thread(canonical.read_text, encoding="utf-8")
+        replies.append(
+            skill_reply(
+                "ToolSearch",
+                {"query": "read_file write_file Bash", "limit": 3},
+                task.task_id + "-search",
+            )
+        )
         filename = "/workspace/" + task.solution_files[0]
         replies.append(skill_reply("read_file", {"file_path": filename}, task.task_id + "-read"))
         replies.append(
@@ -71,14 +78,14 @@ async def test_fixed_model_three_task_smoke_is_real_local_protocol_control(
             else None,
         )
         results = await runner.run(smoke=True, cleanup=True)
-        expected_requests = 12 if verify else 9
+        expected_requests = 15 if verify else 12
         expected_outcome = "passed" if verify else "no_verification"
         assert len(results) == 3 and len(requests) == expected_requests
         for result in results:
             assert result["baseline"]["exit_code"] != 0
             assert result["outcome"] == expected_outcome, result["independent_tests"]
             assert result["independent_tests"]["exit_code"] == 0
-            assert result["agent"]["usage"]["session"]["request_count"] == (4 if verify else 3)
+            assert result["agent"]["usage"]["session"]["request_count"] == (5 if verify else 4)
             assert result["agent"]["verified"] is verify
             assert result["source_sha256"]
             assert result["independent_tests"]["junit"]["tests"] > 0

@@ -28,6 +28,17 @@ def read_json(path):
         raise DomainError("invalid_json_file", "Cannot read UTF-8 JSON file") from error
 
 
+def read_skill_source(path):
+    try:
+        with Path(path).expanduser().open("rb") as source:
+            data = source.read(256 * 1024 + 1)
+        if len(data) > 256 * 1024:
+            raise ValueError("Skill exceeds 256 KiB")
+        return data.decode("utf-8-sig")
+    except (OSError, UnicodeError, ValueError) as error:
+        raise DomainError("invalid_skill_file", "Cannot read bounded UTF-8 Skill file") from error
+
+
 def read_plan(path):
     try:
         data = json_dumps(read_json(path), allow_nan=False)
@@ -195,6 +206,16 @@ async def execute_skill(args, session, output):
             value = await session.reload_skills()
         elif args.skill_command == "install":
             value = await session.install_skill(args.url, args.ref, args.subpath)
+        elif args.skill_command == "read":
+            value = plain_data(await session.read_skill(args.name))
+        elif args.skill_command in {"create", "update"}:
+            content = await asyncio.to_thread(read_skill_source, args.file)
+            value = await session.save_skill(
+                args.name,
+                content,
+                scope=args.scope,
+                expected_revision=getattr(args, "revision", None),
+            )
         else:
             value = await session.skill_search(args.query, args.limit)
         output.value(value)
@@ -222,12 +243,6 @@ async def execute_memory(args, session, output):
     else:
         value = await session.memory_extract()
     output.value(value)
-    return 0
-
-
-async def execute_hooks(args, session, output):
-    await session.reconcile_hook(args.operation_id, args.action, args.text, args.is_error)
-    output.value({"operation_id": args.operation_id, "action": args.action, "reviewed": True})
     return 0
 
 
@@ -340,5 +355,4 @@ _EXECUTION_COMMANDS = {
     "revert": revert_command,
     "skill": execute_skill,
     "memory": execute_memory,
-    "hooks": execute_hooks,
 }

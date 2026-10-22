@@ -17,7 +17,7 @@ class AgentModule:
         to_framework,
         from_assistant,
         make_framework_tool,
-        select_model_tools,
+        disclose_model_tools,
         calibrate_model_request,
         model_request_step,
         settlement_middleware_factory,
@@ -25,13 +25,12 @@ class AgentModule:
         framework_extensions=(),
         model_filters=(),
         before_model=(),
-        question_extensions=(),
     ) -> RuntimeBindings:
         return RuntimeBindings(
             to_framework=to_framework,
             from_assistant=from_assistant,
             make_framework_tool=make_framework_tool,
-            select_model_tools=select_model_tools,
+            disclose_model_tools=disclose_model_tools,
             calibrate_model_request=calibrate_model_request,
             model_request_step=model_request_step,
             settlement_middleware_factory=settlement_middleware_factory,
@@ -39,7 +38,6 @@ class AgentModule:
             framework_extensions=tuple(framework_extensions),
             model_filters=tuple(model_filters),
             before_model=tuple(before_model),
-            question_extensions=tuple(question_extensions),
         )
 
     def publisher(self, context) -> AgentMessagePublisher:
@@ -47,7 +45,3 @@ class AgentModule:
 
     def checkpoint(self) -> InMemorySaver:
         return InMemorySaver()
-
-    @staticmethod
-    def selector_required_names() -> tuple[str, ...]:
-        return ("ls", "read_file", "glob", "grep")

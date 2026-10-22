@@ -9,6 +9,7 @@ from deepagents.backends.protocol import BackendProtocol
 from langchain_core.messages import BaseMessage
 
 from pycode.kernel import (
+    ArgumentValidator,
     EventSink,
     ExecutableTool,
     HistoryJournal,
@@ -24,6 +25,7 @@ from pycode.snapshot import SnapshotStore
 from pycode.tools.adapters.artifacts_backend import ToolArtifactsBackend
 from pycode.tools.adapters.ask_user import AskUserQuestion
 from pycode.tools.adapters.backend import PycodeBackend
+from pycode.tools.adapters.discovery import ToolDiscovery
 from pycode.tools.adapters.framework_tool import make_framework_tool
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from pycode.tools.adapters.permissions import InterruptToolGate, TeamToolGate
@@ -37,7 +39,7 @@ from pycode.tools.ports.hooks import ToolHooks
 from pycode.tools.ports.outputs import SessionHeaderReader, ToolOutputStore
 from pycode.tools.ports.publication import MessagePublisher, ToolLifecycle
 from pycode.tools.ports.questions import QuestionPrompt
-from pycode.tools.ports.tools import ArgumentValidator, ToolGate
+from pycode.tools.ports.tools import ToolGate
 from pycode.tools.services.hook_gate import ConfiguredActionGate
 from pycode.tools.services.permissions import (
     MemoryToolGate,
@@ -61,6 +63,7 @@ class _ScopedGate:
 
 
 class ToolsModule:
+    discovery = staticmethod(ToolDiscovery)
     framework_tool = staticmethod(make_framework_tool)
     execute_tool_errors = staticmethod(execute_tool_errors)
 
@@ -107,16 +110,19 @@ class ToolsModule:
         return ToolArtifactsBackend(outputs, history)
 
     @staticmethod
-    def composite(routes: Mapping[str, BackendProtocol]) -> CompositeBackend:
-        return CompositeBackend(default=StateBackend(), routes=dict(routes))
+    def composite(routes: Mapping[str, object]) -> CompositeBackend:
+        # Assembly carries opaque SDK handles. Validate them here, where the
+        # framework types belong, rather than importing the SDK into app inputs.
+        backends: dict[str, BackendProtocol] = {}
+        for prefix, backend in routes.items():
+            if not isinstance(backend, BackendProtocol):
+                raise TypeError(f"Invalid framework backend for route {prefix}")
+            backends[prefix] = backend
+        return CompositeBackend(default=StateBackend(), routes=backends)
 
     @staticmethod
     def question_prompt() -> QuestionPrompt:
         return InterruptQuestionPrompt()
-
-    @staticmethod
-    def selector_required_names() -> tuple[str, ...]:
-        return (ReadToolResult.spec.name, AskUserQuestion.spec.name)
 
     @staticmethod
     def default_tools(

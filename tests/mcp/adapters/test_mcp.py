@@ -25,7 +25,6 @@ async def mcp_config(config, *, mode="direct", trusted=True):
                         "srv": {
                             "command": sys.executable,
                             "args": [str(SERVER)],
-                            "loading": mode,
                             "trusted": trusted,
                         }
                     }
@@ -44,29 +43,32 @@ async def test_real_mcp_tool_through_native_sdk_model_and_shared_executor(
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     await mcp_config(config, mode=mode)
-    name = "mcp__srv__echo" if mode == "direct" else "MCPCall"
-    args = (
-        {"value": "wire"}
-        if mode == "direct"
-        else {"server": "srv", "tool": "echo", "arguments": {"value": "wire"}}
-    )
-    with protocol_server([skill_reply(name, args, "call"), chat_completion()]) as (url, requests):
+    name = "mcp__srv__echo"
+    args = {"value": "wire"}
+    with protocol_server(
+        [
+            skill_reply("ToolSearch", {"query": name}, "search"),
+            skill_reply(name, args, "call"),
+            chat_completion(),
+        ]
+    ) as (url, requests):
         session = await compose_application(config, (provider(url),)).open_session(
             "s1", create=True, refresh_models=False
         )
         try:
             result = await session.run(Message("u1", "user", "call MCP"))
-            assert result.outcome == "completed" and len(requests) == 2
+            assert result.outcome == "completed" and len(requests) == 3
             specs = {item["function"]["name"] for item in requests[0]["body"]["tools"]}
-            assert ("mcp__srv__echo" in specs) == (mode == "direct")
+            assert specs == {"ToolSearch"}
+            assert "mcp__srv__echo" in {t["function"]["name"] for t in requests[1]["body"]["tools"]}
             state = await session.inspect()
             outputs = [
                 entry["message"]["tool_result"]
                 for entry in state["snapshot"]["entries"]
                 if entry["message"] and entry["message"]["role"] == "tool"
             ]
-            assert len(outputs) == 1 and outputs[0]["text"] == "echo:wire"
-            assert outputs[0]["name"] == name and outputs[0]["output_id"]
+            assert len(outputs) == 2 and outputs[-1]["text"] == "echo:wire"
+            assert outputs[-1]["name"] == name and outputs[-1]["output_id"]
             report = state["context_usage"]
             assert report["source"] == "provider_usage" and report["tokens"] == 25
         finally:
@@ -84,10 +86,14 @@ async def test_dispatch_default_side_effect_approval_reopens_and_executes_once(
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     await mcp_config(config, mode="dispatch")
-    reply = skill_reply(
-        "MCPCall", {"server": "srv", "tool": "mutate", "arguments": {"value": "once"}}, "call"
-    )
-    with protocol_server([reply, chat_completion()]) as (url, requests):
+    reply = skill_reply("mcp__srv__mutate", {"value": "once"}, "call")
+    with protocol_server(
+        [
+            skill_reply("ToolSearch", {"query": "mcp__srv__mutate"}, "search"),
+            reply,
+            chat_completion(),
+        ]
+    ) as (url, requests):
         configured = provider(url)
         session = await compose_application(config, (configured,)).open_session(
             "s1", create=True, refresh_models=False
@@ -100,7 +106,7 @@ async def test_dispatch_default_side_effect_approval_reopens_and_executes_once(
             done = await session.resume(
                 {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
             )
-            assert done.outcome == "completed" and len(requests) == 2
+            assert done.outcome == "completed" and len(requests) == 3
             assert (tmp_path / "effects.txt").read_text().splitlines() == ["once"]
         finally:
             await session.aclose()

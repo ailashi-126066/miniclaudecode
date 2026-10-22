@@ -121,3 +121,7 @@ async def test_tui_manual_compaction_and_next_input_use_preserved_native_source(
                 entry["message"] and entry["message"]["id"] == "u0"
                 for entry in app.state["snapshot"]["entries"]
             )
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

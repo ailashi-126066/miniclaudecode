@@ -1,3 +1,5 @@
+> 本文保留固定上游来源与原始迁移记录。下面的阶段映射包含已删除能力，不代表当前接口。当前工具发现与装配见 [统一 ToolSearch](design/tool-discovery.md) 和 [组件精简](design/component-simplification.md)。
+
 # 源码来源与复用记录
 
 唯一实施规范：项目根目录 `第二个计划.md`。原开发目录为

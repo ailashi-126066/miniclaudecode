@@ -3,6 +3,7 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
 from tests.support.execution import provider
 
 from pycode.app.bootstrap import compose_application
@@ -116,7 +117,11 @@ async def test_memory_model_factory_disables_request_retries(tmp_path, monkeypat
         return None
 
     application = compose_application(AppConfig(tmp_path, tmp_path / "data"))
-    monkeypatch.setattr(application.modules.models, "owner", factory)
+    monkeypatch.setattr(application._modules.models, "owner", factory)
     updater = application.memory_updater(provider("http://127.0.0.1:9"))
     await updater.model_factory(updater.provider, "s", "r", "memory_extract")
     assert len(policies) == 1 and policies[0].max_retries == 0
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

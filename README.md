@@ -5,9 +5,10 @@
 
 ## 源码与功能导读
 
-[功能与调用链手册](docs/interview/README.md)沿“修复文件并运行测试”带读各模块：为什么调用、传入什么、做完交给谁，再回看框架用法与统一组装入口。
-[离线网页](docs/interview/index.html)先显示每步导读，按需原地展开完整函数和辅助方法；另有[源码浏览器](docs/interview/source.html)。
-生成与核对方法见[文档工具说明](docs/interview/tools/README.md)。阅读网页不需要模型凭据或启动业务服务。
+当前结构见 [组件精简说明](docs/design/component-simplification.md)。
+从各模块的 README.md 和 api.py 开始：Skills、MCP、Hooks、Team 已按职责平铺。
+[原调用链手册](docs/interview/README.md)和离线网页是精简前的教学记录，部分节点已移除，
+不作为当前接口或运行行为的依据。
 
 ## 安装
 
@@ -71,7 +72,7 @@ PowerShell 中用 `Copy-Item` 复制示例，用 `$env:DEEPSEEK_API_KEY = '自�
 | 查看团队/取消成员 | TUI `/agents`、`/agents cancel AGENT_ID` |
 | 压缩上下文 | TUI `/compact` |
 | 文件与对话回退 | TUI `/revert ENTRY_ID both`，先预览后确认 |
-| 安装 Skill | TUI `/skill install URL` |
+| Skill | TUI `/skill create NAME DESCRIPTION`、`/skill read NAME`、`/skill install URL` |
 | 存储清理预览 | `storage gc --dry-run` |
 
 非交互 CLI 需要审批时输出 `needs_input` 并退出 2；审批要在同一进程的 TUI 中回答。
@@ -112,9 +113,9 @@ python -m pytest -q
 请先检查 Provider 和输出额度。macOS 沙箱实测使用 `scripts/verify_seatbelt.py`，
 发行安装验收使用 `scripts/verify_release.py`。本项目不配置 GitHub Actions/CI。
 
-设计见 [第二个计划.md](第二个计划.md)，数据格式见 [存储格式](docs/storage-format.md)，
+设计见 [第二个计划.md](计划/第二个计划.md)，数据格式见 [存储格式](docs/storage-format.md)，
 源码边界与端口实现见 [架构](docs/architecture.md)，阶段进度及验收见
-[五阶段改造计划.md](五阶段改造计划.md)。历史日志保存在 `archive/`，不作为运行时或验证依据。
+[五阶段改造计划.md](计划/五阶段改造计划.md)。历史日志保存在 `archive/`，不作为运行时或验证依据。
 
 
 ## 从代码入口阅读
@@ -124,3 +125,23 @@ python -m pytest -q
 说明其输入、产物与资源寿命；`skills` 和 `mcp` 可分别替换或设为 `None` 禁用。
 `kernel` 只保留 `domain / ports / services / adapters` 四层，不混放功能实现。
 完整装配约定见 [模块装配设计](docs/design/module-assembly.md)。
+
+## 精简后的扩展
+
+Skill 正文和附属文件由框架读取，脚本通过 Bash 执行；不再自动注册 Python 函数。
+CLI 支持 `skill create NAME --file SKILL.md`、`skill read NAME` 和
+`skill update NAME --file SKILL.md --revision SHA256`。下载仍使用 `skill install URL`。
+Skill fork、agent/background Hook 及 MCP resources/prompts/elicitation 已移除。
+Hooks 保留同步 command/prompt；MCP 保留 stdio/HTTP 工具，本地与远端统一使用 ToolSearch，删除 MCPCall。
+Team 邮箱、worktree 和合并不变。旧配置使用已移除模式时明确报错。
+
+## 当前执行与数据策略
+
+主模型失败后只按既有策略重试同一模型，不自动切换备用模型；`fallback_models` 配置已移除，
+保留 `/model` 等手动选择。Hooks 只保留同步提醒、检查和拦截，`hooks`/`/hooks` 核对命令已删除。
+检查失败会记录并返回给 Agent；前置检查失败阻止对应工具。中断的旧操作不会自动重放。
+
+只读取当前定义的存储格式：旧会话 v0、旧记忆迁移字段/旧模式和旧请求候选模型字段会明确报错，
+不自动转换，也不删除或重写原文件。当前格式的半行写入恢复、分支恢复和执行记录保留。
+
+工具发现：本地与 MCP 统一通过 ToolSearch。模型先看分类名称和一句话用途，再按需加载完整定义；无额外模型工具选择器。参见 [工具发现设计](docs/design/tool-discovery.md)。

@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.hooks.adapters.test_hooks import hook_file
@@ -47,3 +49,7 @@ async def test_tui_hook_rejects_tool_and_app_lifecycle_uses_same_event_source(
             assert not (tmp_path / "parent.txt").exists() and len(requests) == 2
             assert any(entry["type"] == "hook_result" for entry in app.state["snapshot"]["entries"])
         assert (tmp_path / "closed.txt").read_text() == "closed"
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

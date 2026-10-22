@@ -72,7 +72,6 @@ class ApplicationModules:
                 config.user_data,
                 trusted=config.project_trusted,
                 worker=config.agent_id != "lead",
-                allow_delegation=config.allow_delegation,
             ),
             plans=self.plans.scoped(config.workspace / ".pycode/plans"),
             memory=self.memory.scoped(
@@ -113,10 +112,7 @@ def default_modules(config: AppConfig) -> ApplicationModules:
     )
     plans = PlansModule(config.workspace / ".pycode/plans", backend_factory=tools.backend)
     skills = SkillsModule(
-        schema=tools.validator(),
-        process_runner=sandbox.process_runner,
         backend_factory=tools.backend,
-        skill_read_grant=sandbox.skill_read_grant,
     )
     return ApplicationModules(
         sandbox=sandbox,
@@ -132,7 +128,6 @@ def default_modules(config: AppConfig) -> ApplicationModules:
             config.user_data,
             trusted=config.project_trusted,
             worker=config.agent_id != "lead",
-            allow_delegation=config.allow_delegation,
         ),
         plans=plans,
         sessions=sessions,

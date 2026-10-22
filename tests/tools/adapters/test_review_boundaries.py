@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 
+import pytest
 from langchain_core.messages import AIMessage
 
 from pycode.app.bootstrap import compose_application
@@ -139,3 +140,7 @@ async def test_actual_tui_renderer_failure_must_not_close_app(tmp_path, monkeypa
             await app.wait_idle()
             await pilot.pause()
             assert not app._closed
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

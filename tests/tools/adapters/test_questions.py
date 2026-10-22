@@ -146,3 +146,7 @@ async def test_actual_process_death_expires_wait_and_preserves_confirmed_answer(
                 assert not results[0]["is_error"] and "language: Python" in results[0]["text"]
         finally:
             await restored.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

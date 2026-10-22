@@ -8,8 +8,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import BaseMessage
 
 from pycode.agent.services.context import RunContext
-from pycode.kernel import HistoryJournal, Message, ModelSelection
-from pycode.tools import ArgumentValidator
+from pycode.kernel import Message, ModelSelection
 
 
 class FrameworkExtension(Protocol):
@@ -24,19 +23,12 @@ class FrameworkExtension(Protocol):
     ) -> AgentMiddleware[Any, Any, Any]: ...
 
 
-class QuestionExtension(Protocol):
-    def validate(self, question: dict, answer: dict, validator: ArgumentValidator) -> bool: ...
-    async def prepare(
-        self, question: dict, history: HistoryJournal | None, run_id: str
-    ) -> dict: ...
-
-
 @dataclass(frozen=True)
 class RuntimeBindings:
     to_framework: Callable[[Message, ModelSelection], BaseMessage]
     from_assistant: Callable[..., Message]
     make_framework_tool: Callable[..., object]
-    select_model_tools: Callable[[object], Awaitable[object]]
+    disclose_model_tools: Callable[[object], Awaitable[object]]
     calibrate_model_request: Callable[[object], Awaitable[object]]
     model_request_step: Callable[..., object]
     # SDK middleware states differ (SkillsState versus ToolSettlementState).
@@ -48,4 +40,3 @@ class RuntimeBindings:
     framework_extensions: tuple[FrameworkExtension, ...] = ()
     model_filters: tuple[Callable[[object], Awaitable[object]], ...] = ()
     before_model: tuple[Callable[[], Awaitable[None]], ...] = ()
-    question_extensions: tuple[QuestionExtension, ...] = ()

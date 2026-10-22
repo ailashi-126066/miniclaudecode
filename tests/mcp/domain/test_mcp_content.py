@@ -1,4 +1,4 @@
-from pycode.mcp.domain.mcp import result_from_mcp
+from pycode.mcp.types import result_from_mcp
 
 
 def test_framework_mixed_mcp_blocks_preserve_text_media_and_call_identity():

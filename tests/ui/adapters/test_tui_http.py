@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from textual.widgets import Static
 
 from pycode.app.bootstrap import compose_application
@@ -116,3 +117,7 @@ async def test_tui_close_and_reopen_expires_interrupt_and_keeps_one_interrupted_
             await settled(restored)
             assert not (tmp_path / "saved.txt").exists()
             assert len(requests) == 2
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

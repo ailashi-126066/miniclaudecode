@@ -25,7 +25,7 @@ from pycode.kernel import (
     freeze_value,
 )
 from pycode.kernel.adapters.file_lease import FileLease
-from pycode.kernel.adapters.path_io import atomic_write
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 from pycode.session.adapters.storage.session_codec import (
     decode_entry,
     decode_header,
@@ -60,12 +60,8 @@ class JsonlSessionStore:
         async with self._lock:
             if self._closed:
                 raise StorageError("session_closed", "Session store is closed")
-            owned = asyncio.create_task(asyncio.to_thread(operation))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(operation)
             except (OSError, ValueError, TypeError, KeyError) as error:
                 raise StorageError(
                     "session_storage_error", "Session storage operation failed"
@@ -99,8 +95,6 @@ class JsonlSessionStore:
                     "session_identity_conflict",
                     "Stored session belongs to a different identity or workspace",
                 )
-            if json.loads(header_line)["schema_version"] == 0:
-                issues.append("schema_upgrade_pending")
             offset = source.tell()
             for line in source:
                 end = source.tell()
@@ -135,7 +129,14 @@ class JsonlSessionStore:
         revision = len(entries)
         if self._position.exists():
             position = json.loads(self._position.read_bytes())
-            if position["schema_version"] != 1 or position["session_id"] != header.session_id:
+            if (
+                not isinstance(position, dict)
+                or set(position)
+                != {"schema_version", "session_id", "leaf_id", "revision", "log_offset"}
+                or type(position["schema_version"]) is not int
+                or position["schema_version"] != 1
+                or position["session_id"] != header.session_id
+            ):
                 raise StorageError("invalid_session_position", "Session position is incompatible")
             leaf = position["leaf_id"]
             revision = position["revision"]
@@ -386,10 +387,7 @@ class JsonlSessionStore:
     def repair_log(self) -> None:
         if not self._persisted:
             return
-        needs_repair = any(
-            issue in self._issues
-            for issue in ("partial_tail", "missing_newline", "schema_upgrade_pending")
-        )
+        needs_repair = any(issue in self._issues for issue in ("partial_tail", "missing_newline"))
         if not needs_repair:
             return
         backup = self._directory / "recovery" / f"entries.{uuid4().hex}.jsonl"
@@ -399,11 +397,7 @@ class JsonlSessionStore:
         try:
             with self._log.open("rb") as source, temporary.open("wb") as output:
                 header_line = source.readline()
-                output.write(
-                    encode_header(self._header)
-                    if "schema_upgrade_pending" in self._issues
-                    else header_line
-                )
+                output.write(header_line)
                 remaining = self._offset - len(header_line)
                 while remaining:
                     data = source.read(min(remaining, 1024 * 1024))
@@ -422,9 +416,7 @@ class JsonlSessionStore:
             current = self._log.stat()
             self._fingerprint = (current.st_mtime_ns, current.st_size)
             self._issues = [
-                issue
-                for issue in self._issues
-                if issue not in {"partial_tail", "missing_newline", "schema_upgrade_pending"}
+                issue for issue in self._issues if issue not in {"partial_tail", "missing_newline"}
             ]
         finally:
             temporary.unlink(missing_ok=True)

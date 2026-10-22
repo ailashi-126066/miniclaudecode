@@ -150,3 +150,7 @@ def test_cli_model_selection_cannot_bypass_pending_application_state(
         )
     else:
         assert after == before
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -51,13 +51,12 @@ COMMANDS = (
     Command("/reload", "Refresh the skill catalog", "command_reload"),
     Command("/skills", "Search available skills", "command_skills", "[QUERY]", True),
     Command(
-        "/hooks",
-        "Reconcile a pending hook",
-        "command_hooks",
-        "ID result|retry|abandon [TEXT]",
+        "/skill",
+        "Create, read or install a skill",
+        "command_skill",
+        "install URL | create NAME DESCRIPTION | read NAME",
         True,
     ),
-    Command("/skill", "Install a skill", "command_skill", "install URL", True),
     Command("/branch", "Branch from an entry", "command_branch", "ENTRY|root", True),
     Command("/theme", "Switch color theme", "command_theme"),
     Command(

@@ -62,10 +62,24 @@ FORBIDDEN_IMPORTS = {
 EVAL_GENERATED = {"cache", "work", "results"}
 EVAL_ARCHIVED = {"memory_rules"}
 RANK = {"domain": 0, "ports": 1, "services": 2, "adapters": 3, "io": 3, "module": 4}
+FLAT_FEATURES = frozenset({"skills", "mcp", "hooks", "team"})
+FLAT_IO_MODULES = frozenset(
+    {
+        "catalog",
+        "install",
+        "framework",
+        "connection",
+        "config",
+        "actions",
+        "conditions",
+        "worktrees",
+    }
+)
 APP_PACKAGES = frozenset({"cli", "configuration", "composition", "lifecycle"})
 APP_DEPENDENCIES = {
-    "bootstrap": {"bootstrap", "configuration", "composition", "lifecycle"},
-    "cli": {"cli", "bootstrap", "configuration"},
+    "bootstrap": {"bootstrap", "api", "configuration", "composition", "lifecycle"},
+    "api": {"api", "configuration", "composition", "lifecycle"},
+    "cli": {"cli", "bootstrap", "api", "configuration"},
     "configuration": {"configuration"},
     "composition": {"composition", "configuration", "lifecycle"},
     "lifecycle": {"lifecycle", "configuration"},
@@ -87,14 +101,19 @@ def app_layout_errors(source_root: Path) -> list[str]:
                 continue
             if path.is_dir() and path.name not in APP_PACKAGES:
                 errors.append(f"app root has an unsupported package: {path.name}")
-            elif path.is_file() and path.name not in {"__init__.py", "bootstrap.py", "README.md"}:
+            elif path.is_file() and path.name not in {
+                "__init__.py",
+                "api.py",
+                "bootstrap.py",
+                "README.md",
+            }:
                 errors.append(
                     f"app root only permits bootstrap, package documentation and init: {path.name}"
                 )
     for path in sorted(app_root.rglob("*.py")):
         relative = path.relative_to(app_root)
         if len(relative.parts) == 1:
-            if relative.name not in {"__init__.py", "bootstrap.py"}:
+            if relative.name not in {"__init__.py", "api.py", "bootstrap.py"}:
                 errors.append(f"app root only permits __init__.py and bootstrap.py: {relative}")
         elif relative.parts[0] not in APP_PACKAGES:
             errors.append(
@@ -117,7 +136,7 @@ def app_import_errors(module: str, target: str, line: int) -> list[str]:
     if module.split(".")[0] in {"evals", "scripts"} and (
         target == "pycode.app" or dependency is not None
     ):
-        if dependency not in {"bootstrap", "configuration"}:
+        if dependency not in {"bootstrap", "api", "configuration"}:
             return [
                 f"{module}:{line}: application assembly requires app.bootstrap or configuration"
             ]
@@ -150,6 +169,8 @@ def layer_of(module: str | None) -> str | None:
     parts = module.split(".")
     if len(parts) < 3 or parts[1] == "app":
         return None
+    if parts[1] in FLAT_FEATURES and parts[2] in {"types", "contracts"}:
+        return "domain" if parts[2] == "types" else "ports"
     if parts[2] == "service":
         return "services"
     if parts[2] in RANK:
@@ -332,7 +353,12 @@ def dependency_errors(
         if top != "pycode":
             if target.startswith("pycode.app"):
                 origin = symbol_origin(target, symbol, sources, packages)
-                if origin is not None and origin != app_target:
+                public_input = (
+                    target == "pycode.app.api"
+                    and symbol in {"SessionResources", "RunOptions"}
+                    and origin == "pycode.app.composition.inputs"
+                )
+                if origin is not None and origin != app_target and not public_input:
                     errors.extend(app_import_errors(module, origin, node.lineno))
             continue
         other = feature_of(target)
@@ -393,7 +419,12 @@ def dependency_errors(
         # Shared OS infrastructure is explicit and only usable from implementation
         # or assembly boundaries; native contracts/services cannot acquire I/O.
         kernel_infrastructure = other == "kernel" and target.startswith("pycode.kernel.adapters.")
-        if kernel_infrastructure and (layer == "adapters" or composition or assembly):
+        flat_io = (
+            feature in FLAT_FEATURES
+            and len(module.split(".")) == 3
+            and module.split(".")[2] in FLAT_IO_MODULES
+        )
+        if kernel_infrastructure and (layer == "adapters" or composition or assembly or flat_io):
             continue
         if "adapters" in target.split(".") or (
             origin is not None and "adapters" in origin.split(".")
@@ -601,7 +632,11 @@ def check_port_implementations(root: Path = ROOT) -> list[str]:
     errors = []
     source_root = root / "src"
     for path in (source_root / "pycode").rglob("*.py"):
-        if "ports" not in path.parts and "contracts" not in path.parts:
+        if (
+            "ports" not in path.parts
+            and "contracts" not in path.parts
+            and path.name != "contracts.py"
+        ):
             continue
         module, _ = module_name(path.relative_to(source_root))
         for node in ast.parse(path.read_text()).body:

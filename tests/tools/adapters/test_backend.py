@@ -111,18 +111,6 @@ async def test_concurrent_edits_preserve_path_lock_and_version(tmp_path):
     assert (tmp_path / "main.txt").read_text() in {"first", "second"}
 
 
-@pytest.mark.parametrize("reserved", [".PYCODE", ".PyCoDe", ".GIT", ".GiT"])
-def test_reserved_state_aliases_are_blocked_on_all_platforms(tmp_path, reserved):
-    from pycode.kernel.domain.errors import ToolError
-    from pycode.skills.adapters.workspace_path import resolve_workspace_path
-
-    backend = PycodeBackend(tmp_path)
-    assert backend.write(f"/{reserved}/protected.txt", "forbidden").error is not None
-    assert not (tmp_path / reserved).exists()
-    with pytest.raises(ToolError):
-        resolve_workspace_path(tmp_path, f"{reserved}/protected.txt")
-
-
 @pytest.mark.requires_rg
 async def test_plan_delegate_scopes_rg_before_opening_other_plan_content(tmp_path):
     root = tmp_path / "plans"

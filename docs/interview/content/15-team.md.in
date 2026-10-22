@@ -127,7 +127,7 @@ readonly和worker是固定权限模式。“测试工程师”这样的role只�
 | worktree记录 | 基线、分支、审查内容和恢复标记 | 重启后知道代码在哪里，是否需人工处理 |
 | 仅在内存的任务表 | `tasks/drivers/sessions/wake_eligible` | 供当前进程等待和停止，不能让新进程自动续跑旧工作 |
 
-{{inline:src/pycode/team/domain/team.py:validate_dependencies}}
+{{inline:src/pycode/team/types.py:validate_dependencies}}
 
 
 ## 遇到异常时，程序怎么处理

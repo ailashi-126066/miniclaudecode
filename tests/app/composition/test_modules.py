@@ -8,6 +8,7 @@ import pytest
 from tests.support.execution import provider
 from tests.support.skill_loading import read_skill
 
+from pycode.app.api import RunOptions, SessionResources
 from pycode.app.bootstrap import compose_application, default_modules
 from pycode.app.composition.team import ConfiguredChildSessions
 from pycode.app.configuration.settings import AppConfig
@@ -160,7 +161,7 @@ async def test_public_runtime_with_history_keeps_active_skill_scope(tmp_path, mo
     runtime = None
     try:
         await history.append_message(Message("u", "user", "follow the Skill"))
-        skills = application.modules.skills.open_session(
+        skills = application._modules.skills.open_session(
             SkillsSettings(config.workspace, config.user_data),
             history,
             catalog_write_guard=SessionCatalogWriteGuard(),
@@ -169,12 +170,10 @@ async def test_public_runtime_with_history_keeps_active_skill_scope(tmp_path, mo
         await read_skill(history, skills.catalog, "locked")
         tool = Probe()
         runtime = await application.runtime(
-            configured,
-            session_id="scope",
-            run_id="r",
-            journal=history,
-            history_store=history,
-            tools=(tool,),
+            SessionResources(
+                session_id="scope", journal=history, history_store=history, tools=(tool,)
+            ),
+            RunOptions(provider=configured, run_id="r"),
         )
         result = await runtime.context.executor.execute(
             ToolContext("scope", "r", "probe", str(tmp_path)),
@@ -200,9 +199,6 @@ async def test_launcher_attempts_every_closer_after_an_earlier_failure(tmp_path)
             if self.fail:
                 raise RuntimeError(self.name)
 
-        async def collect(self, **options):
-            order.append("collect")
-
     launcher = ConfiguredRuntimeLauncher(
         configuration(tmp_path),
         (),
@@ -211,13 +207,12 @@ async def test_launcher_attempts_every_closer_after_an_earlier_failure(tmp_path)
         resource_owners=(Resource("first"), Resource("second", True)),
     )
     launcher._active_container = Resource("active", True)
-    launcher._hook_engines = [Resource("hook")]
     launcher.summary = Resource("summary", True)
     with pytest.raises(RuntimeError, match="active"):
         await launcher.aclose()
     with pytest.raises(RuntimeError, match="active"):
         await launcher.aclose()
-    assert order == ["active", "collect", "hook", "summary", "second", "first"]
+    assert order == ["active", "summary", "second", "first"]
 
 
 async def test_launcher_cancellation_waits_for_owned_cleanup(tmp_path):
@@ -288,3 +283,7 @@ async def test_output_factory_fails_before_request_database_is_opened(tmp_path, 
     with pytest.raises(RuntimeError, match="output construction failed"):
         await compose_application(config, modules=selected).open_view("view")
     assert opened == []
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -233,3 +233,7 @@ async def test_matching_failure_barrier_yields_all_permission_interrupts():
         }
     result = await asyncio.wait_for(runtime.resume(context, answers), 5)
     assert result.outcome == "completed" and tool.executed == 3
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

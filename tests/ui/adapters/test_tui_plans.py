@@ -1,5 +1,7 @@
 """Textual Pilot exercises the actual Plan interrupt and automatic execution."""
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.plans.adapters.test_plans import fix_plan_path, write_plan_reply
@@ -36,3 +38,7 @@ async def test_tui_plan_inline_review_drives_same_live_agent(tmp_path, monkeypat
             assert (tmp_path / "done.txt").read_text() == "implemented"
             assert len(requests) == 4 and not app.query("#plan-inline")
             assert app.state["plan"]["mode"] == "completed"
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

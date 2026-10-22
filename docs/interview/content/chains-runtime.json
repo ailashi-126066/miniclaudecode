@@ -342,129 +342,47 @@
       "成功、允许重试的失败与取消各有记录，不用最后结果覆盖旧尝试。"
     ]
   },
-  "03-models:fallback": {
-    "title": "主模型允许重试仍失败，再检查备用模型",
-    "input_label": "跟着parser.py修复过程读这一段",
-    "request": "await fallback.invoke(request, handler, logical_id=boundary)",
-    "intro": "主请求先走自己的Runner。只有指定的Provider故障才准备候选，并由官方备用中间件回调尝试方法；候选重新确认消息、工具和预算后，仍用自己的Runner发送。",
-    "why": "修parser.py时不能靠更换模型掩盖磁盘错误，也不能把不支持当前工具的候选直接付费调用。",
-    "nodes": [
-      {
-        "file": "src/pycode/models/adapters/model_fallback.py",
-        "name": "ModelFallback.invoke",
-        "purpose": "主请求失败后检查可切换故障并准备候选",
-        "notes": [
-          "return await self.primary.requests.invoke(...)：正常主请求直接返回。",
-          "primary_error.code not in ALLOWED_FAILURES：磁盘、声明、权限和编程错误不触发换模型。 owner = await self.owner_factory(provider, context, index)：候选owner按需创建并缓存。"
-        ],
-        "helpers": [
-          {
-            "file": "src/pycode/models/adapters/model_fallback.py",
-            "name": "ModelFallback.incompatibility",
-            "purpose": "切换前验证候选能承接当前上下文",
-            "notes": [
-              "provider.supports_tools 与当前请求tools：不把工具请求交给明确无工具能力的模型。",
-              "该函数返回跳过原因，由record写入候选审计，而不是先付费请求再猜兼容性。"
-            ],
-            "guide": "准备备用模型之前，父函数必须确认它能承接当前请求，所以把候选配置和已有请求交到这里。方法检查工具、推理、图片与专用工具等能力，返回不能使用的原因，兼容时返回空值。父函数据此记下跳过候选，避免先付费发送再发现说明不适用。"
-          },
-          {
-            "file": "src/pycode/models/adapters/model_fallback.py",
-            "name": "ModelFallback.record",
-            "purpose": "追加候选状态，不改旧模型历史",
-            "notes": [
-              "EntryDraft(\"custom\", data=data, ...) 与 \"kind\": \"model_candidate\"：记录index、状态和原因，与实际request记录分别归责。",
-              "context.history_store is not None：无持久化嵌入场景仍可运行，不制造伪历史。"
-            ],
-            "guide": "切换过程需要解释哪个候选被跳过、开始或完成，父函数因此传入候选位置、模型身份与原因。这里在有历史时追加候选说明，再发诊断通知。它不替代实际请求的开始和完成账本，而是让读者把模型切换决定与那些付费尝试对应起来。"
-          }
-        ],
-        "guide": "主模型自己的允许重试已经用完，且错误属于可切换类型，流程才会走到备用选择。这里检查候选能力并按需创建模型对象，再让官方备用中间件调用候选处理闭包。成功响应交回原请求流程；权限、存储或程序错误不会靠换模型被悄悄吞掉。"
-      },
-      {
-        "file": "src/pycode/models/adapters/model_fallback.py",
-        "name": "ModelFallback.invoke.attempt",
-        "purpose": "官方Fallback中间件调用的候选处理器",
-        "notes": [
-          "candidate = by_model.get(id(current.model))：框架先回调主模型时只重抛原错误，不重发已完成的主尝试。",
-          "current = await self.calibrator(current)：换Provider后重新校准工具、系统提示和预算。 raise StopFallback(error)：非允许错误立即打断后续候选。"
-        ],
-        "edge": "框架回调：ModelFallbackMiddleware.awrap_model_call调用attempt",
-        "guide": "官方备用中间件已经选到一个模型，会把当前请求回调到这里。闭包找到对应候选，重新设置选择身份、整理消息并校准，再交给候选自己的请求记录器。返回的完整响应继续原流程；遇到不能继续切换的错误，会明确终止而不是尝试下一个碰运气。"
-      },
-      {
-        "file": "src/pycode/models/adapters/model_requests.py",
-        "name": "ModelRequestRunner.invoke",
-        "purpose": "备用模型每次实际请求仍单独记账",
-        "notes": [
-          "self._invocation_lock：每个候选自己的Runner拥有观察状态。",
-          "candidate_index在Runner创建时注入，切换与重试两个维度均可从账本区分。"
-        ],
-        "edge": "直接委托：attempt调用candidate.requests.invoke",
-        "guide": "请求步骤已经交来消息和处理方法，这里先取得本组模型的调用锁。同一SDK观察器不能让两个内部请求同时覆盖当前请求身份和用量，拿锁后才进入实际请求流程。完成或失败结果向外返回后锁才释放，因此后续重试和计费都归属于正确的调用。"
-      }
-    ],
-    "result": [
-      "兼容候选成功后，响应交回同一逻辑请求。",
-      "关键错误直接传播；候选跳过、尝试与完成的说明可和实际账本对应。"
-    ]
-  },
   "03-models:selection": {
-    "title": "发请求前，最后确认这次模型能看见哪些工具",
+    "title": "按需加载完整工具定义后，校准真正发送的请求",
     "input_label": "跟着parser.py修复过程读这一段",
-    "request": "Agent的prepare_model_boundary：filter → selector → calibration",
+    "request": "权限过滤 → ToolSearch 目录与加载 → calibration",
     "intro": "工具说明已经加入当前请求，选择器可按配置缩小集合。随后Agent的下一步校准真实工具名单与大小；箭头表示两段相邻步骤，不是选择器内部直接调用校准。",
     "why": "关闭工具选择不应顺便关闭名单检查，目录中有实现也不能说明模型本次已看见它。",
     "nodes": [
       {
-        "file": "src/pycode/models/adapters/tool_selection.py",
-        "name": "ToolSelector.select",
-        "purpose": "工具过多或参数说明过大时，缩小本次工具名单",
+        "file": "src/pycode/tools/adapters/discovery.py",
+        "name": "ToolDiscovery.disclose",
+        "purpose": "提供分类简表和已加载定义",
+        "guide": "收到已通过权限和 Skill 范围过滤的候选工具后，生成名称及一句话用途。只有成功保存的 ToolSearch 结果能使对应完整定义进入后续模型请求；本地和 MCP 工具使用同一入口。",
         "notes": [
-          "self.required_tools() if callable(self.required_tools) else self.required_tools：必须保留的名称由组合根/模块动态提供，不把Skill/MCP名单硬编码在Models。",
-          "self.snapshots.get(boundary)：同一逻辑请求重试必须保持同一声明hash。 owner = await self.model_factory(...)：选择器请求也有独立owner并在finally关闭。"
-        ],
-        "helpers": [
-          {
-            "file": "src/pycode/models/adapters/tool_selection.py",
-            "name": "ToolSelector.apply",
-            "purpose": "保留被选名称及Provider原生字典工具",
-            "notes": [
-              "isinstance(tool, dict)：不把Provider原生web_search等声明当成可随便筛掉的普通工具。",
-              "name in names：返回裁剪后的request副本，不直接改registry权限。"
-            ],
-            "guide": "选择结果已经得到或同一轮正在重用旧结果，父函数才把名称集合和请求交到这里。它按名称留下普通工具，同时保留模型供应商自己的字典形式工具，返回新的请求。这个返回值随后用于校准真实输入，不会修改整个工具注册表或给未选工具授予执行权。"
-          }
-        ],
-        "guide": "这次模型前已经有一组可见工具，若数量或说明体积过大，调用方把请求交来缩小集合。方法保留必须名称，必要时调用独立选择模型，并为同一逻辑轮保存选择。返回的是修改后的请求副本，实际工具权限仍由后面执行器判断，选择结束也会关闭选择模型。"
+          "搜索由程序匹配名称和描述，不调用第二个模型。",
+          "工具定义发生变化后，旧加载记录失效。"
+        ]
+      },
+      {
+        "file": "src/pycode/tools/adapters/discovery.py",
+        "name": "ToolDiscovery.execute",
+        "purpose": "检索目录并返回完整定义",
+        "guide": "主模型按名称或关键词调用 ToolSearch。这里匹配当前允许的候选目录，返回有限数量的完整定义；不执行目标工具。结果保存后，下一轮 disclose 才提供可调用定义。",
+        "notes": [
+          "搜索无结果不会回退到全部工具。",
+          "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
+        ]
       },
       {
         "file": "src/pycode/models/adapters/calibration.py",
         "name": "calibrate_model_request",
-        "purpose": "记录这次模型能看到的工具，重算输入大小",
+        "purpose": "记录实际发送的定义及上下文体积",
+        "guide": "工具加载完成后，校准步骤记录最终模型工具名单及系统提示。执行层据此拒绝模型猜出的未加载工具，预算则包含分类目录和完整定义。",
         "notes": [
-          "context.selected_tool_names = tuple(spec.name for spec in actual_tools)：即使selector关闭也约束后续执行。",
-          "EntryDraft(\"tool_set_change\", ... source=\"effective_model\")：工具和系统提示hash发生变化时才追加快照。 summary.set_tools(actual_tools) 后 await summary.prepare()：动态披露也计入容量，必要时采用摘要。"
-        ],
-        "helpers": [
-          {
-            "file": "src/pycode/models/adapters/calibration.py",
-            "name": "model_tool_specs",
-            "purpose": "从最终SDK工具还原项目使用的工具说明",
-            "notes": [
-              "context.registry.get_spec(tool.name)：普通工具以已登记声明为准。",
-              "resource_lookup(tool.name)：动态资源经显式回调查询，不让Models读取Skill内部字段。 只有request.tools里的工具被遍历，未披露目录候选不会成为可执行声明。"
-            ],
-            "guide": "校准方法拿到的是SDK工具列表，还需要原来的类别与实现摘要，于是把工具和当前查询能力传到这里。方法先查已登记说明，动态资源则通过明确传入的方法取得，最后返回排序后的说明元组。它只遍历这次请求里的工具，目录候选不会因此获得执行资格。"
-          }
-        ],
-        "edge": "顺序步骤：Agent的LCEL在selector返回后执行",
-        "guide": "功能扩展和可选选择器已经处理完工具说明，下一步才把最终请求交到这里。它从实际工具建立执行名单，比较系统提示与工具内容是否改变，必要时追加说明快照并让摘要服务重算。返回仍是这次请求，确保发送预算与之后执行检查使用同一份名单。"
+          "目录中出现名字不授予执行权限。",
+          "此入口接收调用方已准备的依赖，不自行补建另一套模块。"
+        ]
       }
     ],
     "result": [
-      "返回这次最终请求，执行检查和Context容量计算使用同一份工具说明。",
-      "同一轮重试若说明改变就明确拒绝，不悄悄扩大可执行名称。"
+      "主模型先看简表，通过 ToolSearch 加载完整定义。",
+      "没有额外筛选模型、备用模型或失败后全量回退。"
     ]
   },
   "04-context:projection": {
@@ -1005,7 +923,7 @@
         "purpose": "有序过滤、选择与校准最终请求",
         "notes": [
           "for model_filter in bindings.model_filters：功能自己的限制以回调参与，不把名单写进Agent。",
-          "filter_model_tools | bindings.select_model_tools | bindings.calibrate_model_request：先限制可选集合，再压缩schema，再计算实际预算。"
+          "filter_model_tools | bindings.disclose_model_tools | bindings.calibrate_model_request：先限制候选集合，再按搜索记录加载定义，最后计算实际预算。"
         ],
         "helpers": [
           {
@@ -1076,18 +994,7 @@
           "if self.graph is None: raise StorageError(\"run_expired\", ...)：磁盘历史不自动复活旧执行。",
           "identifiers = {item.id for item in interrupts}：多问题回答必须按真实interrupt ID映射。 Command(resume={interrupts[0].id: answers})：单问题也显式绑定当前中断。"
         ],
-        "helpers": [
-          {
-            "file": "src/pycode/agent/adapters/agent.py",
-            "name": "validate_runtime_answer",
-            "purpose": "先让专门的问题处理方法检查答案，否则检查普通权限回答",
-            "notes": [
-              "for extension in extensions：MCP问卷等由拥有者扩展验证。",
-              "validate_operation_answer(question, answer)：普通审批仍绑定operation，而不是任意字符串approve。"
-            ],
-            "guide": "恢复函数已经找到当前问题，但答案还没获准交给图，所以先调用这里检查内容。它让应用给出的特定问题检查方法尝试处理，例如校验远端表单；普通问题再核对操作身份。验证完成返回父函数继续构造恢复命令，失败则保留明确错误，不替用户默认批准。"
-          }
-        ],
+        "helpers": [],
         "guide": "同进程界面还持有等待中的图，用户现在对刚才的命令作出回答，才进入这里。方法读取真实中断，检查答案对应的问题身份并构造恢复命令，再调用同一图。没有活图或问题不符就拒绝，返回的后续结果仍交回原会话处理，不用旧批准创建一次新执行。"
       },
       {

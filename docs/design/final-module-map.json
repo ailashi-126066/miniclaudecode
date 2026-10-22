@@ -1,9 +1,9 @@
 {
-  "baseline": "ac40d4f",
+  "baseline": "working tree 2026-10-22: unified ToolSearch",
   "modules": {
     "pycode": {
       "path": "src/pycode/__init__.py",
-      "feature": "kernel",
+      "feature": null,
       "layer": null,
       "package": true
     },
@@ -67,6 +67,12 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.agent.module": {
+      "path": "src/pycode/agent/module.py",
+      "feature": "agent",
+      "layer": "module",
+      "package": false
+    },
     "pycode.agent.ports": {
       "path": "src/pycode/agent/ports/__init__.py",
       "feature": "agent",
@@ -97,20 +103,38 @@
       "layer": null,
       "package": true
     },
+    "pycode.app.api": {
+      "path": "src/pycode/app/api.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
+    "pycode.app.bootstrap": {
+      "path": "src/pycode/app/bootstrap.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
     "pycode.app.cli": {
-      "path": "src/pycode/app/cli.py",
+      "path": "src/pycode/app/cli/__init__.py",
+      "feature": "app",
+      "layer": null,
+      "package": true
+    },
+    "pycode.app.cli.commands": {
+      "path": "src/pycode/app/cli/commands.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.cli_commands": {
-      "path": "src/pycode/app/cli_commands.py",
+    "pycode.app.cli.main": {
+      "path": "src/pycode/app/cli/main.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.cli_parser": {
-      "path": "src/pycode/app/cli_parser.py",
+    "pycode.app.cli.parser": {
+      "path": "src/pycode/app/cli/parser.py",
       "feature": "app",
       "layer": null,
       "package": false
@@ -121,26 +145,38 @@
       "layer": null,
       "package": true
     },
-    "pycode.app.composition.capabilities": {
-      "path": "src/pycode/app/composition/capabilities.py",
+    "pycode.app.composition.bindings": {
+      "path": "src/pycode/app/composition/bindings.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.composition.context": {
-      "path": "src/pycode/app/composition/context.py",
+    "pycode.app.composition.factories": {
+      "path": "src/pycode/app/composition/factories.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.composition.memory": {
-      "path": "src/pycode/app/composition/memory.py",
+    "pycode.app.composition.hooks": {
+      "path": "src/pycode/app/composition/hooks.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.composition.models": {
-      "path": "src/pycode/app/composition/models.py",
+    "pycode.app.composition.inputs": {
+      "path": "src/pycode/app/composition/inputs.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
+    "pycode.app.composition.modules": {
+      "path": "src/pycode/app/composition/modules.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
+    "pycode.app.composition.run": {
+      "path": "src/pycode/app/composition/run.py",
       "feature": "app",
       "layer": null,
       "package": false
@@ -169,20 +205,44 @@
       "layer": null,
       "package": false
     },
-    "pycode.app.config": {
-      "path": "src/pycode/app/config.py",
+    "pycode.app.configuration": {
+      "path": "src/pycode/app/configuration/__init__.py",
+      "feature": "app",
+      "layer": null,
+      "package": true
+    },
+    "pycode.app.configuration.credentials": {
+      "path": "src/pycode/app/configuration/credentials.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.runtime_launcher": {
-      "path": "src/pycode/app/runtime_launcher.py",
+    "pycode.app.configuration.providers": {
+      "path": "src/pycode/app/configuration/providers.py",
       "feature": "app",
       "layer": null,
       "package": false
     },
-    "pycode.app.team_runtime": {
-      "path": "src/pycode/app/team_runtime.py",
+    "pycode.app.configuration.settings": {
+      "path": "src/pycode/app/configuration/settings.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
+    "pycode.app.lifecycle": {
+      "path": "src/pycode/app/lifecycle/__init__.py",
+      "feature": "app",
+      "layer": null,
+      "package": true
+    },
+    "pycode.app.lifecycle.run": {
+      "path": "src/pycode/app/lifecycle/run.py",
+      "feature": "app",
+      "layer": null,
+      "package": false
+    },
+    "pycode.app.lifecycle.session": {
+      "path": "src/pycode/app/lifecycle/session.py",
       "feature": "app",
       "layer": null,
       "package": false
@@ -198,6 +258,12 @@
       "feature": "context",
       "layer": "adapters",
       "package": true
+    },
+    "pycode.context.adapters.background": {
+      "path": "src/pycode/context/adapters/background.py",
+      "feature": "context",
+      "layer": "adapters",
+      "package": false
     },
     "pycode.context.adapters.storage": {
       "path": "src/pycode/context/adapters/storage/__init__.py",
@@ -247,6 +313,18 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.context.domain.history_boundaries": {
+      "path": "src/pycode/context/domain/history_boundaries.py",
+      "feature": "context",
+      "layer": "domain",
+      "package": false
+    },
+    "pycode.context.domain.projection": {
+      "path": "src/pycode/context/domain/projection.py",
+      "feature": "context",
+      "layer": "domain",
+      "package": false
+    },
     "pycode.context.domain.retention": {
       "path": "src/pycode/context/domain/retention.py",
       "feature": "context",
@@ -265,10 +343,28 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.context.domain.token_estimate": {
+      "path": "src/pycode/context/domain/token_estimate.py",
+      "feature": "context",
+      "layer": "domain",
+      "package": false
+    },
     "pycode.context.domain.tool_eviction": {
       "path": "src/pycode/context/domain/tool_eviction.py",
       "feature": "context",
       "layer": "domain",
+      "package": false
+    },
+    "pycode.context.domain.tool_pairing": {
+      "path": "src/pycode/context/domain/tool_pairing.py",
+      "feature": "context",
+      "layer": "domain",
+      "package": false
+    },
+    "pycode.context.module": {
+      "path": "src/pycode/context/module.py",
+      "feature": "context",
+      "layer": "module",
       "package": false
     },
     "pycode.context.ports": {
@@ -276,6 +372,12 @@
       "feature": "context",
       "layer": "ports",
       "package": true
+    },
+    "pycode.context.ports.projection": {
+      "path": "src/pycode/context/ports/projection.py",
+      "feature": "context",
+      "layer": "ports",
+      "package": false
     },
     "pycode.context.ports.summaries": {
       "path": "src/pycode/context/ports/summaries.py",
@@ -291,6 +393,12 @@
     },
     "pycode.context.services.context_projector": {
       "path": "src/pycode/context/services/context_projector.py",
+      "feature": "context",
+      "layer": "services",
+      "package": false
+    },
+    "pycode.context.services.prompt_projection": {
+      "path": "src/pycode/context/services/prompt_projection.py",
       "feature": "context",
       "layer": "services",
       "package": false
@@ -319,94 +427,46 @@
       "layer": null,
       "package": true
     },
-    "pycode.hooks.adapters": {
-      "path": "src/pycode/hooks/adapters/__init__.py",
+    "pycode.hooks.actions": {
+      "path": "src/pycode/hooks/actions.py",
       "feature": "hooks",
-      "layer": "adapters",
-      "package": true
-    },
-    "pycode.hooks.adapters.actions": {
-      "path": "src/pycode/hooks/adapters/actions.py",
-      "feature": "hooks",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.hooks.adapters.condition_worker": {
-      "path": "src/pycode/hooks/adapters/condition_worker.py",
+    "pycode.hooks.api": {
+      "path": "src/pycode/hooks/api.py",
       "feature": "hooks",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.hooks.adapters.config": {
-      "path": "src/pycode/hooks/adapters/config.py",
+    "pycode.hooks.conditions": {
+      "path": "src/pycode/hooks/conditions.py",
       "feature": "hooks",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.hooks.domain": {
-      "path": "src/pycode/hooks/domain/__init__.py",
+    "pycode.hooks.config": {
+      "path": "src/pycode/hooks/config.py",
+      "feature": "hooks",
+      "layer": null,
+      "package": false
+    },
+    "pycode.hooks.contracts": {
+      "path": "src/pycode/hooks/contracts.py",
+      "feature": "hooks",
+      "layer": "ports",
+      "package": false
+    },
+    "pycode.hooks.module": {
+      "path": "src/pycode/hooks/module.py",
+      "feature": "hooks",
+      "layer": "module",
+      "package": false
+    },
+    "pycode.hooks.types": {
+      "path": "src/pycode/hooks/types.py",
       "feature": "hooks",
       "layer": "domain",
-      "package": true
-    },
-    "pycode.hooks.domain.hooks": {
-      "path": "src/pycode/hooks/domain/hooks.py",
-      "feature": "hooks",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.hooks.ports": {
-      "path": "src/pycode/hooks/ports/__init__.py",
-      "feature": "hooks",
-      "layer": "ports",
-      "package": true
-    },
-    "pycode.hooks.ports.hooks": {
-      "path": "src/pycode/hooks/ports/hooks.py",
-      "feature": "hooks",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.hooks.ports.lifecycle": {
-      "path": "src/pycode/hooks/ports/lifecycle.py",
-      "feature": "hooks",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.hooks.ports.runtime": {
-      "path": "src/pycode/hooks/ports/runtime.py",
-      "feature": "hooks",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.hooks.services": {
-      "path": "src/pycode/hooks/services/__init__.py",
-      "feature": "hooks",
-      "layer": "services",
-      "package": true
-    },
-    "pycode.hooks.services.configuration": {
-      "path": "src/pycode/hooks/services/configuration.py",
-      "feature": "hooks",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.hooks.services.hooks": {
-      "path": "src/pycode/hooks/services/hooks.py",
-      "feature": "hooks",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.hooks.services.lifecycle": {
-      "path": "src/pycode/hooks/services/lifecycle.py",
-      "feature": "hooks",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.hooks.services.tool_bridge": {
-      "path": "src/pycode/hooks/services/tool_bridge.py",
-      "feature": "hooks",
-      "layer": "services",
       "package": false
     },
     "pycode.kernel": {
@@ -415,110 +475,122 @@
       "layer": null,
       "package": true
     },
-    "pycode.kernel.contracts": {
-      "path": "src/pycode/kernel/contracts/__init__.py",
+    "pycode.kernel.adapters": {
+      "path": "src/pycode/kernel/adapters/__init__.py",
+      "feature": "kernel",
+      "layer": "adapters",
+      "package": true
+    },
+    "pycode.kernel.adapters.event_journal": {
+      "path": "src/pycode/kernel/adapters/event_journal.py",
+      "feature": "kernel",
+      "layer": "adapters",
+      "package": false
+    },
+    "pycode.kernel.adapters.file_lease": {
+      "path": "src/pycode/kernel/adapters/file_lease.py",
+      "feature": "kernel",
+      "layer": "adapters",
+      "package": false
+    },
+    "pycode.kernel.adapters.path_io": {
+      "path": "src/pycode/kernel/adapters/path_io.py",
+      "feature": "kernel",
+      "layer": "adapters",
+      "package": false
+    },
+    "pycode.kernel.adapters.timing": {
+      "path": "src/pycode/kernel/adapters/timing.py",
+      "feature": "kernel",
+      "layer": "adapters",
+      "package": false
+    },
+    "pycode.kernel.domain": {
+      "path": "src/pycode/kernel/domain/__init__.py",
       "feature": "kernel",
       "layer": "domain",
       "package": true
     },
-    "pycode.kernel.contracts.completion": {
-      "path": "src/pycode/kernel/contracts/completion.py",
+    "pycode.kernel.domain.completion": {
+      "path": "src/pycode/kernel/domain/completion.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.contracts.history": {
-      "path": "src/pycode/kernel/contracts/history.py",
+    "pycode.kernel.domain.errors": {
+      "path": "src/pycode/kernel/domain/errors.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.contracts.history_ports": {
-      "path": "src/pycode/kernel/contracts/history_ports.py",
+    "pycode.kernel.domain.events": {
+      "path": "src/pycode/kernel/domain/events.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.contracts.messages": {
-      "path": "src/pycode/kernel/contracts/messages.py",
+    "pycode.kernel.domain.hashing": {
+      "path": "src/pycode/kernel/domain/hashing.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.contracts.model_identity": {
-      "path": "src/pycode/kernel/contracts/model_identity.py",
+    "pycode.kernel.domain.history": {
+      "path": "src/pycode/kernel/domain/history.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.contracts.tools": {
-      "path": "src/pycode/kernel/contracts/tools.py",
+    "pycode.kernel.domain.history_tree": {
+      "path": "src/pycode/kernel/domain/history_tree.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.errors": {
-      "path": "src/pycode/kernel/errors.py",
+    "pycode.kernel.domain.messages": {
+      "path": "src/pycode/kernel/domain/messages.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.events": {
-      "path": "src/pycode/kernel/events.py",
+    "pycode.kernel.domain.model_identity": {
+      "path": "src/pycode/kernel/domain/model_identity.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.hashing": {
-      "path": "src/pycode/kernel/hashing.py",
+    "pycode.kernel.domain.path_policy": {
+      "path": "src/pycode/kernel/domain/path_policy.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.history_boundaries": {
-      "path": "src/pycode/kernel/history_boundaries.py",
+    "pycode.kernel.domain.redaction": {
+      "path": "src/pycode/kernel/domain/redaction.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.history_tree": {
-      "path": "src/pycode/kernel/history_tree.py",
+    "pycode.kernel.domain.token_estimate": {
+      "path": "src/pycode/kernel/domain/token_estimate.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
     },
-    "pycode.kernel.io": {
-      "path": "src/pycode/kernel/io/__init__.py",
+    "pycode.kernel.domain.tools": {
+      "path": "src/pycode/kernel/domain/tools.py",
       "feature": "kernel",
-      "layer": "io",
-      "package": true
-    },
-    "pycode.kernel.io.file_lease": {
-      "path": "src/pycode/kernel/io/file_lease.py",
-      "feature": "kernel",
-      "layer": "io",
+      "layer": "domain",
       "package": false
     },
-    "pycode.kernel.io.path_io": {
-      "path": "src/pycode/kernel/io/path_io.py",
+    "pycode.kernel.domain.truncation": {
+      "path": "src/pycode/kernel/domain/truncation.py",
       "feature": "kernel",
-      "layer": "io",
+      "layer": "domain",
       "package": false
     },
-    "pycode.kernel.io.timing": {
-      "path": "src/pycode/kernel/io/timing.py",
-      "feature": "kernel",
-      "layer": "io",
-      "package": false
-    },
-    "pycode.kernel.io.workspace_path": {
-      "path": "src/pycode/kernel/io/workspace_path.py",
-      "feature": "kernel",
-      "layer": "io",
-      "package": false
-    },
-    "pycode.kernel.path_policy": {
-      "path": "src/pycode/kernel/path_policy.py",
+    "pycode.kernel.domain.values": {
+      "path": "src/pycode/kernel/domain/values.py",
       "feature": "kernel",
       "layer": "domain",
       "package": false
@@ -535,16 +607,22 @@
       "layer": "ports",
       "package": false
     },
+    "pycode.kernel.ports.history": {
+      "path": "src/pycode/kernel/ports/history.py",
+      "feature": "kernel",
+      "layer": "ports",
+      "package": false
+    },
     "pycode.kernel.ports.timing": {
       "path": "src/pycode/kernel/ports/timing.py",
       "feature": "kernel",
       "layer": "ports",
       "package": false
     },
-    "pycode.kernel.redaction": {
-      "path": "src/pycode/kernel/redaction.py",
+    "pycode.kernel.ports.tools": {
+      "path": "src/pycode/kernel/ports/tools.py",
       "feature": "kernel",
-      "layer": "domain",
+      "layer": "ports",
       "package": false
     },
     "pycode.kernel.services": {
@@ -553,46 +631,10 @@
       "layer": "services",
       "package": true
     },
-    "pycode.kernel.services.event_journal": {
-      "path": "src/pycode/kernel/services/event_journal.py",
-      "feature": "kernel",
-      "layer": "services",
-      "package": false
-    },
     "pycode.kernel.services.events": {
       "path": "src/pycode/kernel/services/events.py",
       "feature": "kernel",
       "layer": "services",
-      "package": false
-    },
-    "pycode.kernel.token_estimate": {
-      "path": "src/pycode/kernel/token_estimate.py",
-      "feature": "kernel",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.kernel.tool_pairing": {
-      "path": "src/pycode/kernel/tool_pairing.py",
-      "feature": "kernel",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.kernel.tool_text": {
-      "path": "src/pycode/kernel/tool_text.py",
-      "feature": "kernel",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.kernel.truncation": {
-      "path": "src/pycode/kernel/truncation.py",
-      "feature": "kernel",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.kernel.values": {
-      "path": "src/pycode/kernel/values.py",
-      "feature": "kernel",
-      "layer": "domain",
       "package": false
     },
     "pycode.mcp": {
@@ -601,88 +643,58 @@
       "layer": null,
       "package": true
     },
-    "pycode.mcp.adapters": {
-      "path": "src/pycode/mcp/adapters/__init__.py",
+    "pycode.mcp.api": {
+      "path": "src/pycode/mcp/api.py",
       "feature": "mcp",
-      "layer": "adapters",
-      "package": true
-    },
-    "pycode.mcp.adapters.config": {
-      "path": "src/pycode/mcp/adapters/config.py",
-      "feature": "mcp",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.mcp.adapters.connection": {
-      "path": "src/pycode/mcp/adapters/connection.py",
+    "pycode.mcp.config": {
+      "path": "src/pycode/mcp/config.py",
       "feature": "mcp",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.mcp.adapters.manager": {
-      "path": "src/pycode/mcp/adapters/manager.py",
+    "pycode.mcp.connection": {
+      "path": "src/pycode/mcp/connection.py",
       "feature": "mcp",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.mcp.adapters.tools": {
-      "path": "src/pycode/mcp/adapters/tools.py",
+    "pycode.mcp.contracts": {
+      "path": "src/pycode/mcp/contracts.py",
       "feature": "mcp",
-      "layer": "adapters",
+      "layer": "ports",
       "package": false
     },
-    "pycode.mcp.domain": {
-      "path": "src/pycode/mcp/domain/__init__.py",
+    "pycode.mcp.framework": {
+      "path": "src/pycode/mcp/framework.py",
+      "feature": "mcp",
+      "layer": null,
+      "package": false
+    },
+    "pycode.mcp.history": {
+      "path": "src/pycode/mcp/history.py",
+      "feature": "mcp",
+      "layer": null,
+      "package": false
+    },
+    "pycode.mcp.module": {
+      "path": "src/pycode/mcp/module.py",
+      "feature": "mcp",
+      "layer": "module",
+      "package": false
+    },
+    "pycode.mcp.tools": {
+      "path": "src/pycode/mcp/tools.py",
+      "feature": "mcp",
+      "layer": null,
+      "package": false
+    },
+    "pycode.mcp.types": {
+      "path": "src/pycode/mcp/types.py",
       "feature": "mcp",
       "layer": "domain",
-      "package": true
-    },
-    "pycode.mcp.domain.mcp": {
-      "path": "src/pycode/mcp/domain/mcp.py",
-      "feature": "mcp",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.mcp.ports": {
-      "path": "src/pycode/mcp/ports/__init__.py",
-      "feature": "mcp",
-      "layer": "ports",
-      "package": true
-    },
-    "pycode.mcp.ports.mcp": {
-      "path": "src/pycode/mcp/ports/mcp.py",
-      "feature": "mcp",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.mcp.ports.schema": {
-      "path": "src/pycode/mcp/ports/schema.py",
-      "feature": "mcp",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.mcp.services": {
-      "path": "src/pycode/mcp/services/__init__.py",
-      "feature": "mcp",
-      "layer": "services",
-      "package": true
-    },
-    "pycode.mcp.services.configuration": {
-      "path": "src/pycode/mcp/services/configuration.py",
-      "feature": "mcp",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.mcp.services.mcp": {
-      "path": "src/pycode/mcp/services/mcp.py",
-      "feature": "mcp",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.mcp.services.mcp_bindings": {
-      "path": "src/pycode/mcp/services/mcp_bindings.py",
-      "feature": "mcp",
-      "layer": "services",
       "package": false
     },
     "pycode.memory": {
@@ -696,6 +708,12 @@
       "feature": "memory",
       "layer": "adapters",
       "package": true
+    },
+    "pycode.memory.adapters.background": {
+      "path": "src/pycode/memory/adapters/background.py",
+      "feature": "memory",
+      "layer": "adapters",
+      "package": false
     },
     "pycode.memory.adapters.memory_query": {
       "path": "src/pycode/memory/adapters/memory_query.py",
@@ -745,6 +763,12 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.memory.module": {
+      "path": "src/pycode/memory/module.py",
+      "feature": "memory",
+      "layer": "module",
+      "package": false
+    },
     "pycode.memory.ports": {
       "path": "src/pycode/memory/ports/__init__.py",
       "feature": "memory",
@@ -765,6 +789,12 @@
     },
     "pycode.memory.services.memory": {
       "path": "src/pycode/memory/services/memory.py",
+      "feature": "memory",
+      "layer": "services",
+      "package": false
+    },
+    "pycode.memory.services.projection": {
+      "path": "src/pycode/memory/services/projection.py",
       "feature": "memory",
       "layer": "services",
       "package": false
@@ -823,12 +853,6 @@
       "layer": "adapters",
       "package": false
     },
-    "pycode.models.adapters.model_fallback": {
-      "path": "src/pycode/models/adapters/model_fallback.py",
-      "feature": "models",
-      "layer": "adapters",
-      "package": false
-    },
     "pycode.models.adapters.model_requests": {
       "path": "src/pycode/models/adapters/model_requests.py",
       "feature": "models",
@@ -859,12 +883,6 @@
       "layer": "adapters",
       "package": false
     },
-    "pycode.models.adapters.tool_selection": {
-      "path": "src/pycode/models/adapters/tool_selection.py",
-      "feature": "models",
-      "layer": "adapters",
-      "package": false
-    },
     "pycode.models.domain": {
       "path": "src/pycode/models/domain/__init__.py",
       "feature": "models",
@@ -889,8 +907,8 @@
       "layer": "domain",
       "package": false
     },
-    "pycode.models.domain.selection": {
-      "path": "src/pycode/models/domain/selection.py",
+    "pycode.models.domain.tool_text": {
+      "path": "src/pycode/models/domain/tool_text.py",
       "feature": "models",
       "layer": "domain",
       "package": false
@@ -899,6 +917,12 @@
       "path": "src/pycode/models/domain/usage.py",
       "feature": "models",
       "layer": "domain",
+      "package": false
+    },
+    "pycode.models.module": {
+      "path": "src/pycode/models/module.py",
+      "feature": "models",
+      "layer": "module",
       "package": false
     },
     "pycode.models.ports": {
@@ -997,6 +1021,12 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.plans.module": {
+      "path": "src/pycode/plans/module.py",
+      "feature": "plans",
+      "layer": "module",
+      "package": false
+    },
     "pycode.plans.ports": {
       "path": "src/pycode/plans/ports/__init__.py",
       "feature": "plans",
@@ -1017,6 +1047,12 @@
     },
     "pycode.plans.services.plans": {
       "path": "src/pycode/plans/services/plans.py",
+      "feature": "plans",
+      "layer": "services",
+      "package": false
+    },
+    "pycode.plans.services.projection": {
+      "path": "src/pycode/plans/services/projection.py",
       "feature": "plans",
       "layer": "services",
       "package": false
@@ -1085,6 +1121,12 @@
       "path": "src/pycode/sandbox/domain/subprocess_env.py",
       "feature": "sandbox",
       "layer": "domain",
+      "package": false
+    },
+    "pycode.sandbox.module": {
+      "path": "src/pycode/sandbox/module.py",
+      "feature": "sandbox",
+      "layer": "module",
       "package": false
     },
     "pycode.sandbox.ports": {
@@ -1231,6 +1273,12 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.session.module": {
+      "path": "src/pycode/session/module.py",
+      "feature": "session",
+      "layer": "module",
+      "package": false
+    },
     "pycode.session.ports": {
       "path": "src/pycode/session/ports/__init__.py",
       "feature": "session",
@@ -1297,6 +1345,12 @@
       "layer": "services",
       "package": false
     },
+    "pycode.session.services.ownership": {
+      "path": "src/pycode/session/services/ownership.py",
+      "feature": "session",
+      "layer": "services",
+      "package": false
+    },
     "pycode.session.services.restart": {
       "path": "src/pycode/session/services/restart.py",
       "feature": "session",
@@ -1333,136 +1387,58 @@
       "layer": null,
       "package": true
     },
-    "pycode.skills.adapters": {
-      "path": "src/pycode/skills/adapters/__init__.py",
+    "pycode.skills.api": {
+      "path": "src/pycode/skills/api.py",
       "feature": "skills",
-      "layer": "adapters",
-      "package": true
-    },
-    "pycode.skills.adapters.backend": {
-      "path": "src/pycode/skills/adapters/backend.py",
-      "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.catalog": {
-      "path": "src/pycode/skills/adapters/catalog.py",
+    "pycode.skills.catalog": {
+      "path": "src/pycode/skills/catalog.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.github_source": {
-      "path": "src/pycode/skills/adapters/github_source.py",
+    "pycode.skills.contracts": {
+      "path": "src/pycode/skills/contracts.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": "ports",
       "package": false
     },
-    "pycode.skills.adapters.install": {
-      "path": "src/pycode/skills/adapters/install.py",
+    "pycode.skills.framework": {
+      "path": "src/pycode/skills/framework.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.parser": {
-      "path": "src/pycode/skills/adapters/parser.py",
+    "pycode.skills.history": {
+      "path": "src/pycode/skills/history.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.python_tool": {
-      "path": "src/pycode/skills/adapters/python_tool.py",
+    "pycode.skills.install": {
+      "path": "src/pycode/skills/install.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.python_worker": {
-      "path": "src/pycode/skills/adapters/python_worker.py",
+    "pycode.skills.module": {
+      "path": "src/pycode/skills/module.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": "module",
       "package": false
     },
-    "pycode.skills.adapters.resources": {
-      "path": "src/pycode/skills/adapters/resources.py",
+    "pycode.skills.tools": {
+      "path": "src/pycode/skills/tools.py",
       "feature": "skills",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.skills.adapters.skills": {
-      "path": "src/pycode/skills/adapters/skills.py",
-      "feature": "skills",
-      "layer": "adapters",
-      "package": false
-    },
-    "pycode.skills.adapters.tools": {
-      "path": "src/pycode/skills/adapters/tools/__init__.py",
-      "feature": "skills",
-      "layer": "adapters",
-      "package": true
-    },
-    "pycode.skills.adapters.tools.skills": {
-      "path": "src/pycode/skills/adapters/tools/skills.py",
-      "feature": "skills",
-      "layer": "adapters",
-      "package": false
-    },
-    "pycode.skills.domain": {
-      "path": "src/pycode/skills/domain/__init__.py",
+    "pycode.skills.types": {
+      "path": "src/pycode/skills/types.py",
       "feature": "skills",
       "layer": "domain",
-      "package": true
-    },
-    "pycode.skills.domain.skill_selection": {
-      "path": "src/pycode/skills/domain/skill_selection.py",
-      "feature": "skills",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.skills.domain.skills": {
-      "path": "src/pycode/skills/domain/skills.py",
-      "feature": "skills",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.skills.ports": {
-      "path": "src/pycode/skills/ports/__init__.py",
-      "feature": "skills",
-      "layer": "ports",
-      "package": true
-    },
-    "pycode.skills.ports.guard": {
-      "path": "src/pycode/skills/ports/guard.py",
-      "feature": "skills",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.skills.ports.sandbox": {
-      "path": "src/pycode/skills/ports/sandbox.py",
-      "feature": "skills",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.skills.ports.skills": {
-      "path": "src/pycode/skills/ports/skills.py",
-      "feature": "skills",
-      "layer": "ports",
-      "package": false
-    },
-    "pycode.skills.services": {
-      "path": "src/pycode/skills/services/__init__.py",
-      "feature": "skills",
-      "layer": "services",
-      "package": true
-    },
-    "pycode.skills.services.skill_resources": {
-      "path": "src/pycode/skills/services/skill_resources.py",
-      "feature": "skills",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.skills.services.skills": {
-      "path": "src/pycode/skills/services/skills.py",
-      "feature": "skills",
-      "layer": "services",
       "package": false
     },
     "pycode.snapshot": {
@@ -1495,6 +1471,12 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.snapshot.module": {
+      "path": "src/pycode/snapshot/module.py",
+      "feature": "snapshot",
+      "layer": "module",
+      "package": false
+    },
     "pycode.snapshot.ports": {
       "path": "src/pycode/snapshot/ports/__init__.py",
       "feature": "snapshot",
@@ -1513,70 +1495,58 @@
       "layer": null,
       "package": true
     },
-    "pycode.team.adapters": {
-      "path": "src/pycode/team/adapters/__init__.py",
+    "pycode.team.api": {
+      "path": "src/pycode/team/api.py",
       "feature": "team",
-      "layer": "adapters",
-      "package": true
-    },
-    "pycode.team.adapters.team_tools": {
-      "path": "src/pycode/team/adapters/team_tools.py",
-      "feature": "team",
-      "layer": "adapters",
+      "layer": null,
       "package": false
     },
-    "pycode.team.adapters.worktrees": {
-      "path": "src/pycode/team/adapters/worktrees.py",
-      "feature": "team",
-      "layer": "adapters",
-      "package": false
-    },
-    "pycode.team.domain": {
-      "path": "src/pycode/team/domain/__init__.py",
-      "feature": "team",
-      "layer": "domain",
-      "package": true
-    },
-    "pycode.team.domain.team": {
-      "path": "src/pycode/team/domain/team.py",
-      "feature": "team",
-      "layer": "domain",
-      "package": false
-    },
-    "pycode.team.ports": {
-      "path": "src/pycode/team/ports/__init__.py",
-      "feature": "team",
-      "layer": "ports",
-      "package": true
-    },
-    "pycode.team.ports.team": {
-      "path": "src/pycode/team/ports/team.py",
+    "pycode.team.contracts": {
+      "path": "src/pycode/team/contracts.py",
       "feature": "team",
       "layer": "ports",
       "package": false
     },
-    "pycode.team.services": {
-      "path": "src/pycode/team/services/__init__.py",
+    "pycode.team.engine": {
+      "path": "src/pycode/team/engine.py",
       "feature": "team",
-      "layer": "services",
-      "package": true
-    },
-    "pycode.team.services.team": {
-      "path": "src/pycode/team/services/team.py",
-      "feature": "team",
-      "layer": "services",
+      "layer": null,
       "package": false
     },
-    "pycode.team.services.team_inbox": {
-      "path": "src/pycode/team/services/team_inbox.py",
+    "pycode.team.mailbox": {
+      "path": "src/pycode/team/mailbox.py",
       "feature": "team",
-      "layer": "services",
+      "layer": null,
       "package": false
     },
-    "pycode.team.services.team_tasks": {
-      "path": "src/pycode/team/services/team_tasks.py",
+    "pycode.team.module": {
+      "path": "src/pycode/team/module.py",
       "feature": "team",
-      "layer": "services",
+      "layer": "module",
+      "package": false
+    },
+    "pycode.team.tasks": {
+      "path": "src/pycode/team/tasks.py",
+      "feature": "team",
+      "layer": null,
+      "package": false
+    },
+    "pycode.team.tools": {
+      "path": "src/pycode/team/tools.py",
+      "feature": "team",
+      "layer": null,
+      "package": false
+    },
+    "pycode.team.types": {
+      "path": "src/pycode/team/types.py",
+      "feature": "team",
+      "layer": "domain",
+      "package": false
+    },
+    "pycode.team.worktrees": {
+      "path": "src/pycode/team/worktrees.py",
+      "feature": "team",
+      "layer": null,
       "package": false
     },
     "pycode.tools": {
@@ -1605,6 +1575,12 @@
     },
     "pycode.tools.adapters.backend": {
       "path": "src/pycode/tools/adapters/backend.py",
+      "feature": "tools",
+      "layer": "adapters",
+      "package": false
+    },
+    "pycode.tools.adapters.discovery": {
+      "path": "src/pycode/tools/adapters/discovery.py",
       "feature": "tools",
       "layer": "adapters",
       "package": false
@@ -1723,14 +1699,20 @@
       "layer": "domain",
       "package": false
     },
+    "pycode.tools.module": {
+      "path": "src/pycode/tools/module.py",
+      "feature": "tools",
+      "layer": "module",
+      "package": false
+    },
     "pycode.tools.ports": {
       "path": "src/pycode/tools/ports/__init__.py",
       "feature": "tools",
       "layer": "ports",
       "package": true
     },
-    "pycode.tools.ports.dispatch": {
-      "path": "src/pycode/tools/ports/dispatch.py",
+    "pycode.tools.ports.extensions": {
+      "path": "src/pycode/tools/ports/extensions.py",
       "feature": "tools",
       "layer": "ports",
       "package": false
@@ -1785,12 +1767,6 @@
     },
     "pycode.tools.services.plan_gate": {
       "path": "src/pycode/tools/services/plan_gate.py",
-      "feature": "tools",
-      "layer": "services",
-      "package": false
-    },
-    "pycode.tools.services.skill_gate": {
-      "path": "src/pycode/tools/services/skill_gate.py",
       "feature": "tools",
       "layer": "services",
       "package": false
@@ -1855,14 +1831,14 @@
       "layer": "adapters",
       "package": false
     },
-    "pycode.ui.adapters.mcp": {
-      "path": "src/pycode/ui/adapters/mcp.py",
+    "pycode.ui.adapters.memory": {
+      "path": "src/pycode/ui/adapters/memory.py",
       "feature": "ui",
       "layer": "adapters",
       "package": false
     },
-    "pycode.ui.adapters.memory": {
-      "path": "src/pycode/ui/adapters/memory.py",
+    "pycode.ui.adapters.model_picker": {
+      "path": "src/pycode/ui/adapters/model_picker.py",
       "feature": "ui",
       "layer": "adapters",
       "package": false
@@ -1907,6 +1883,12 @@
       "path": "src/pycode/ui/adapters/usage.py",
       "feature": "ui",
       "layer": "adapters",
+      "package": false
+    },
+    "pycode.ui.module": {
+      "path": "src/pycode/ui/module.py",
+      "feature": "ui",
+      "layer": "module",
       "package": false
     },
     "pycode.ui.ports": {

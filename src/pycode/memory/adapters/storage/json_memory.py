@@ -9,7 +9,6 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
-from uuid import UUID
 
 from langgraph.store.base import (
     BaseStore,
@@ -55,7 +54,7 @@ def decode_memory_snapshot(payload):
         raw = json.loads(payload, object_pairs_hook=reject_duplicate_keys)
         if not isinstance(raw, dict) or type(raw.get("schema_version")) is not int:
             raise ValueError("Memory snapshot version is invalid")
-        checked = MemorySnapshot.model_validate(raw)
+        checked = MemorySnapshot.model_validate_json(payload, strict=True)
     except (ValueError, TypeError, UnicodeError) as error:
         raise StorageError("memory_corrupt", "Memory JSON schema is invalid") from error
     # Keep the stored record text verbatim so before/after comparisons stay byte-stable.
@@ -63,10 +62,8 @@ def decode_memory_snapshot(payload):
         "schema_version": 1,
         "namespace": list(checked.namespace),
         "revision": checked.revision,
-        "records": raw.get("records", {}),
+        "records": raw["records"],
     }
-    if checked.migration is not None:
-        state["migration"] = raw["migration"]
     return state
 
 
@@ -156,23 +153,6 @@ class JsonMemoryStore(BaseStore):
             )
         return state
 
-    @staticmethod
-    def existing_key(records, key):
-        """LangMem normalizes UUID IDs with hyphens; old entries can use UUID hex IDs."""
-        if key in records:
-            return key
-        try:
-            identity = UUID(key)
-        except ValueError:
-            return key
-        for existing in records:
-            try:
-                if UUID(existing) == identity:
-                    return existing
-            except ValueError:
-                continue
-        return key
-
     def write(self, namespace, changes, *, restore=False):
         """Apply {key: value | None}; restore=True writes exact saved records for undo."""
         self.check_target(namespace, "write")
@@ -183,7 +163,6 @@ class JsonMemoryStore(BaseStore):
                 applied = []
                 for key, value in changes.items():
                     self.check_target(namespace, key)
-                    key = self.existing_key(state["records"], key)
                     previous = state["records"].get(key)
                     if value is None:
                         current = None
@@ -343,9 +322,8 @@ class JsonMemoryStore(BaseStore):
         if isinstance(op, GetOp):
             self.check_target(op.namespace, op.key)
             records = self.read(op.namespace)["records"]
-            key = self.existing_key(records, op.key)
-            record = records.get(key)
-            return self.item(op.namespace, key, record) if record else None
+            record = records.get(op.key)
+            return self.item(op.namespace, op.key, record) if record else None
         if isinstance(op, PutOp):
             if op.ttl is not None:
                 raise ToolError("memory_capability_unsupported", "Memory TTL is unsupported")
@@ -377,11 +355,15 @@ class JsonMemoryStore(BaseStore):
                 return "auto"
             try:
                 value = json.loads(path.read_bytes(), object_pairs_hook=reject_duplicate_keys)
-                if not isinstance(value, dict) or value.get("mode") not in {
-                    "auto",
-                    "review",
-                    "off",
-                }:
+                if (
+                    not isinstance(value, dict)
+                    or set(value) != {"mode"}
+                    or value.get("mode")
+                    not in {
+                        "auto",
+                        "off",
+                    }
+                ):
                     raise ValueError("Memory settings are invalid")
                 return value["mode"]
             except (OSError, ValueError, TypeError, UnicodeError) as error:
@@ -392,6 +374,9 @@ class JsonMemoryStore(BaseStore):
         return await owned_io(read)
 
     async def set_mode(self, namespace, mode):
+        if mode not in {"auto", "off"}:
+            raise StorageError("invalid_memory_mode", "Choose auto or off")
+
         def write():
             root = self.roots[namespace]
             with memory_lease(root):

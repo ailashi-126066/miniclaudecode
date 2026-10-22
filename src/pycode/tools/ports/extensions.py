@@ -1,14 +1,12 @@
 """Consumer-owned native boundaries for optional tool capabilities."""
 
-from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
-from pycode.kernel import ExecutableTool, ToolCall, ToolContext, ToolResult
+from pycode.kernel import ToolCall, ToolContext, ToolResult
 
 
 class ToolExtension(Protocol):
-    def lookup(self, name: str, *, state: Mapping[str, object]) -> ExecutableTool | None: ...
     async def validate_call(self, context: ToolContext, call: ToolCall) -> None:
         """Read-only rejection checks; may run for undisclosed calls before authorization.
 

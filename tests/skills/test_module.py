@@ -5,9 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from pycode.kernel import ToolCall, ToolContext, ToolError, ToolResult, ToolSpec
-from pycode.skills.adapters.extension import SkillsToolExtension
+from pycode.skills.framework import SkillsScopeConstraint, SkillsToolExtension
 from pycode.skills.module import SkillsModule, SkillsSettings
-from pycode.skills.services.scope import SkillsScopeConstraint
 
 
 def test_standalone_mounts_are_readonly_and_project_trust_is_explicit(tmp_path):
@@ -21,46 +20,32 @@ def test_standalone_mounts_are_readonly_and_project_trust_is_explicit(tmp_path):
         seen.append((root, options))
         return SimpleNamespace(receipts={})
 
-    module = SkillsModule(
-        schema=None, process_runner=None, backend_factory=backend, skill_read_grant=None
-    )
+    module = SkillsModule(backend_factory=backend)
     settings = SkillsSettings(workspace, user)
-    routes = module.standalone_routes(settings)
+    routes = module.routes(settings)
     assert "/skills/user/" in routes
     assert "/skills/project/" not in routes
     assert all(options == {"read_only": True} for _, options in seen)
     assert all(route.read_only for route in routes.values())
-    assert set(module.standalone_extension(settings).sources) == set(routes)
 
 
-def test_dynamic_lookup_requires_actual_sdk_disclosure(monkeypatch):
-    tool = SimpleNamespace(spec=ToolSpec("dynamic", "dynamic", {}))
-    resources = SimpleNamespace(get_tool=lambda name: tool)
-    extension = SkillsToolExtension(resources, None, None)
-    monkeypatch.setattr(
-        "pycode.skills.adapters.extension.disclosed_skill_tool_names",
-        lambda state: state["disclosed"],
-    )
-    assert extension.lookup("dynamic", state={"disclosed": ()}) is None
-    assert extension.lookup("dynamic", state={"disclosed": ("dynamic",)}) is tool
+def test_skill_extension_never_registers_python_functions():
+    extension = SkillsToolExtension(None, None)
+    assert not hasattr(extension, "lookup")
 
 
 @pytest.mark.asyncio
-async def test_fork_read_denial_and_receipts_happen_at_distinct_boundaries():
+async def test_skill_receipts_follow_successful_result_persistence():
     recorded = []
 
     class Recorder:
-        async def selected_entry(self, path):
-            return SimpleNamespace(name="review", mode="fork")
-
         async def record(self, path, result, entry_id):
             recorded.append((path, entry_id))
 
-    extension = SkillsToolExtension(None, Recorder(), SimpleNamespace(dispatch=False))
+    extension = SkillsToolExtension(Recorder(), SimpleNamespace(dispatch=False))
     call = ToolCall("c", "read_file", {"file_path": "/skills/user/review/SKILL.md"})
     context = ToolContext("s", "r", "o", "/workspace", agent_id="lead")
-    with pytest.raises(ToolError, match="Use task"):
-        await extension.before_call(context, call)
+    await extension.before_call(context, call)
     result = extension.prepare_result(call, ToolResult("c", "read_file", "body"))
     assert result.details["protected_content"] is True
     assert recorded == []
@@ -86,15 +71,3 @@ async def test_scope_preserves_instruction_reads_but_denies_external_tools(monke
         await constraint.authorize(
             context, ToolSpec("Bash", "shell", {}), ToolCall("b", "Bash", {})
         )
-
-
-def test_reserving_runtime_tools_blocks_late_resource_shadowing():
-    from pycode.skills.module import SkillsRun
-
-    resources = SimpleNamespace(tools={}, reserved_tools=frozenset({"read_file"}))
-    run = SkillsRun((), {}, SimpleNamespace(resources=resources), None, None)
-    run.reserve_tools(("Bash", "AskUserQuestion"))
-    assert resources.reserved_tools == frozenset({"read_file", "Bash", "AskUserQuestion"})
-    resources.tools["Bash"] = object()
-    with pytest.raises(ToolError, match="shadows a built-in"):
-        run.reserve_tools(("Bash",))

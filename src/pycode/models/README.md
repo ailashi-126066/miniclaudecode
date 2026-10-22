@@ -1,30 +1,5 @@
 # Models
 
-`module.ModelsModule` owns the model catalog store, SDK directory/factory, native message converters,
-request records, retries, metering, tool selection, fallback and calibration wiring. Inputs are catalog
-and request-database paths, a credential mapping or a provider-aware credential callback, and an
-optional clock. The callback is resolved for each catalog/owner request, so an application with no
-initial providers can still use an explicitly supplied provider later. No module is recreated by the
-application to override a selected implementation.
+ModelsModule 负责 Provider 配置、SDK 模型、请求记录、计量、原生消息转换、同模型有界重试和最终请求校准。
 
-```python
-from pathlib import Path
-from pycode.models.module import ModelsModule
-
-models = ModelsModule(Path("state/model-catalog.json"), Path("state/runtime.sqlite3"), {})
-catalog = models.catalog(())
-```
-
-`control(catalog, projector, store, events)` takes an explicit native projector. `records()` opens a
-request store. `await owner(provider, consumers, session_id, run_id, purpose, ...)` supplies a
-`MeteredModelOwner`: its model, runner, factory and records form one request lifetime. With an
-external `events` sink the owner borrows it; otherwise it owns a bounded memory event journal.
-`await owner.aclose()` closes SDK clients, then request records, then only its owned journal.
-Callers that open a standalone `records()` store must close it. Failed owner construction awaits
-closure of every resource it acquired before propagating the failure; borrowed event sinks remain
-owned by the caller.
-
-`metered`, `selector`, `candidate` and `fallback` compose these products inside Models.
-`fallback(..., calibrator=...)` accepts run-specific native resource lookup calibration.
-Framework converter/request callbacks are outputs of this assembly entry, not re-exports in the
-feature's pure public API. The application connects them to Agent without Agent importing adapters.
+模型工具选择器及备用模型均已删除；工具发现由 Tools 的 ToolSearch 负责。calibrate_model_request 只记录真正披露的工具定义及系统提示，供预算和执行校验使用。owner 创建并拥有本次模型资源，aclose 负责收尾。底层 HTTP 和模型协议由官方 SDK 执行。

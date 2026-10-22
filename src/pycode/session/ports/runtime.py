@@ -25,10 +25,6 @@ class RuntimeLauncher(Protocol):
     async def aclose(self) -> None: ...
 
     async def invalidate_summary(self, reason: str) -> None: ...
-    async def reconcile_hook(
-        self, store, operation_id, action, text="", is_error=False
-    ) -> object: ...
-
     async def resume(
         self,
         provider: ProviderConfig,

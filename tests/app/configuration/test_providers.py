@@ -124,14 +124,14 @@ def test_selector_model_reference_and_limits_are_loaded_without_new_credentials(
         "max_tools": 3,
         "always_include": ["read_file"],
     }
-    selected = load_providers(write_config(tmp_path, [data]))[0].tool_selector
-    assert selected.model.provider == "openai-instance"
-    assert selected.max_tools == 3 and selected.always_include == ("read_file",)
+    with pytest.raises(DomainError, match="Provider configuration"):
+        load_providers(write_config(tmp_path, [data]))
 
 
 @pytest.mark.parametrize(
     "references",
     [
+        [],
         [{"provider": "missing", "model_id": "model"}],
         [{"provider": "openai-instance", "model_id": "configured-model"}],
         [{"provider": "other", "model_id": "other-model"}] * 2,
@@ -139,12 +139,10 @@ def test_selector_model_reference_and_limits_are_loaded_without_new_credentials(
         [{"provider": "other", "model_id": "other-model"}] * 5,
     ],
 )
-def test_fallback_references_are_validated_as_configured_unique_ordered_models(
-    tmp_path, references
-):
+def test_removed_fallback_option_is_explicitly_rejected(tmp_path, references):
     first = asdict(configuration("openai"))
     second = {**first, "name": "other", "model_id": "other-model"}
     first["fallback_models"] = references
     with pytest.raises(DomainError) as error:
         load_providers(write_config(tmp_path, [first, second]))
-    assert error.value.code == "invalid_provider_config"
+    assert error.value.code == "unsupported_provider_option"

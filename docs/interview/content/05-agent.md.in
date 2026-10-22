@@ -12,17 +12,20 @@
 
 {{chain:05-agent:build}}
 
-Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，并通过注入方法设置初始标题，然后调用build。build把当时registry中的初始可见工具转换给框架，登记文件工具、Todo、可选AGENTS指令、功能扩展、History与Settlement，再调用`create_deep_agent`。MCP后续刷新与Skill资源按需增加工具的动作还没全部发生，不能说构图已经完成最终工具集合。
+Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，并通过注入方法设置初始标题，然后调用build。build把当时registry中的初始可见工具转换给框架，登记文件工具、Todo、可选AGENTS指令、功能扩展、History与Settlement，再调用`create_deep_agent`。MCP 后续刷新仍可能增加候选工具；这些完整定义仅在 ToolSearch 成功加载后才发送给模型。构图中的执行工具集合与模型当次看到的定义不是一回事。
 
 官方默认摘要和隐式通用子Agent在这里关闭，因为项目已经有需要核对来源的Context摘要流程，也只允许应用明确提供的子Agent。图拿到保存本次运行位置的对象（checkpointer）后，`invoke`才执行`graph.ainvoke`。到此，“以后该调用哪些方法”已经交清楚，下一步看第一次真正请求模型之前框架怎样回调它们。
 
 ## 第二步：每次问模型前，先整理旧内容，再交付新补充
 
-框架进入`HistoryMiddleware.abefore_model`时，当前图已经存在，但这次还没有发送模型请求。该方法先恢复主模型选择，再把三个本地闭包接成LangChain顺序步骤：整理已有消息、保存用户补充的即时要求、重新生成这次要发送的消息。
+框架进入`HistoryMiddleware.abefore_model`时，当前图已经存在，但这次还没有发送模型请求。该方法使用当前选定模型，把三个本地闭包接成 LangChain 顺序步骤：整理已有消息、保存用户补充的即时要求、重新生成这次要发送的消息。
 
 第一段先调用应用注入的准备方法，例如把最新MCP声明放入registry，再调用上一章的summary.prepare。随后把摘要正在使用的消息ID交给eviction，避免旧测试输出省略动作破坏正在生成的摘要。不是History自己解析MCP或重写摘要算法，而是把当前状态交给已经接好的方法。
 
 {{chain:05-agent:prepare}}
+
+真正发送前，prepare_model_boundary 先做权限与 Skill 范围过滤，再调用 ToolDiscovery.disclose。首次只提供 ToolSearch 的完整定义，以及按来源分类的工具名称和一句话用途。主模型通过 ToolSearch 搜索需要的工具，结果成功保存后，下一次请求才加载匹配工具的完整参数；没有额外筛选模型。calibrate_model_request 记录最终披露名单与预算，猜测未加载工具的调用会被拒绝。
+
 
 维护完成，第二段才读取Team消息并从持久化输入中取出尚未正式交给模型的即时要求，代码把这类输入叫`steer`。比如用户在等待测试时补充“还要覆盖空输入”，这句话此前已经保存为排队输入；现在`deliver_input`先写成正式用户消息，再通知界面它已交付，不能只把临时事件文本塞进模型。
 
@@ -56,7 +59,7 @@ Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，�
 
 ## 第五步：用户回答以后恢复同一图，结束前再检查补充输入
 
-用户在当前TUI批准这次命令，面板交回问题对应的答案。`AgentRuntime.resume`先确认图还在，并读取图保存的当前运行位置，取得此刻真正等待用户回答的问题。框架把保存的位置叫`checkpoint`，把暂停问题叫`interrupt`。单问题也要对应它的ID，多问题按ID分别回答；MCP表单等专门问题的检查方法，或普通操作的检查通过后，才用`Command(resume=...)`继续这张图。
+用户在当前TUI批准这次命令，面板交回问题对应的答案。`AgentRuntime.resume`先确认图还在，并读取图保存的当前运行位置，取得此刻真正等待用户回答的问题。框架把保存的位置叫`checkpoint`，把暂停问题叫`interrupt`。单问题也要对应它的ID，多问题按ID分别回答；普通操作的答案检查通过后，才用`Command(resume=...)`继续这张图。
 
 恢复不会重新new一张图，再猜刚才走到了哪。工具已经保存的结果可以被当前结算逻辑识别；图已关闭或进程已重启时则明确报run_expired。磁盘里还留有run_wait，只能解释历史上曾经等待什么，不提供继续执行旧命令的权利。
 

@@ -71,3 +71,7 @@ async def test_missing_project_rules_and_bounded_utf8_errors(tmp_path):
     (tmp_path / "agent.md").write_bytes(b"\xff")
     with pytest.raises(StorageError, match="UTF-8"):
         await source.read()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

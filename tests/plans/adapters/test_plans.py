@@ -220,3 +220,7 @@ async def test_restart_keeps_markdown_but_invalidates_old_plan_interrupt(tmp_pat
             assert len(requests) == 2
         finally:
             await reopened.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

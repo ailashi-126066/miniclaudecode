@@ -1,5 +1,7 @@
 """Large rg output is preserved before native FilesystemMiddleware truncates it."""
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -48,3 +50,7 @@ async def run_large_grep(tmp_path):
             assert "".join(parts) == "/workspace/large.txt:1:needle " + "x" * 100000
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -29,16 +29,21 @@
 Main Graph checkpoint and progress events are memory-only. runtime.sqlite has no current
 tool-operation, stream-event, approval or main-chat checkpoint tables.
 
-No storage migration or legacy-format compatibility code remains. Only the current formats are
-read: session headers branded `pycode`, output metadata with an empty preview plus
-`preview_sha256`, revert journals whose `revert_started` entries carry `transaction_id` and a saved
-plan, and JSON memory (`memory.json`). Older runtime tables, `py`-branded headers, settled output
-records, pre-transaction revert journals and per-record Markdown memory are no longer converted or
-recovered. Memory snapshots still accept the optional `migration` receipt field so files published
-by the former one-way migrator keep decoding; nothing writes, verifies or protects its backups.
-Fields left by the removed memory pipeline (`processed_batches`, `group_receipts`,
-`tool_receipts`, `move_receipts`) are ignored on read and dropped on the next write; old
-`versions/`, `jobs/` and `moves/` directories are no longer read.
+Only the current defined formats are accepted. Session headers require application `pycode`
+and integer schema_version 1; v0 is rejected rather than upgraded. Unknown header, entry and
+message fields are rejected, and run_start records require execution_session_id instead of
+inferring an owner from older parent-session conventions. Removed Hook review records and old
+Hook action fields are unsupported. No old record is rewritten into the current schema.
+
+Memory snapshots require exactly the current schema fields (schema_version, namespace, revision,
+records); removed migration/pipeline receipts are errors, not ignored fields. Memory `review` mode
+is not converted into `auto`. Keys are exact strings, without UUID-hex/hyphen alias lookup.
+Request-accounting records no longer contain candidate_index; records carrying it are rejected.
+Existing files remain on disk when validation fails. There is no automatic import, upgrade or wipe.
+
+Torn-tail recovery, branch position repair and interrupted-effect recording remain: these handle
+incomplete writes in the current format, not old-version compatibility. The session-info header
+copy used after explicit session deletion is also a current GC/ancestry record, not a legacy fallback.
 
 JSONL model responses precede tool execution. Final ToolResult precedes object binding, snapshot
 boundary and finish events. A streamed object can be durable before its JSONL fact; restart treats
@@ -83,11 +88,12 @@ entry was retained and that ephemeral output objects were removed with the works
 reports are immutable historical evidence and are never rewritten by normal test execution.
 
 JsonMemoryStore (a LangGraph BaseStore) binds configured namespaces (non-path user/project
-identities) to separate `memory.json` files. Schema version 1 contains `namespace`, `revision`,
-optional `migration` and `records`: `{key: {value: {kind, content}, created_at, updated_at}}`.
-LangMem writes `{kind: "Memory", content: {content: text}}`; older Semantic/Episodic/Procedural
-records stay readable. Existing hex UUID IDs resolve through their UUID-equivalent hyphenated
-form when LangMem manages them; writes retain the existing key. Each write takes the scope's `memory.lock` FileLease and publishes the
+identities) to separate memory.json files. Schema version 1 contains namespace, revision and
+records: `{key: {value: {kind, content}, created_at, updated_at}}`. LangMem's current tools and
+Store Manager inputs are normalized into this current value structure at the SDK boundary;
+this is not a legacy file converter. Text values display their content; other structured values
+are displayed as JSON without old Semantic/Episodic/Procedural title/body conversion.
+Each write takes the scope's `memory.lock` FileLease and publishes the
 whole file with atomic_write. Duplicate keys, invalid records and corrupt files fail without
 overwrite. Search supports namespace prefixes, dotted equality filters and simple token overlap
 for text queries; there are no embeddings, staging views or job leases. `settings.json` in the
@@ -127,3 +133,9 @@ do not acknowledge delivery. Idle wake inputs record message IDs and retain send
 On restart active children become interrupted, unfinished claims reopen, old child messages
 are dropped, and notifications wait for the next user-started run. No child or lead auto-runs.
 Worktree recovery flags are inspected and shown without automatically merging, aborting or cleaning.
+
+Hook command/prompt actions are synchronous. Calls and results are recorded; there is no Hook
+review/retry UI. A recorded unfinished operation is not automatically rerun. Regular check failures
+are reported to the Agent; failed pre-tool checks and explicit rejections block the related tool.
+Automatic model fallback is removed. Each request retries only its selected model under RetryPolicy;
+after exhaustion it reports an error. Explicit model selection remains available.

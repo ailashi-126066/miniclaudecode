@@ -2,14 +2,11 @@
 
 from pycode.models.domain.models import (
     CapabilityOverride,
-    ModelReference,
     ProviderConfig,
-    ToolSelectorSettings,
     model_selection,
 )
 from pycode.models.domain.network import is_loopback_host
 from pycode.models.domain.requests import RequestRecord, RetryPolicy
-from pycode.models.domain.selection import selector_provider
 from pycode.models.domain.tool_text import model_tool_text
 from pycode.models.ports.context import (
     CalibrationContext,
@@ -43,16 +40,13 @@ __all__ = [
     "ModelDirectory",
     "ModelFailureClassifier",
     "ModelObservation",
-    "ModelReference",
     "Projector",
     "ProviderConfig",
     "RequestRecord",
     "RequestStore",
     "RetryPolicy",
     "RunOwnership",
-    "ToolSelectorSettings",
     "UsageService",
     "is_loopback_host",
     "model_selection",
-    "selector_provider",
 ]

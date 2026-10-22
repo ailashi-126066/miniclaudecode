@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from pycode.hooks.adapters.actions import ConfiguredHookActions
-from pycode.hooks.adapters.config import parse_hooks
-from pycode.hooks.domain.hooks import HookAction, HookContext
-from pycode.hooks.services.hooks import HookActionTool
+from pycode.hooks.actions import ConfiguredHookActions
+from pycode.hooks.api import HookActionTool
+from pycode.hooks.config import parse_hooks
+from pycode.hooks.types import HookAction, HookContext
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.tools import ToolContext
 from pycode.sandbox.adapters.seatbelt import UnavailableSandbox

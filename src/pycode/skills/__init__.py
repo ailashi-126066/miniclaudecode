@@ -1,35 +1,7 @@
-"""Public native contracts, policies and services for skills."""
+"""Skills: discover, prepare, author and install local instructions."""
 
-from pycode.skills.domain.skill_selection import SkillSelection
-from pycode.skills.domain.skills import active_skills, skill_scope, skill_tool_specs
-from pycode.skills.ports.guard import CatalogWriteGuard, SchemaChecker
-from pycode.skills.ports.sandbox import SkillReadGrant
-from pycode.skills.ports.skills import (
-    SkillCatalog,
-    SkillCatalogCommands,
-    SkillInstaller,
-    SkillResourceToolFactory,
-)
-from pycode.skills.services.projection import SkillsProjection
-from pycode.skills.services.scope import SkillsScopeConstraint
-from pycode.skills.services.skill_resources import SkillLoadRecorder, SkillResources
-from pycode.skills.services.skills import SkillService
+from pycode.skills.api import Skills
+from pycode.skills.history import SkillsProjection
+from pycode.skills.types import SkillDocument, SkillEntry, SkillIndex
 
-__all__ = [
-    "SkillsProjection",
-    "SkillsScopeConstraint",
-    "CatalogWriteGuard",
-    "SchemaChecker",
-    "SkillCatalog",
-    "SkillCatalogCommands",
-    "SkillInstaller",
-    "SkillLoadRecorder",
-    "SkillReadGrant",
-    "SkillResourceToolFactory",
-    "SkillResources",
-    "SkillSelection",
-    "SkillService",
-    "active_skills",
-    "skill_scope",
-    "skill_tool_specs",
-]
+__all__ = ["Skills", "SkillDocument", "SkillEntry", "SkillIndex", "SkillsProjection"]

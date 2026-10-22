@@ -1,6 +1,5 @@
 """Connect the selected presentation module to application session operations."""
 
-from pycode.app.composition.modules import default_modules
 from pycode.app.composition.session import open_agent_session
 
 
@@ -34,7 +33,6 @@ class ConfiguredInteractiveSessions:
         return await self._sessions.fork(source_id, leaf_id, target_id)
 
 
-def build_tui(config, providers, *, session_id=None, tools=(), modules=None):
-    modules = default_modules(config) if modules is None else modules
+def build_tui(config, providers, *, session_id=None, tools=(), modules):
     sessions = ConfiguredInteractiveSessions(config, providers, tools, modules=modules)
     return modules.ui.tui(sessions, session_id=session_id)

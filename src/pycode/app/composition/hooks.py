@@ -2,7 +2,7 @@
 
 import os
 
-from pycode.app.composition.outputs import build_outputs
+from pycode.app.composition.factories import build_outputs
 from pycode.kernel import EventStream
 
 
@@ -15,7 +15,6 @@ def build_hook_engine(
     *,
     modules,
     snapshots=None,
-    owned_tasks=None,
     plans=None,
     read_only=False,
 ):
@@ -31,7 +30,6 @@ def build_hook_engine(
         events,
         bind_output=outputs.bind,
         executor_factory=executor_factory,
-        owned_tasks=owned_tasks,
         plans=plans,
         read_only=read_only,
     )
@@ -53,17 +51,11 @@ def build_lifecycle_hook_engine(launcher, store, snapshot, lifetime, *, modules)
             dict(os.environ),
             process_runner=modules.sandbox.process_runner,
             passthrough=launcher.config.subprocess_passthrough,
-            delegate=modules.team.delegate(
-                launcher.team_member.team, launcher.lifecycle_provider, store, lifetime
-            )
-            if launcher.config.allow_delegation and launcher.team_member is not None
-            else None,
         ),
         outputs,
         events,
         modules=modules,
         snapshots=modules.snapshots.store(),
-        owned_tasks=launcher.hook_tasks,
         plans=launcher.plans,
         read_only=launcher.config.read_only,
     )

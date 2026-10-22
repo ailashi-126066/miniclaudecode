@@ -1,10 +1,24 @@
 """Strict native JSONL boundary; never reads upstream session formats."""
 
 import json
+from dataclasses import fields
 
 from pydantic import TypeAdapter, ValidationError
 
-from pycode.kernel import SessionEntry, SessionHeader, StorageError, json_dumps, plain_data
+from pycode.kernel import (
+    Message,
+    ModelCapabilities,
+    ModelSelection,
+    SessionEntry,
+    SessionHeader,
+    StorageError,
+    ThinkingBlock,
+    ToolCall,
+    ToolResult,
+    UsageRecord,
+    json_dumps,
+    plain_data,
+)
 
 
 def encode_header(header: SessionHeader) -> bytes:
@@ -21,16 +35,25 @@ def encode(data: dict) -> bytes:
     ).encode()
 
 
+def reject_unknown_fields(payload, record_type):
+    if not isinstance(payload, dict) or set(payload) - {
+        field.name for field in fields(record_type)
+    }:
+        raise ValueError("Unsupported record fields")
+
+
 def decode_header(data: bytes) -> SessionHeader:
     try:
         payload = json.loads(data)
+        if not isinstance(payload, dict):
+            raise ValueError("Session header must be an object")
         if payload.get("record_type") != "header" or payload.get("application") != "pycode":
             raise ValueError("Not a native session header")
         version = payload.get("schema_version")
-        if version not in {0, 1} or isinstance(version, bool):
+        if type(version) is not int or version != 1:
             raise ValueError("Unsupported native session schema")
         payload.pop("record_type")
-        payload["schema_version"] = 1
+        reject_unknown_fields(payload, SessionHeader)
         return TypeAdapter(SessionHeader).validate_json(json_dumps(payload), strict=True)
     except (ValueError, TypeError, ValidationError) as error:
         raise StorageError(
@@ -40,6 +63,26 @@ def decode_header(data: bytes) -> SessionHeader:
 
 def decode_entry(data: bytes) -> SessionEntry:
     try:
+        payload = json.loads(data)
+        reject_unknown_fields(payload, SessionEntry)
+        if payload.get("selection") is not None:
+            validate_selection_fields(payload["selection"])
+        message = payload.get("message")
+        if message is not None:
+            reject_unknown_fields(message, Message)
+            for call in message.get("tool_calls", []):
+                reject_unknown_fields(call, ToolCall)
+            for block in message.get("thinking", []):
+                reject_unknown_fields(block, ThinkingBlock)
+            for attachment in message.get("attachments", []):
+                if set(attachment) - {"media_type", "reference", "metadata"}:
+                    raise ValueError("Unsupported attachment fields")
+            if message.get("tool_result") is not None:
+                reject_unknown_fields(message["tool_result"], ToolResult)
+            if message.get("usage") is not None:
+                reject_unknown_fields(message["usage"], UsageRecord)
+            if message.get("model_selection") is not None:
+                validate_selection_fields(message["model_selection"])
         entry = TypeAdapter(SessionEntry).validate_json(data, strict=True)
         validate_entry(entry)
         return entry
@@ -47,9 +90,45 @@ def decode_entry(data: bytes) -> SessionEntry:
         raise StorageError("invalid_session_entry", "Invalid native session entry") from error
 
 
+def validate_selection_fields(selection):
+    reject_unknown_fields(selection, ModelSelection)
+    if selection.get("capabilities") is not None:
+        reject_unknown_fields(selection["capabilities"], ModelCapabilities)
+
+
 def validate_entry(entry: SessionEntry) -> None:
     if not entry.id or not entry.type or not entry.timestamp:
         raise ValueError("Entry identity, type and timestamp are required")
+    if entry.type in {"hook_review", "hook_review_result"}:
+        raise ValueError("Hook review records are not part of the current format")
+    if entry.type == "custom" and entry.data.get("kind") in {
+        "hook_review_request",
+        "model_candidate",
+    }:
+        raise ValueError("Removed execution metadata is not part of the current format")
+    if entry.type == "hook_result":
+        reject_unknown_fields(entry.data.get("result"), ToolResult)
+    if entry.type == "hook_call":
+        hook = entry.data.get("hook")
+        if not isinstance(hook, dict) or set(hook) != {
+            "id",
+            "event",
+            "action",
+            "condition",
+            "reject",
+            "once",
+            "source",
+        }:
+            raise ValueError("Unsupported Hook record format")
+        action = hook["action"]
+        if not isinstance(action, dict) or set(action) != {"type", "command", "message", "timeout"}:
+            raise ValueError("Unsupported Hook action format")
+        if action["type"] not in {"command", "prompt"}:
+            raise ValueError("Unsupported Hook action")
+    if entry.type == "custom" and entry.data.get("kind") == "run_start":
+        owner = entry.data.get("execution_session_id")
+        if not isinstance(owner, str) or not owner:
+            raise ValueError("Run start requires its explicit execution session")
     if entry.type == "message":
         message = entry.message
         if message is None or not message.id:

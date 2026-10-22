@@ -23,8 +23,6 @@ def tool_failure(error, call, *, executed=False, uncertain=False):
     details = {"executed": executed}
     if uncertain:
         details["side_effects_uncertain"] = True
-    if code == "hook_failed":
-        details["critical_hook_failure"] = True
     return ToolResult(
         call.id, call.name, text[:1600], is_error=True, error_code=code, details=details
     )

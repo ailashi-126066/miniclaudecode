@@ -1,5 +1,7 @@
 """Read windows use native zero-based offsets; complete giant reads use output objects."""
 
+import pytest
+
 from pycode.kernel.domain.truncation import MAX_BYTES
 from pycode.tools.adapters.backend import PycodeBackend
 
@@ -31,3 +33,6 @@ async def test_read_rejects_escape_and_missing_file(tmp_path):
     backend = PycodeBackend(tmp_path)
     assert (await backend.aread("/../outside")).error.startswith("outside_workspace")
     assert (await backend.aread("/missing")).error.startswith("file_not_found")
+
+
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

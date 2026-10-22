@@ -88,7 +88,7 @@ class SettlementContext(Protocol):
     settlement: asyncio.Condition
     ready_results: dict[str, tuple[ToolCall, ToolResult, dict]]
     model_tools: tuple[ToolSpec, ...]
-    selected_tool_names: tuple[str, ...] | None
+    disclosed_tool_names: tuple[str, ...] | None
     turn_end_sent: bool
     outputs: ToolOutputStore | None
     plans: PlanService | None
@@ -135,24 +135,20 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
             try:
                 spec = context.registry.get_spec(call.name)
             except ToolError:
-                resource = self.extension_tool(call.name, request.state)
-                if resource is not None:
-                    spec = resource.spec
-                else:
-                    read_only = call.name in {
-                        "read_file",
-                        "ls",
-                        "glob",
-                        "grep",
-                        "write_todos",
-                        "task",
-                    }
-                    spec = ToolSpec(
-                        call.name,
-                        "Framework tool",
-                        {},
-                        execution_mode="parallel" if read_only else "sequential",
-                    )
+                read_only = call.name in {
+                    "read_file",
+                    "ls",
+                    "glob",
+                    "grep",
+                    "write_todos",
+                    "task",
+                }
+                spec = ToolSpec(
+                    call.name,
+                    "Framework tool",
+                    {},
+                    execution_mode="parallel" if read_only else "sequential",
+                )
             specifications.append(spec)
         serial = batch_execution_mode(context.execution_mode, tuple(specifications)) == "sequential"
         if serial and request.tool_call["id"] in context.call_order:
@@ -304,50 +300,46 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
             spec = context.registry.get_spec(call.name)
             request = request.override(tool=self.framework_tool(spec, context, tool_context))
         except ToolError:
-            resource = self.extension_tool(call.name, request.state)
-            if resource is not None:
-                spec = resource.spec
-                request = request.override(
-                    tool=self.framework_tool(spec, context, tool_context, resource)
-                )
-            else:
-                if request.tool is None:
-                    result = ToolResult(
-                        call.id,
-                        call.name,
-                        "Unknown tool: " + call.name,
-                        is_error=True,
-                        error_code="unknown_tool",
-                        details={"executed": False},
-                    )
-                category = (
-                    "read"
-                    if call.name
-                    in {
-                        "read_file",
-                        "ls",
-                        "glob",
-                        "grep",
-                        "write_todos",
-                        "task",
-                    }
-                    else "write"
-                )
-                schema = request.tool.args_schema if request.tool is not None else {}
-                if not isinstance(schema, dict):
-                    schema = schema.model_json_schema()
-                spec = ToolSpec(
+            if request.tool is None:
+                result = ToolResult(
+                    call.id,
                     call.name,
-                    "Deep Agents tool",
-                    schema,
-                    category=category,
-                    execution_mode="parallel" if category == "read" else "sequential",
+                    "Unknown tool: " + call.name,
+                    is_error=True,
+                    error_code="unknown_tool",
+                    details={"executed": False},
                 )
+            category = (
+                "read"
+                if call.name
+                in {
+                    "read_file",
+                    "ls",
+                    "glob",
+                    "grep",
+                    "write_todos",
+                    "task",
+                }
+                else "write"
+            )
+            schema = request.tool.args_schema if request.tool is not None else {}
+            if not isinstance(schema, dict):
+                schema = schema.model_json_schema()
+            spec = ToolSpec(
+                call.name,
+                "Deep Agents tool",
+                schema,
+                category=category,
+                execution_mode="parallel" if category == "read" else "sequential",
+            )
         return request, spec, result
 
     async def declaration_error(self, context, call, spec, tool_context):
         result = None
-        if context.selected_tool_names is not None and call.name not in context.selected_tool_names:
+        if (
+            context.disclosed_tool_names is not None
+            and call.name not in context.disclosed_tool_names
+        ):
             # A hidden tool can never execute or request approval. Preserve a
             # more specific, purely rejecting feature policy when one applies.
             try:
@@ -368,7 +360,7 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 error_code="tool_not_declared",
                 details={"executed": False},
             )
-        if context.selected_tool_names is not None:
+        if context.disclosed_tool_names is not None:
             for declared in context.model_tools:
                 if declared.name != call.name or declared.source == "deepagents":
                     continue
@@ -391,13 +383,6 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
     def framework_tool(self, *args):
         return make_framework_tool(*args, native_bindings=self.native_bindings)
 
-    def extension_tool(self, name, state):
-        for extension in self.tool_extensions:
-            tool = extension.lookup(name, state=state)
-            if tool is not None:
-                return tool
-        return None
-
     def native_binding(self, name):
         for binding in self.native_bindings:
             if binding.framework_tool(name) is not None:
@@ -409,7 +394,7 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
         try:
             domain = context.registry.get(current_call.name)
         except ToolError:
-            domain = self.extension_tool(current_call.name, request.state)
+            domain = None
         if domain is not None:
             current_request = request.override(
                 tool_call={
@@ -603,11 +588,6 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
             if context.team is not None:
                 await context.team.settle_tool(saved_result, accepted=True)
             await context.executor.completed(saved_context, saved_call, saved_result)
-            if saved_result.details.get("critical_hook_failure"):
-                raise StorageError(
-                    "critical_hook_failed",
-                    "A required synchronous Hook failed; this run has stopped",
-                )
             async with context.duplicate_calls:
                 context.dispatched_calls.add(identifier)
                 context.duplicate_calls.notify_all()

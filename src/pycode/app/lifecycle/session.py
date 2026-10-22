@@ -63,8 +63,6 @@ class ConfiguredRuntimeLauncher:
         self.plans = plans
         self.plan_backend = plan_backend
         self.durable_inputs = durable_inputs
-        self._hook_engines = []
-        self.hook_tasks = {}
         self._lifecycle_engine = None
         self._lifecycle_context = None
         self._active_container = None
@@ -81,7 +79,6 @@ class ConfiguredRuntimeLauncher:
         self._lifecycle_context = HookContext(
             snapshot.header.session_id, lifetime, str(self.config.workspace), lifetime, "startup"
         )
-        self._hook_engines.append(engine)
         await engine.fire(self._lifecycle_context)
 
     def abort_startup(self):
@@ -120,8 +117,6 @@ class ConfiguredRuntimeLauncher:
         try:
             if container.context.summary is not None:
                 await container.context.summary.cancel_background()
-            if container.context.hooks is not None:
-                await container.context.hooks.collect(cancel=True)
         finally:
             container.runtime.discard()
             await container.aclose()
@@ -143,9 +138,6 @@ class ConfiguredRuntimeLauncher:
             await self._prompt_factory(store).refresh()
             container = await self._runtime_factory(self, provider, store, run_id)
             self._active_container = container
-            if container.context.hooks is not None:
-                self._hook_engines.append(container.context.hooks)
-                container.owns_hooks = False
             self.summary = container.context.summary
             container.owns_summary = False
         keep_waiting = False
@@ -175,9 +167,6 @@ class ConfiguredRuntimeLauncher:
         snapshot = await store.snapshot()
         assert self._runtime_factory is not None
         container = await self._runtime_factory(self, provider, store, uuid4().hex)
-        if container.context.hooks is not None:
-            self._hook_engines.append(container.context.hooks)
-            container.owns_hooks = False
         self.summary = container.context.summary
         container.owns_summary = False
         try:
@@ -225,7 +214,6 @@ class ConfiguredRuntimeLauncher:
 
     async def _close_all(self):
         active, self._active_container = self._active_container, None
-        engines, self._hook_engines = self._hook_engines, []
         summary, self.summary = self.summary, None
         owners, self.resource_owners = self.resource_owners, ()
         lifecycle, self._lifecycle_engine = self._lifecycle_engine, None
@@ -242,10 +230,6 @@ class ConfiguredRuntimeLauncher:
             await attempt(active.aclose())
         if lifecycle is not None and lifecycle_context is not None:
             await attempt(lifecycle.fire(replace(lifecycle_context, event_name="shutdown")))
-        if engines:
-            await attempt(engines[0].collect(cancel=True))
-        for engine in engines:
-            await attempt(engine.aclose())
         if summary is not None:
             await attempt(summary.aclose())
         for owner in reversed(owners):
@@ -256,12 +240,3 @@ class ConfiguredRuntimeLauncher:
     async def invalidate_summary(self, reason):
         if self.summary is not None:
             await self.summary.invalidate(reason)
-
-    async def reconcile_hook(self, store, operation_id, action, text="", is_error=False):
-        snapshot = await store.snapshot()
-        assert self._hook_factory is not None
-        engine = self._hook_factory(self, store, snapshot, uuid4().hex)
-        try:
-            await engine.reconcile(operation_id, action, text, is_error)
-        finally:
-            await engine.aclose()

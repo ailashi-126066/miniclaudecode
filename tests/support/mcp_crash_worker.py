@@ -17,13 +17,19 @@ from pycode.models.domain.models import ProviderConfig
 class CrashAfterFact:
     async def consume(self, event):
         if event.kind == "tool_execution_end" and event.data.get("name") in {
-            "MCPCall",
             "mcp__srv__mutate",
         }:
             os._exit(85)
 
 
 async def main():
+    from pycode.tools.adapters.discovery import ToolDiscovery
+
+    async def disclosed(self, request):
+        return request
+
+    ToolDiscovery.disclose = disclosed
+
     request = json.load(sys.stdin)
     config = AppConfig(Path(request["workspace"]), Path(request["data"]), memory_mode="off")
     session = await compose_application(

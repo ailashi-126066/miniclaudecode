@@ -1,9 +1,8 @@
 """In-process team services and Git integration without application configuration."""
 
-from pycode.team.adapters.delegate import TeamDelegate
-from pycode.team.adapters.team_tools import child_tools, lead_tools
-from pycode.team.adapters.worktrees import WorktreeManager
-from pycode.team.services.team import AgentTeam
+from pycode.team.api import AgentTeam
+from pycode.team.tools import child_tools, lead_tools
+from pycode.team.worktrees import WorktreeManager
 
 
 class TeamModule:
@@ -15,12 +14,6 @@ class TeamModule:
 
     def tools(self, member, provider):
         return lead_tools(member, provider) if member.agent_id == "lead" else child_tools(member)
-
-    def selector_required_names(self, member, provider) -> tuple[str, ...]:
-        return tuple(tool.spec.name for tool in self.tools(member, provider))
-
-    def delegate(self, team, provider, parent_history, run_id=None):
-        return TeamDelegate(team, provider, parent_history, run_id)
 
     def event_relay(self, member):
         return ChildEventRelay(member)

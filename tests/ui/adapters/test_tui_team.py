@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from pycode.ui.adapters.approval import ApprovalPanel
 from pycode.ui.adapters.tui import PyApp
@@ -14,6 +14,7 @@ async def test_child_approval_dispatch_while_lead_is_busy_uses_separate_task():
         _team_tasks=set(),
         query_one=lambda *args: panel,
         answer_child=AsyncMock(),
+        collapse_parent=Mock(),
         respond=lambda answer: (_ for _ in ()).throw(AssertionError("lead resume")),
         busy=True,
     )
@@ -24,12 +25,16 @@ async def test_child_approval_dispatch_while_lead_is_busy_uses_separate_task():
         "12345678", {"operation_id": "op", "decision": "approve"}
     )
     assert panel.disabled
+    host.collapse_parent.assert_called_once_with(panel)
 
 
 async def test_multiple_child_approvals_keep_individual_agent_identity():
     panel = SimpleNamespace(disabled=False)
     host = SimpleNamespace(
-        _team_tasks=set(), query_one=lambda *args: panel, answer_child=AsyncMock()
+        _team_tasks=set(),
+        query_one=lambda *args: panel,
+        answer_child=AsyncMock(),
+        collapse_parent=Mock(),
     )
     for identifier in ("12345678", "87654321"):
         PyApp.on_approval_panel_responded(

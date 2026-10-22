@@ -39,7 +39,7 @@ async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_
         return store
 
     monkeypatch.setattr(repository, "open", open_supplied_store)
-    monkeypatch.setattr(application.modules.sessions, "repository", lambda: repository)
+    monkeypatch.setattr(application._modules.sessions, "repository", lambda: repository)
     view = await application.open_view("s")
     try:
         first = await view.inspect(presentation=True)
@@ -54,3 +54,7 @@ async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_
         assert added["history"][-1]["message"]["text"] == "new"
     finally:
         await view.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

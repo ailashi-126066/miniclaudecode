@@ -16,7 +16,7 @@ class SessionHeader:
     workspace: str
     created_at: str
     application: Literal["pycode"] = "pycode"
-    schema_version: int = 1
+    schema_version: Literal[1] = 1
     parent_session_id: str | None = None
     forked_from_entry_id: str | None = None
 

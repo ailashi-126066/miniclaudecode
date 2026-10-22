@@ -267,3 +267,7 @@ async def test_hidden_tool_schema_error_is_redacted_in_result_history_and_comple
         assert "sk-abcdefghijklmnop12345678" not in output.read_text()
     finally:
         await journal.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

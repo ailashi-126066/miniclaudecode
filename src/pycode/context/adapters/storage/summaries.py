@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 
 from pycode.context.domain.summaries import SummaryObject, SummarySource
 from pycode.kernel import StorageError, data_hash, json_dumps, plain_data
-from pycode.kernel.adapters.path_io import atomic_write
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 
 
 class FileSummaryStore:
@@ -24,12 +24,8 @@ class FileSummaryStore:
 
     async def run_io(self, action):
         async with self._lock:
-            owned = asyncio.create_task(asyncio.to_thread(action))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(action)
             except (OSError, ValueError, TypeError, KeyError) as error:
                 raise StorageError(
                     "summary_storage_error", "Summary object storage failed"

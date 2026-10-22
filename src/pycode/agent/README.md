@@ -12,7 +12,7 @@ bindings = agent.bindings(
     to_framework=to_framework,
     from_assistant=from_assistant,
     make_framework_tool=make_framework_tool,
-    select_model_tools=select_model_tools,
+    disclose_model_tools=discovery.disclose,
     calibrate_model_request=calibrate_model_request,
     model_request_step=model_request_step,
     settlement_middleware_factory=settlement_factory,
@@ -20,12 +20,11 @@ bindings = agent.bindings(
     framework_extensions=extensions,
     model_filters=filters,
     before_model=callbacks,
-    question_extensions=question_extensions,
 )
 runtime = agent.runtime(model, bindings=bindings, backend=backend, checkpointer=agent.checkpoint())
 ```
 
-Extensions own optional disclosure and question policies. Their ordered factories
+Extensions own optional Skill loading and model-request policies. Their ordered factories
 receive only the current context, backend and injected conversion/model-boundary
 callbacks. An extension that prepares the model boundary declares that capability
 explicitly; history then avoids preparing the same request twice. The agent does

@@ -2,12 +2,9 @@
 
 from functools import partial
 
+from pycode.app.composition.factories import build_memory_service, build_outputs, skill_settings
 from pycode.app.composition.hooks import build_lifecycle_hook_engine
-from pycode.app.composition.memory import build_memory_service
-from pycode.app.composition.modules import default_modules
-from pycode.app.composition.outputs import build_outputs
 from pycode.app.composition.run import build_configured_run
-from pycode.app.composition.skills import skill_settings
 from pycode.app.composition.team import build_team, build_worktree_manager
 from pycode.app.configuration.credentials import credential_environment
 from pycode.app.lifecycle.session import ConfiguredRuntimeLauncher
@@ -29,7 +26,6 @@ from pycode.session import (
     pending_run_entry,
     recover_conversation,
 )
-from pycode.skills.module import SkillsModule
 
 
 async def open_agent_session(
@@ -45,11 +41,10 @@ async def open_agent_session(
     connect_mcp=True,
     team_member=None,
     prompt_suffix="",
-    modules=None,
+    modules,
 ) -> AgentSession:
     if not providers:
         raise ValueError("At least one configured provider is required")
-    modules = default_modules(config) if modules is None else modules
     if not create:
         session_id = await modules.sessions.service().resolve(session_id)
     catalog = modules.models.catalog(providers)
@@ -205,14 +200,9 @@ async def build_session_view(
     owns_history=False,
     event_journal=None,
     tools=(),
-    modules=None,
-    skills_session=None,
+    modules,
+    skills_session,
 ):
-    modules = default_modules(config) if modules is None else modules
-    if skills_session is None and modules.skills is not None:
-        skills_session = modules.skills.open_session(
-            skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
-        )
     skill_tools = ()
     if skills_session is not None and modules.skills is not None:
         # Services expose immutable declarations through their module, without loading bodies.
@@ -243,17 +233,7 @@ async def build_session_view(
         ]
         if not effective:
             effective.extend(specs)
-            effective.extend(SkillsModule.historical_specs(projection))
-            effective.extend(
-                MCPModule.view_specs(
-                    projection,
-                    selection,
-                    input_limit=InputBudget.create(
-                        selection.capabilities.context_window,
-                        selection.capabilities.max_output_tokens,
-                    ).input_limit,
-                )
-            )
+            effective.extend(MCPModule.view_specs(projection, selection))
         effective.sort(key=lambda spec: spec.name)
         return SummarySettings(
             selection,
@@ -289,12 +269,23 @@ async def build_session_view(
         raise
 
 
-async def open_session_view(config, session_id, *, modules=None):
-    modules = default_modules(config) if modules is None else modules
+async def open_session_view(config, session_id, *, modules):
     store = await modules.sessions.repository().open(session_id)
     try:
+        skills = (
+            modules.skills.open_session(
+                skill_settings(config), store, catalog_write_guard=SessionCatalogWriteGuard()
+            )
+            if modules.skills is not None
+            else None
+        )
         return await build_session_view(
-            config, store, session_id=session_id, owns_history=True, modules=modules
+            config,
+            store,
+            session_id=session_id,
+            owns_history=True,
+            modules=modules,
+            skills_session=skills,
         )
     except BaseException:
         await store.aclose()

@@ -10,7 +10,6 @@ from pycode.kernel import (
     SessionSnapshot,
     ToolResult,
 )
-from pycode.models import ToolSelectorSettings
 
 InputKind = Literal["steer", "follow_up"]
 
@@ -48,16 +47,6 @@ class TitleAssignment(Protocol):
 
 class WorkspaceReadback(Protocol):
     async def offload_read(self, context, arguments, outputs) -> ToolResult: ...
-
-
-class FallbackControl(Protocol):
-    def restore_primary(self, context: object) -> None: ...
-    async def aclose(self) -> None: ...
-
-
-class SelectorSettingsView(Protocol):
-    @property
-    def settings(self) -> ToolSelectorSettings: ...
 
 
 RuntimeContextT = TypeVar("RuntimeContextT", contravariant=True)

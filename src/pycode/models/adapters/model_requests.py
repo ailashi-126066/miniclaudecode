@@ -65,7 +65,6 @@ class ModelRequestRunner:
         agent_id: str = "lead",
         purpose: Purpose = "agent",
         observation: ModelObservation | None = None,
-        candidate_index: int = 0,
     ) -> None:
         self._store = store
         self._classifier = classifier
@@ -78,7 +77,6 @@ class ModelRequestRunner:
         self._agent_id = agent_id
         self._purpose: Purpose = purpose
         self._observation = observation
-        self.candidate_index = candidate_index
         self.active_request_id: str | None = None
         self._invocation_lock = asyncio.Lock()
 
@@ -100,7 +98,6 @@ class ModelRequestRunner:
                 for record in await self._store.list_requests(self._session_id)
                 if record.logical_id == logical_id
                 and record.run_id == self._run_id
-                and record.candidate_index == self.candidate_index
                 and record.provider == self._selection.provider
                 and record.model_id == self._selection.model_id
             ]
@@ -153,7 +150,6 @@ class ModelRequestRunner:
             started_at=self._timing.now(),
             agent_id=self._agent_id,
             logical_id=logical_id,
-            candidate_index=self.candidate_index,
         )
         await self._store.start(record)
         if self._observation is not None:
@@ -209,7 +205,6 @@ class ModelRequestRunner:
                 "pycode_request_purpose": record.purpose,
                 "pycode_agent_id": record.agent_id,
                 "pycode_origin_purpose": self._purpose,
-                "pycode_candidate_index": self.candidate_index,
             }
             if self._observation is not None:
                 metadata.update(self._observation.snapshot())
@@ -249,7 +244,6 @@ class ModelRequestRunner:
             "pycode_request_purpose": record.purpose,
             "pycode_agent_id": record.agent_id,
             "pycode_origin_purpose": self._purpose,
-            "pycode_candidate_index": self.candidate_index,
         }
         if self._observation is not None:
             observed = self._observation.snapshot()

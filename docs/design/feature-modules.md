@@ -141,12 +141,12 @@ model_identity → messages → tools/history → completion；基础 values/err
 | C06 models ↔ agent：fallback → calibrate_model_request | 校准实现移 models/adapters/calibration.py；models.ports 拥有 CalibrationContext/RegistryLookup/ResourceLookup/SummaryBudget/CalibrationReport 等 native 消费接口；不能导入 agent.RunContext | composition 将 calibrator 同时注入 fallback 与 agent；每个候选都重算有效工具/预算，fallback 不绕过计量/能力检查 |
 | C07 tools ↔ agent：settlement → make_framework_tool/save_message/run_hook/PycodeState | make_framework_tool 归 tools/adapters；工具 middleware 定义仅含 failure/settlement 所需字段的私有 ToolSettlementState；save_message 通过 tools.ports.MessagePublisher.publish(message, emit_start=False)->entry_id；生命周期通知通过 ToolLifecycle 端口 | agent/adapters 的 publisher 保持 JSONL → output bind → snapshot boundary → finish event 顺序；composition 传绑定函数，tools 不 import agent；framework converter 也注入 |
 | C08 tools → agent：tool_calls_may_execute | 该纯工具安全判断移 tools/domain/turn_guard.py，NextTurn/next_turn 留 agent/domain | ToolExecutor 本功能调用；截断/失败模型输出仍禁止执行工具 |
-| C09 tools ↔ hooks：ToolExecutor 构造 HookContext，HookEngine 注解 ToolExecutor/Registry | tools.ports.ToolHooks.fire(event_name, context, call, spec, result=None)->str 或 None；hooks 内桥接实现负责构造本功能 HookContext；HookEngine 通过 hooks.ports.HookExecutorFactory 获得 HookExecution，具体 registry/gate/executor 都由 composition 创建 | composition 注入 HookEngine 及桥接函数；pre_tool_use/permission_request/command_execute/post_tool_use 的事件、拒绝、时点和异常规则不变，tools 无 hooks import |
+| C09 tools ↔ hooks：ToolExecutor 构造 HookContext，Hooks 注解 ToolExecutor/Registry | tools.ports.ToolHooks.fire(event_name, context, call, spec, result=None)->str 或 None；hooks 内桥接实现负责构造本功能 HookContext；Hooks 通过 hooks.ports.HookExecutorFactory 获得 HookExecution，具体 registry/gate/executor 都由 composition 创建 | composition 注入 Hooks 及桥接函数；pre_tool_use/permission_request/command_execute/post_tool_use 的事件、拒绝、时点和异常规则不变，tools 无 hooks import |
 | C10 tools ↔ mcp：ToolRegistry.ToolDispatch、settlement.result_from_mcp | 通用 ToolDispatch.resolve(call)->ToolCall 归 tools.ports；result_normalizer 为 tools adapter 接收的框架边界回调（由 composition 注入）；MCP 正规化纯函数留 mcp/domain | composition 将 MCP dispatcher/normalizer 作为结构化实例与回调注入；MCP hash/name/原始调用身份与错误边界不变；tools 不 import mcp |
 | C11 tools ↔ memory：tool_failures.SECRET_PATTERNS | 通用脱敏归 kernel.redaction；memory 写拒绝仍是本功能纯策略；LangMem adapter 的 ToolSpec/ToolContext/ExecutableTool 用 kernel 声明 | composition 注册具体 memory tools；tools 无 memory import，不通过 source 名称获得额外权限 |
 | C12 tools ↔ sandbox：BashTool 依赖 ToolContext/Spec/OutputStore；InterruptToolGate 用 sandbox policy | 声明值改 kernel；sandbox.ports.OutputSink.begin(context, mode)->StreamWriter，仅声明 Bash 真正使用的 begin/append/finish/abort；不引入 tools.ToolOutputStore 整个读回接口 | composition 注入 FileToolOutputStore；InterruptToolGate 留 tools 且只用 sandbox 公开 SandboxSettings/SandboxBackend/denied_command/auto_approvable，最终单向 tools → sandbox；审批和 env 过滤不变 |
 | C13 session ↔ snapshot：RevertService/事务状态/Plan 两侧依赖 | RevertService 和 core.revert_state 整体归 session；core.snapshots.RevertPlan（含会话叶子）拆至 session/domain/revert.py；FileVersion/Snapshot/RestoreFile/RestorePlan/RestoreRecord 与 SnapshotStore 留 snapshot | session 调 snapshot 公开 SnapshotStore；snapshot 不 import 会话值/分支/JSONL。preview/apply/recover 的审批、事务记录、补偿与 leaf 语义不变 |
-| C14 session → skills → snapshot → session | skills 不再调用 pending_run_entry/pending_revert：skills.ports.CatalogWriteGuard.can_initialize(snapshot)->bool 由会话执行状态适配器提供；skills 只读/追加 HistoryJournal；SkillToolGate 迁 tools | composition 把 session 的纯状态判定绑定给 SkillService；原 skill_catalog_unavailable 原因与不自动创建规则不变；skills 不 import session 或 snapshot |
+| C14 session → skills → snapshot → session | skills 不再调用 pending_run_entry/pending_revert：skills.ports.CatalogWriteGuard.can_initialize(snapshot)->bool 由会话执行状态适配器提供；skills 只读/追加 HistoryJournal；SkillToolGate 迁 tools | composition 把 session 的纯状态判定绑定给 Skills；原 skill_catalog_unavailable 原因与不自动创建规则不变；skills 不 import session 或 snapshot |
 | C15 models/context/hooks/mcp/memory/plans/team/tools → session canonical history | 只替换为上表 kernel 事实值、SessionTree 和最小 HistoryReader/HistoryJournal；模型 usage 中 run_belongs_to_session 用 models.ports.RunOwnership.owns(header, entry) | composition 注入 session 的归属策略；branch/aclose/recovery 保留 session，不把业务恢复函数泛化进 kernel |
 | C16 context/memory → session 与模型框架耦合 | 保留 ContextProjector 在 context；memory 使用其公开 retained_context_entries(path) 纯函数，不能 import 具体 adapter；SummaryGenerator/DirectorySelector/MemoryUpdater 只收相应 Protocol | composition 构造 metered model 后注入各功能 adapter；压缩 retained tail、后台 thinking off、0 重试均维持阶段二行为 |
 | C17 plans/skills → tools 与 tools 集中 ToolGate 形成潜在环 | PlanToolGate、SkillToolGate 和 MemoryToolGate 均归 tools；plans 的 QuestionPrompt.ask(payload) 端口由 plans 自己拥有；skills 工具声明/执行签名改 kernel.ExecutableTool | composition 注入 UI prompt、注册各功能工具；tools 使用 plans/skills 的纯策略/状态公开 API，两者无 tools import |
@@ -221,7 +221,7 @@ class OutputSink(Protocol):
 
 ToolHooks.fire 逐事件调用：pre_tool_use 先于审批；permission_request 在非只读审批前；
 command_execute 在授权成功后、子进程启动前；post_tool_use 只在结果已持久化之后。
-桥接层保留 HookEngine.fire 的拒绝字符串，由 ToolExecutor 转为原 hook_rejected。
+桥接层保留 Hooks.fire 的拒绝字符串，由 ToolExecutor 转为原 hook_rejected。
 不能把三个前置事件合成一次提前通知，也不能让 after 在 JSONL 完成前触发。
 MessagePublisher 是本 run 绑定的对象，内部保持原 save_message 对 event/JSONL/output 的顺序。
 SessionHeaderReader 只从输出存储的 owned_io 工作线程调用，composition 注入 session
@@ -268,10 +268,10 @@ write 等实际需要的方法，并保留 async 对等方法。代理包装只�
 | sandbox | SandboxSettings/SandboxStatus、SandboxBackend、command/env 纯策略 | BashTool、SeatbeltSandbox、process runner、WindowsJob |
 | snapshot | Snapshot/RestorePlan 等纯文件值、SnapshotStore | GitSnapshotStore |
 | session | AgentSession/SessionView/RevertService、SessionStore/RuntimeLauncher、恢复/导航纯策略 | JsonlSessionRepository、codec/header reader、history backend、持久输入存储 |
-| skills | SkillService、SkillCatalog/SkillInstaller、skill_scope/active_skills 等纯策略 | SkillBackend、PythonSkillTool、资源 parser/SDK middleware |
+| skills | Skills、SkillCatalog/SkillInstaller、skill_scope/active_skills 等纯策略 | SkillBackend、PythonSkillTool、资源 parser/SDK middleware |
 | plans | PlanService、PlanStore/QuestionPrompt、PlanState/PlanDocument | FilePlanStore、PlanBackend、框架 plan tools |
-| hooks | HookEngine、Hook/HookContext、HookActions/HookExecution | HookActions 实现、进程 runner bridge |
-| mcp | MCPService、MCPRuntimeBindings、MCPServer、active_mcp/result_from_mcp 等纯函数、MCPConnections | MCPAdapterConnections、连接/配置适配器、MCPTool |
+| hooks | Hooks、Hook/HookContext、HookActions/HookExecution | HookActions 实现、进程 runner bridge |
+| mcp | MCP、MCPRuntimeBindings、MCPServer、active_mcp/result_from_mcp 等纯函数、MCPConnections | MCPAdapterConnections、连接/配置适配器、MCPTool |
 | memory | MemoryService、MemoryRecord/MemorySnapshot、namespace/过滤纯策略、MemoryUpdater | JsonMemoryStore、MemoryChangeLog、LangMem tools/consolidator/selector |
 | agent | NextTurn/next_turn、RunContext 的无框架部分、能力 Protocol | AgentRuntime、DeepAgentState、HistoryMiddleware |
 | team | 团队/任务/消息服务与值、ChildSessions/ChildSession/WorktreeSnapshotFactory | worktree/进程内 SDK 工具适配器；最终类名以阶段三提交为准 |
@@ -292,11 +292,11 @@ write 等实际需要的方法，并保留 async 对等方法。代理包装只�
 | `session.py` | 会话仓库、SessionView、AgentSession、交互会话集合 |
 | `memory.py` | 阶段二 MemoryService 和 LangMem 模型装配 |
 | `context.py` | SummaryService、summary generator、投影与压缩装配 |
-| `models.py` | Provider factory、catalog、计量、fallback、选择器装配 |
+| `models.py` | Provider factory、catalog、计量和同模型重试装配 |
 | `team.py` | 阶段三团队、子会话工厂及 worktree 适配器装配 |
 | `ui.py` | CLI 输出和 Textual App 构造 |
 
-业务判断不能随 container 一起机械拆分：选择器兼容性属于 models；
+业务判断不能随 container 一起机械拆分：最终请求校准属于 models，统一工具发现属于 tools；
 MCP/Hook 恢复配置校验属于各功能服务；记忆命名空间属于 memory/domain。
 旧 SessionOutputReader 已由阶段二删除，不为满足旧文件清单而重新创建；若仍需输出读取
 业务逻辑则归 tools 的输出读取服务。具体 adapter 类不经包公开 API 泄漏。

@@ -262,18 +262,7 @@
           "清理待恢复的临时标记后再调用图，不删除已完成结果；通过框架恢复命令继续原来那次等待。"
         ],
         "edge": "同一个活图恢复",
-        "helpers": [
-          {
-            "file": "src/pycode/agent/adapters/agent.py",
-            "name": "validate_runtime_answer",
-            "purpose": "按问题契约校验，不直接执行动作",
-            "notes": [
-              "`question_extensions` 先判断谁负责这类问题；无人处理时仍走普通 `validate_operation_answer`。",
-              "通过只表示答案身份和结构合法。工具恢复后还要比较当前操作内容，不能由这个返回值授予永久权限。"
-            ],
-            "guide": "恢复前不能只检查答案是个字典，还要知道它回答哪类问题。这里先让已注册的问题扩展认领并校验，没人认领时使用普通操作答案规则。通过只表示答案形状和身份合法，真正恢复后仍有对应工具检查当前内容，不能据此跳过执行权限。"
-          }
-        ],
+        "helpers": [],
         "guide": "执行器找到原容器以后，运行时还要读取图里真正待答的问题。它按问题身份逐项校验答案，只有全部符合才用框架的恢复命令继续执行。之前已保存的完整工具结果不清除；因此这一步是回答现有暂停，不是从用户消息再执行一遍整轮。"
       },
       {
@@ -1090,18 +1079,7 @@
           "清理待恢复的临时标记后再调用图，不删除已完成结果；通过框架恢复命令继续原来那次等待。"
         ],
         "edge": "同一个活图恢复",
-        "helpers": [
-          {
-            "file": "src/pycode/agent/adapters/agent.py",
-            "name": "validate_runtime_answer",
-            "purpose": "按问题契约校验，不直接执行动作",
-            "notes": [
-              "`question_extensions` 先判断谁负责这类问题；无人处理时仍走普通 `validate_operation_answer`。",
-              "通过只表示答案身份和结构合法。工具恢复后还要比较当前操作内容，不能由这个返回值授予永久权限。"
-            ],
-            "guide": "恢复前不能只检查答案是个字典，还要知道它回答哪类问题。这里先让已注册的问题扩展认领并校验，没人认领时使用普通操作答案规则。通过只表示答案形状和身份合法，真正恢复后仍有对应工具检查当前内容，不能据此跳过执行权限。"
-          }
-        ],
+        "helpers": [],
         "guide": "执行器找到原容器以后，运行时还要读取图里真正待答的问题。它按问题身份逐项校验答案，只有全部符合才用框架的恢复命令继续执行。之前已保存的完整工具结果不清除；因此这一步是回答现有暂停，不是从用户消息再执行一遍整轮。"
       },
       {
@@ -1161,7 +1139,7 @@
         "edge": "Team强制外层门",
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.merge_preview",
             "purpose": "成功停机worker、任务依赖与review缺一不可",
             "notes": [
@@ -1243,7 +1221,7 @@
     "groups": true,
     "nodes": [
       {
-        "file": "src/pycode/team/services/team_tasks.py",
+        "file": "src/pycode/team/tasks.py",
         "name": "TeamManager.create_task",
         "purpose": "任务板锁内创建有界任务和依赖",
         "notes": [
@@ -1252,7 +1230,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
             "purpose": "单JSONL transition是团队状态权威",
             "notes": [
@@ -1265,7 +1243,7 @@
         "guide": "主助手想分工时，先在这里登记要做什么。服务检查任务数量、说明长度和依赖是否存在且无环，再将新任务交给注入的保存函数。成功才更新团队状态并返回任务，尚未创建子会话；后面的派发或认领会以这份已保存任务为依据。"
       },
       {
-        "file": "src/pycode/team/adapters/team_tools.py",
+        "file": "src/pycode/team/tools.py",
         "name": "TeamTool.execute",
         "purpose": "固定actor的派发工具入口",
         "notes": [
@@ -1274,7 +1252,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/adapters/team_tools.py",
+            "file": "src/pycode/team/tools.py",
             "name": "TeamTool.dispatch",
             "purpose": "此分支只展示spawn_agent的真实调用",
             "notes": [
@@ -1283,7 +1261,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/services/team.py",
+                "file": "src/pycode/team/engine.py",
                 "name": "AgentTeam.spawn",
                 "purpose": "锁下检查模式/名额/依赖并先写starting",
                 "notes": [
@@ -1292,7 +1270,7 @@
                 ],
                 "helpers": [
                   {
-                    "file": "src/pycode/team/services/team.py",
+                    "file": "src/pycode/team/engine.py",
                     "name": "AgentTeam.start",
                     "purpose": "拥有worktree创建与child session初始化",
                     "notes": [
@@ -1301,7 +1279,7 @@
                     ],
                     "helpers": [
                       {
-                        "file": "src/pycode/team/adapters/worktrees.py",
+                        "file": "src/pycode/team/worktrees.py",
                         "name": "WorktreeManager.create",
                         "purpose": "受控创建独立Git worktree",
                         "notes": [
@@ -1322,7 +1300,7 @@
                         "guide": "工作区准备好后，这个应用适配器把所选模块重新限定到子目录，再经普通会话入口打开子助手。它固定权限、禁嵌套委派并保留父凭据来源，分支上下文即使为空也不退回全部历史。返回独立会话由团队负责关闭，不直接在主历史里混跑子工具。"
                       },
                       {
-                        "file": "src/pycode/team/services/team.py",
+                        "file": "src/pycode/team/engine.py",
                         "name": "AgentTeam.drive",
                         "purpose": "登记并等待结束的任务执行子run/resume并保存终态或审批",
                         "notes": [
@@ -1332,7 +1310,7 @@
                         "edge": "受拥有的asyncio任务入口",
                         "helpers": [
                           {
-                            "file": "src/pycode/team/services/team.py",
+                            "file": "src/pycode/team/engine.py",
                             "name": "AgentTeam.finish",
                             "purpose": "同一transition保存agent终态、任务状态与完成通知",
                             "notes": [
@@ -1357,7 +1335,7 @@
         "guide": "模型调用团队工具时，这个入口使用组装好的当前成员身份，而不是相信参数自称谁。它把合法请求交给分派函数，并把等待消息的具体ID附在工具结果中。结果随后进入普通保存流程；尤其等待工具返回成功时，还不能在此提前宣布消息已送达。"
       },
       {
-        "file": "src/pycode/team/services/team_tasks.py",
+        "file": "src/pycode/team/tasks.py",
         "name": "TeamManager.claim_task",
         "purpose": "子Agent认领任务受同一锁和依赖约束",
         "notes": [
@@ -1381,7 +1359,7 @@
     "groups": true,
     "nodes": [
       {
-        "file": "src/pycode/team/services/team_inbox.py",
+        "file": "src/pycode/team/mailbox.py",
         "name": "TeamInbox.send",
         "purpose": "限制消息数量/收件人，先提交再提示或唤醒",
         "notes": [
@@ -1390,7 +1368,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
             "purpose": "单JSONL transition是团队状态权威",
             "notes": [
@@ -1400,7 +1378,7 @@
             "guide": "成员、任务与消息可能需要一起改变，协调器因此用这一出口保存完整变化。它先追加一条团队日志，成功后再校验应用到内存并通知等待者。追加结果不确定时进入存储错误状态并查同一记录ID，不继续靠未经确认的内存数据派发新工作。"
           },
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.schedule_wakes",
             "purpose": "空闲名额按首次新消息顺序唤醒可续一轮的终态",
             "notes": [
@@ -1423,7 +1401,7 @@
         "edge": "框架回调／注入TeamMailbox",
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "TeamMember.flush_inbox",
             "purpose": "固定agent_id进入自己的收件箱",
             "notes": [
@@ -1432,7 +1410,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/services/team_inbox.py",
+                "file": "src/pycode/team/mailbox.py",
                 "name": "TeamInbox.flush",
                 "purpose": "reserve后确认真实input_queued才确认送达",
                 "notes": [
@@ -1441,7 +1419,7 @@
                 ],
                 "helpers": [
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.reserve",
                     "purpose": "pending预约为delivering并记via/负责关闭的对象",
                     "notes": [
@@ -1461,7 +1439,7 @@
                     "guide": "接收团队说明或用户补充时，此处核对输入ID、正文、运行与当前分支，避免同一消息重复进入对话。新输入先保存为排队记录再返回；运行已经关闭则拒绝。上层只有拿到真实接收依据才能确认团队消息，不能把调用过提交函数当作提交成功。"
                   },
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.acknowledge",
                     "purpose": "delivering提交为delivered",
                     "notes": [
@@ -1471,7 +1449,7 @@
                     "guide": "父交付流程已经掌握接收依据后，调用这里把仍在处理的具体消息保存为已送达。它不会复活已丢弃记录，也不只从内存列表删掉项目就返回。保存结果供后续重启核对，保证消息状态能解释为什么不再重送，而非依赖当次UI是否显示过。"
                   },
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.release",
                     "purpose": "失败预约回pending，清除旧delivery",
                     "notes": [
@@ -1503,7 +1481,7 @@
     ],
     "nodes": [
       {
-        "file": "src/pycode/team/adapters/team_tools.py",
+        "file": "src/pycode/team/tools.py",
         "name": "TeamTool.execute",
         "purpose": "wait_agents普通工具包装，保留正式回执IDs",
         "notes": [
@@ -1512,7 +1490,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/adapters/team_tools.py",
+            "file": "src/pycode/team/tools.py",
             "name": "TeamTool.dispatch",
             "purpose": "dispatch在wait_agents分支等待当前Team收件箱",
             "notes": [
@@ -1521,7 +1499,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/services/team_inbox.py",
+                "file": "src/pycode/team/mailbox.py",
                 "name": "TeamInbox.wait",
                 "purpose": "等状态变化后预约lead消息，工具入口不提前确认送达",
                 "notes": [
@@ -1530,7 +1508,7 @@
                 ],
                 "helpers": [
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.reserve",
                     "purpose": "pending预约为delivering并记via/负责关闭的对象",
                     "notes": [
@@ -1582,7 +1560,7 @@
             "guide": "结算处理器不直接依赖某个会话存储，它调用组装时绑定当前上下文的发布接口。这里把正式消息交给统一保存函数，等待历史、输出关联和结束通知完成后返回。团队确认因此发生在真实保存之后，而不是另写一条只供界面显示的成功记录。"
           },
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "TeamMember.settle_tool",
             "purpose": "成功结果中的IDs才有确认送达资格",
             "notes": [
@@ -1591,7 +1569,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/services/team_inbox.py",
+                "file": "src/pycode/team/mailbox.py",
                 "name": "TeamInbox.settle_tool",
                 "purpose": "匹配via=wait与负责关闭的对象，确认送达已确认ID并释放其余",
                 "notes": [
@@ -1600,7 +1578,7 @@
                 ],
                 "helpers": [
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.acknowledge",
                     "purpose": "delivering提交为delivered",
                     "notes": [
@@ -1610,7 +1588,7 @@
                     "guide": "父交付流程已经掌握接收依据后，调用这里把仍在处理的具体消息保存为已送达。它不会复活已丢弃记录，也不只从内存列表删掉项目就返回。保存结果供后续重启核对，保证消息状态能解释为什么不再重送，而非依赖当次UI是否显示过。"
                   },
                   {
-                    "file": "src/pycode/team/services/team_inbox.py",
+                    "file": "src/pycode/team/mailbox.py",
                     "name": "TeamInbox.release",
                     "purpose": "失败预约回pending，清除旧delivery",
                     "notes": [
@@ -1642,7 +1620,7 @@
     ],
     "nodes": [
       {
-        "file": "src/pycode/team/services/team.py",
+        "file": "src/pycode/team/engine.py",
         "name": "AgentTeam.review",
         "purpose": "展示包括新文件的变更并记录审查内容校验值",
         "notes": [
@@ -1651,7 +1629,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/adapters/worktrees.py",
+            "file": "src/pycode/team/worktrees.py",
             "name": "WorktreeManager.changes_sync",
             "purpose": "读取实际差异和候选内容，覆盖untracked",
             "notes": [
@@ -1660,7 +1638,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/adapters/worktrees.py",
+                "file": "src/pycode/team/worktrees.py",
                 "name": "WorktreeManager.candidate_tree",
                 "purpose": "独立临时index生成不可变source tree",
                 "notes": [
@@ -1686,7 +1664,7 @@
         "edge": "Team强制外层门",
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.merge_preview",
             "purpose": "成功停机worker、任务依赖与review缺一不可",
             "notes": [
@@ -1699,7 +1677,7 @@
         "guide": "普通自动计划不能决定是否将子目录改动合回主目录，所以合并工具在这里走独立外层检查。先保留现有拒绝约束，再取得绑定源与目标的预览并强制询问用户。批准后保存本次操作的预览给分派函数，内容改变就拒绝，不能借旧批准临时生成新预览。"
       },
       {
-        "file": "src/pycode/team/adapters/team_tools.py",
+        "file": "src/pycode/team/tools.py",
         "name": "TeamTool.dispatch",
         "purpose": "按已注册工具名调用协调服务",
         "notes": [
@@ -1709,7 +1687,7 @@
         "guide": "同一个包装器处理多种团队工具，这里按注册名称选实际服务，固定调用者身份并传本轮信息。派发交协调器，认领交任务板，合并只取本次审批保存的预览。它不自己补造批准或直接运行子模型，结果仍返回统一工具结算保存。"
       },
       {
-        "file": "src/pycode/team/services/team.py",
+        "file": "src/pycode/team/engine.py",
         "name": "AgentTeam.merge",
         "purpose": "审批后重验状态，并等待Git真实结果结算",
         "notes": [
@@ -1719,7 +1697,7 @@
         "edge": "审批后的真实执行",
         "helpers": [
           {
-            "file": "src/pycode/team/adapters/worktrees.py",
+            "file": "src/pycode/team/worktrees.py",
             "name": "WorktreeManager.merge_into_workspace_sync",
             "purpose": "核对审批source/target后执行受控Git集成",
             "notes": [
@@ -1729,7 +1707,7 @@
             "guide": "协调器将已批预览交到这里，执行前重新核源文件树、源提交、目标分支提交和工作区干净状态，执行后再验证真实Git结果。冲突或超时保留恢复标记，不静默选择一边。结果交回协调器结算；准备解冲突与正式合并都仍有各自审批。"
           },
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.finalize_merge",
             "purpose": "区分未合入、待解冲突与已确认合入",
             "notes": [
@@ -1738,7 +1716,7 @@
             ],
             "helpers": [
               {
-                "file": "src/pycode/team/adapters/worktrees.py",
+                "file": "src/pycode/team/worktrees.py",
                 "name": "WorktreeManager.complete_team_merge_sync",
                 "purpose": "确认集成事实后才清理worktree与branch",
                 "notes": [
@@ -1768,7 +1746,7 @@
     "groups": true,
     "nodes": [
       {
-        "file": "src/pycode/team/services/team.py",
+        "file": "src/pycode/team/engine.py",
         "name": "AgentTeam.cancel",
         "purpose": "撤销wake资格，取消并等待登记并等待结束的启动/驱动",
         "notes": [
@@ -1778,7 +1756,7 @@
         "guide": "取消指定成员时，协调器先标取消中并撤下新消息唤醒资格，再取消和等待启动及驱动任务。之后才保存终态并处理消息，避免取消刚到就又被调度。返回意味着已等待本次停止，但已经创建或修改的工作区仍需按记录检查，不能直接无条件删除。"
       },
       {
-        "file": "src/pycode/team/services/team.py",
+        "file": "src/pycode/team/engine.py",
         "name": "AgentTeam.initialize",
         "purpose": "重放持久transition，活动态改interrupted",
         "notes": [
@@ -1787,7 +1765,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/team/services/team.py",
+            "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
             "purpose": "单JSONL transition是团队状态权威",
             "notes": [
@@ -1800,7 +1778,7 @@
         "guide": "重新打开团队时，这里逐条校验并重放保存的关联变化，再把原活动成员转为中断，不自动续跑旧命令。对正在交付消息核真实收件日志或成功等待结果，确定应确认还是释放。恢复通知不唤醒成员，结果供新会话解释现状而非恢复旧执行权限。"
       },
       {
-        "file": "src/pycode/team/services/team.py",
+        "file": "src/pycode/team/engine.py",
         "name": "AgentTeam.aclose",
         "purpose": "无论取消状态保存是否失败，都等待停止并回收任务和session",
         "notes": [
@@ -1823,7 +1801,7 @@
     ],
     "nodes": [
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.tui",
         "purpose": "统一应用入口连接所选UI与会话能力",
         "notes": [
@@ -2144,7 +2122,7 @@
                 ],
                 "helpers": [
                   {
-                    "file": "src/pycode/team/services/team.py",
+                    "file": "src/pycode/team/engine.py",
                     "name": "AgentTeam.answer",
                     "purpose": "子问题校验后commit running并恢复对应driver",
                     "notes": [

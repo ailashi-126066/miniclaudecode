@@ -355,10 +355,10 @@ async def test_consolidation_source_keeps_messages_before_the_compaction_node(tm
         await history.aclose()
 
 
-async def test_langmem_can_update_and_delete_existing_hex_uuid_ids(tmp_path):
+async def test_langmem_updates_current_canonical_uuid_ids(tmp_path):
     _, history, service = await service_at(tmp_path)
     try:
-        key = "0123456789abcdef0123456789abcdef"
+        key = "01234567-89ab-cdef-0123-456789abcdef"
         await service.store.aput(service.user_namespace, key, text("original preference"))
         tool = ScopedMemoryTool(service, service.user_namespace, manage=True)
         context = ToolContext("s", "r1", "op1", str(tmp_path), "c1", tool.spec.name)
@@ -443,3 +443,7 @@ async def test_partial_undo_disk_failure_logs_published_scopes(tmp_path, monkeyp
     finally:
         await service.aclose()
         await history.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

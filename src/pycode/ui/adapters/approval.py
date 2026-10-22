@@ -65,7 +65,11 @@ class ApprovalPanel(Vertical, can_focus=True):
         yield Static(self.content(), id="perm-content", markup=False)
 
     def on_mount(self):
-        self.focus()
+        # The surrounding Collapsible and status/input rows are still being laid out.
+        # Focus without starting a competing scroll animation, then reveal the panel
+        # using its final geometry after the next layout pass.
+        self.focus(scroll_visible=False)
+        self.call_after_refresh(self.scroll_visible, animate=False, immediate=True)
 
     def action_cursor_up(self):
         self._cursor = max(0, self._cursor - 1)

@@ -12,6 +12,6 @@
   ],
   "invalid_conditions": ["tool Bash", "tool == \"Bash\" && args.x == \"1\" || args.y == \"2\""],
   "template": "Event=$EVENT Tool=$TOOL_NAME File=$FILE_PATH Msg=$MESSAGE Err=$ERROR Arg=$TOOL_ARGS.file_path",
-  "config": {"id": "protect", "event": "pre_tool_use", "if": "tool == \"Bash\"", "reject": true, "once": false, "async": false, "action": {"type": "prompt", "message": "Blocked command", "timeout": 30}},
+  "config": {"id": "protect", "event": "pre_tool_use", "if": "tool == \"Bash\"", "reject": true, "once": false, "action": {"type": "prompt", "message": "Blocked command", "timeout": 30}},
   "adaptations": ["native immutable records", "once state persisted per scope", "owned cancellable execution", "side-effect ledger and recovery review", "configured actions cannot expand parent tool permissions", "actual agent action after AgentTeam integration"]
 }

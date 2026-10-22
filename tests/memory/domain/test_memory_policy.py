@@ -24,10 +24,8 @@ def test_normalize_langmem_tool_and_store_manager_values():
         normalize_value("plain text")
 
 
-def test_memory_text_covers_current_and_legacy_entries():
+def test_memory_text_displays_current_text_and_generic_structured_content():
     assert memory_text({"kind": "Memory", "content": {"content": "A"}}) == "A"
-    legacy = {"kind": "SemanticMemory", "content": {"title": "T", "body": "B", "sources": []}}
-    assert memory_text(legacy) == "T: B"
     assert memory_text({"kind": "Custom", "content": {"x": 1}}) == '{"x": 1}'
 
 

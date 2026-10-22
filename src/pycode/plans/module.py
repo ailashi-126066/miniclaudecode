@@ -33,12 +33,6 @@ class PlansModule:
         self.directory = directory
         self.backend_factory = backend_factory
 
-    @staticmethod
-    def selector_required_names(plans=None) -> tuple[str, ...]:
-        if plans is not None and plans.state is not None and plans.state.mode == "planning":
-            return ("write_file", "edit_file", ExitPlanMode.spec.name)
-        return (ExitPlanMode.spec.name,)
-
     def files(self, session_id: str) -> FilePlanStore:
         return FilePlanStore(self.directory / session_id, backend_factory=self.backend_factory)
 

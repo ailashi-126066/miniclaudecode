@@ -1,5 +1,7 @@
 """An oversized catalogue discloses selected paths through native middleware only."""
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -45,3 +47,7 @@ async def test_skill_search_bounds_native_catalogue_and_leaves_unselected_bodies
             assert len(loads) == 1 and loads[0]["data"]["name"] == "selected"
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

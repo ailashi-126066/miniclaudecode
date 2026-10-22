@@ -1,5 +1,6 @@
 """A native read preserves a giant requested line and resumes its UTF-8 bytes."""
 
+import pytest
 from deepagents.backends import CompositeBackend, StateBackend
 from langchain_core.messages import AIMessage
 
@@ -78,3 +79,7 @@ async def test_native_giant_line_has_one_complete_object_and_bounded_continuatio
         assert denied.error.startswith("output_not_accessible")
     finally:
         await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

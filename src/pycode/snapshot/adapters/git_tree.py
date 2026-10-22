@@ -19,7 +19,7 @@ from pydantic import TypeAdapter
 
 from pycode.kernel import SnapshotError, StorageError, json_dumps, plain_data
 from pycode.kernel.adapters.file_lease import FileLease
-from pycode.kernel.adapters.path_io import atomic_write
+from pycode.kernel.adapters.path_io import atomic_write, owned_io
 from pycode.snapshot.domain.snapshots import (
     FileChange,
     FileVersion,
@@ -132,12 +132,8 @@ class GitSnapshotStore:
 
     async def run_io(self, operation):
         async with self._lock:
-            owned = asyncio.create_task(asyncio.to_thread(operation))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(operation)
             except (OSError, ValueError, TypeError, subprocess.SubprocessError) as error:
                 raise SnapshotError(
                     "snapshot_io_error", "Snapshot filesystem operation failed"

@@ -3,8 +3,8 @@ import pytest
 from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.services.events import EventStream
-from pycode.mcp.adapters.tools import MCPCall, MCPTool, ToolSearch
-from pycode.mcp.services.mcp import MCPService
+from pycode.mcp.api import MCP
+from pycode.mcp.tools import MCPTool
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.adapters.tool_errors import execute_tool_errors
 from pycode.tools.services.permissions import ReadOnlyToolGate
@@ -31,7 +31,7 @@ class Connections:
                 "config_hash": "config",
                 "annotations": {"readOnlyHint": True},
                 "trusted": trusted,
-                "loading": "dispatch",
+                "enabled": True,
             }
         ]
 
@@ -53,20 +53,16 @@ async def test_dispatch_checks_target_schema_and_parent_permission_before_call(
     history = store_for(tmp_path)
     await history.append_message(Message("u1", "user", "task"))
     connections = Connections(trusted=trusted)
-    service = MCPService(history, connections)
+    service = MCP(history, connections)
     try:
         await service.initialize()
         validator = JsonSchemaValidator()
         registry = ToolRegistry(validator)
-        dispatch = MCPCall(service)
         await service.refresh(
             registry,
-            lambda tool, visible: MCPTool(tool, connections, visible=visible),
-            (dispatch, ToolSearch(service)),
-            1000,
+            lambda tool: MCPTool(tool, connections),
         )
-        registry.register_dispatch("MCPCall", dispatch)
-        assert "mcp__srv__search" not in {spec.name for spec in registry.model_specs()}
+        assert "mcp__srv__search" in {spec.name for spec in registry.model_specs()}
         context = ToolContext("s1", "r1", "op", str(tmp_path))
         result = await ToolExecutor(
             registry,
@@ -78,12 +74,12 @@ async def test_dispatch_checks_target_schema_and_parent_permission_before_call(
             context,
             ToolCall(
                 "call",
-                "MCPCall",
-                {"server": "srv", "tool": "search", "arguments": {"count": argument}},
+                "mcp__srv__search",
+                {"count": argument},
             ),
             "tool_calls",
         )
-        assert result.name == "MCPCall" and result.call_id == "call"
+        assert result.name == "mcp__srv__search" and result.call_id == "call"
         assert result.error_code == expected
         assert len(connections.calls) == (1 if expected is None else 0)
     finally:

@@ -5,7 +5,6 @@ import hashlib
 from dataclasses import replace
 from pathlib import Path
 
-from pycode.app.composition.modules import default_modules
 from pycode.kernel import EventStream, StorageError
 from pycode.team import child_prompt
 
@@ -94,9 +93,8 @@ async def build_team(
     *,
     session_opener,
     repository_factory,
-    modules=None,
+    modules,
 ):
-    modules = default_modules(config) if modules is None else modules
     snapshot = await store.snapshot()
     identifier = "team-" + hashlib.sha256(snapshot.header.session_id.encode()).hexdigest()[:32]
     ledger = await repository_factory(config).open(identifier, create=True)
@@ -137,8 +135,7 @@ async def build_team(
         raise
 
 
-def build_worktree_manager(config, *, modules=None):
-    modules = default_modules(config) if modules is None else modules
+def build_worktree_manager(config, *, modules):
     return modules.team.worktrees(
         config.workspace,
         modules.sessions.layout.project / "worktrees",

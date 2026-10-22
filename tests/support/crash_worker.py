@@ -85,6 +85,13 @@ class CrashTool(WritingEcho):
 
 
 async def main():
+    from pycode.tools.adapters.discovery import ToolDiscovery
+
+    async def disclosed(self, request):
+        return request
+
+    ToolDiscovery.disclose = disclosed
+
     workspace, url, boundary = sys.argv[1:]
     workspace = Path(workspace)
     configured = ProviderConfig(

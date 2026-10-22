@@ -32,7 +32,7 @@ from pycode.session.services.restart import recover_conversation
 from pycode.session.services.revert import RevertService
 from pycode.session.services.session_view import SessionView
 from pycode.session.services.sessions import name_session
-from pycode.skills import SkillService
+from pycode.skills import Skills
 from pycode.team import team_message_text
 
 
@@ -47,7 +47,7 @@ class AgentSession:
         durable_inputs: DurableInputs | None = None,
         revert: RevertService | None = None,
         view: SessionView | None = None,
-        skills: SkillService | None = None,
+        skills: Skills | None = None,
         hook_config_hash="",
         mcp_config_hash="",
         plans=None,
@@ -193,19 +193,11 @@ class AgentSession:
     async def load_skill(self, name, args=""):
         if self._skills is None:
             raise StorageError("skills_unavailable", "This session has no Skill service")
-        selected = await self._skills.request(name, args)
+        selected = await self._skills.load(name, args)
         prompt = (
             f"Use the {selected['name']} Skill. Read {selected['path']} for its instructions.\n"
             f"Task arguments: {selected['arguments']}"
         )
-        if selected["mode"] == "fork":
-            prompt = (
-                "Delegate this Skill using the task tool with subagent_type="
-                + "skill-"
-                + selected["name"]
-                + ".\n"
-                + prompt
-            )
         return await self.run(
             Message(uuid4().hex, "user", prompt, provider_metadata={"skill_request": selected})
         )
@@ -228,6 +220,22 @@ class AgentSession:
             if self._skills is None:
                 raise StorageError("skills_unavailable", "This session has no Skill service")
             return await self._skills.install(url, ref=ref, subpath=subpath)
+
+    async def read_skill(self, name):
+        if self._skills is None:
+            raise StorageError("skills_unavailable", "This session has no Skill service")
+        return await self._skills.read(name)
+
+    async def save_skill(self, name, content, *, scope="user", expected_revision=None):
+        async with self.execution():
+            self.require_settled(await self._store.snapshot())
+            if self._skills is None:
+                raise StorageError("skills_unavailable", "This session has no Skill service")
+            if expected_revision is None:
+                return await self._skills.create(name, content, scope=scope)
+            return await self._skills.update(
+                name, content, scope=scope, expected_revision=expected_revision
+            )
 
     async def branch(self, leaf_id: str | None) -> None:
         if self._execution.locked():
@@ -651,21 +659,6 @@ class AgentSession:
             provider = await self._models.restore(self._default)
             await self._store.append_entry(EntryDraft("custom", data={"kind": "compact_request"}))
             return await self._launcher.compact(provider, self._store)
-
-    async def reconcile_hook(self, operation_id, action, text="", is_error=False):
-        async with self.execution():
-            self.require_settled(await self._store.snapshot())
-            await self._store.append_entry(
-                EntryDraft(
-                    "custom",
-                    data={
-                        "kind": "hook_review_request",
-                        "operation_id": operation_id,
-                        "action": action,
-                    },
-                )
-            )
-            await self._launcher.reconcile_hook(self._store, operation_id, action, text, is_error)
 
     async def preview_revert(self, target_leaf_id, mode="dialogue"):
         async with self.execution():

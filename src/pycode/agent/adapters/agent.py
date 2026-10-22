@@ -37,13 +37,6 @@ AGENTS_MD_PROMPT = (
 )
 
 
-def validate_runtime_answer(question, answer, validator, extensions=()):
-    for extension in extensions:
-        if extension.validate(question, answer, validator):
-            return
-    validate_operation_answer(question, answer)
-
-
 class AgentRuntime:
     def __init__(
         self,
@@ -193,19 +186,15 @@ class AgentRuntime:
             if set(answers).issubset(identifiers) and answers:
                 for item in interrupts:
                     if item.id in answers:
-                        validate_runtime_answer(
+                        validate_operation_answer(
                             item.value,
                             answers[item.id],
-                            context.executor.validator,
-                            self.bindings.question_extensions,
                         )
                 value = Command(resume=answers)
             elif len(interrupts) == 1:
-                validate_runtime_answer(
+                validate_operation_answer(
                     interrupts[0].value,
                     answers,
-                    context.executor.validator,
-                    self.bindings.question_extensions,
                 )
                 value = Command(resume={interrupts[0].id: answers})
             else:
@@ -243,8 +232,6 @@ class AgentRuntime:
             raise StorageError("checkpoint_missing", "Live execution checkpoint has no identity")
         for item in state.get("__interrupt__", ()):
             question = {"interrupt_id": item.id, "checkpoint_id": checkpoint_id, **item.value}
-            for extension in self.bindings.question_extensions:
-                question = await extension.prepare(question, context.history_store, context.run_id)
             pending.append(question)
             await context.events.emit("needs_input", question)
         if pending:

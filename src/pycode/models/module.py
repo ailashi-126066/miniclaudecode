@@ -1,7 +1,7 @@
 """Own model catalogs, SDK conversion, request accounting and model lifetimes."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from copy import copy
 from dataclasses import dataclass
 from functools import partial
@@ -20,13 +20,11 @@ from pycode.models.adapters.factory import ModelFactory
 from pycode.models.adapters.failures import ProviderFailureClassifier
 from pycode.models.adapters.messages import from_assistant, stop_reason, to_framework
 from pycode.models.adapters.metered_model import MeteredChatModel
-from pycode.models.adapters.model_fallback import ModelCandidate, ModelFallback
 from pycode.models.adapters.model_requests import ModelRequestRunner, model_request_step
 from pycode.models.adapters.observation import ProviderObservation
 from pycode.models.adapters.storage.catalog import FileCatalogStore
 from pycode.models.adapters.storage.requests import SQLiteRequestStore
-from pycode.models.adapters.tool_selection import ToolSelector, select_model_tools
-from pycode.models.domain.models import ModelReference, ProviderConfig, ToolSelectorSettings
+from pycode.models.domain.models import ProviderConfig
 from pycode.models.domain.requests import RetryPolicy
 from pycode.models.ports.context import Projector
 from pycode.models.services.model_catalog import ModelCatalog
@@ -82,7 +80,6 @@ class ModelsModule:
     from_assistant = staticmethod(from_assistant)
     stop_reason = staticmethod(stop_reason)
     model_request_step = staticmethod(model_request_step)
-    select_model_tools = staticmethod(select_model_tools)
     calibrate_model_request = staticmethod(
         partial(calibrate_model_request, converter=to_framework, estimate_text=estimate_text)
     )
@@ -136,7 +133,6 @@ class ModelsModule:
         purpose: Purpose,
         *,
         retry_policy: RetryPolicy | None = None,
-        candidate_index: int = 0,
         agent_id: str = "lead",
         events: EventSink | None = None,
     ) -> MeteredModelOwner:
@@ -164,7 +160,6 @@ class ModelsModule:
                 run_id,
                 purpose=purpose,
                 observation=observation,
-                candidate_index=candidate_index,
                 agent_id=agent_id,
             )
             return MeteredModelOwner(model, requests, factory, records, journal)
@@ -178,37 +173,3 @@ class ModelsModule:
     def metered(owner: MeteredModelOwner, **options: Any) -> MeteredChatModel:
         """Options are confined to the framework/Pydantic model boundary."""
         return MeteredChatModel(model=owner.model, requests=owner.requests, **options)
-
-    @staticmethod
-    def selector(
-        settings: ToolSelectorSettings,
-        model_factory: Callable[..., Awaitable[MeteredModelOwner]],
-        *,
-        required_tools: Iterable[str] | Callable[[], Iterable[str]] = (),
-    ) -> ToolSelector:
-        return ToolSelector(settings, model_factory, required_tools=required_tools)
-
-    @staticmethod
-    def candidate(
-        owner: MeteredModelOwner, provider: ProviderConfig, index: int = 0
-    ) -> ModelCandidate:
-        return ModelCandidate(owner.model, provider, owner.requests, index)
-
-    def fallback(
-        self,
-        primary: ModelCandidate,
-        references: tuple[ModelReference, ...],
-        resolver: Callable[[str, str], ProviderConfig] | None,
-        owner_factory: Callable[..., Awaitable[MeteredModelOwner]],
-        configure: Callable[..., None],
-        *,
-        calibrator: Callable[..., Awaitable[object]] | None = None,
-    ) -> ModelFallback:
-        return ModelFallback(
-            primary,
-            references,
-            resolver,
-            owner_factory,
-            configure,
-            calibrator=calibrator or self.calibrate_model_request,
-        )

@@ -11,7 +11,7 @@ async def prepare_model_boundary(request, bindings):
         request = await model_filter(request)
     chain = (
         RunnableLambda(filter_model_tools)
-        | RunnableLambda(bindings.select_model_tools)
+        | RunnableLambda(bindings.disclose_model_tools)
         | RunnableLambda(bindings.calibrate_model_request)
     )
     return await chain.ainvoke(request)
@@ -19,46 +19,44 @@ async def prepare_model_boundary(request, bindings):
 
 async def filter_model_tools(request):
     context = request.runtime.context
-    selector = context.tool_selector
-    if selector is not None and selector.settings.enabled:
-        planning = (
-            context.plans is not None
-            and context.plans.state is not None
-            and (
-                context.plans.state.mode == "planning"
-                or context.plans.state.approved_run_id != context.run_id
-                and context.plans.state.mode != "completed"
-            )
+    planning = (
+        context.plans is not None
+        and context.plans.state is not None
+        and (
+            context.plans.state.mode == "planning"
+            or context.plans.state.approved_run_id != context.run_id
+            and context.plans.state.mode != "completed"
         )
-        if context.read_only or planning:
-            readonly_native = {
-                "ls",
-                "read_file",
-                "glob",
-                "grep",
-                "write_todos",
-                "task",
-            }
-            permitted = []
-            for tool in request.tools:
-                if isinstance(tool, dict):
-                    continue
-                try:
-                    category = context.registry.get_spec(tool.name).category
-                except ToolError:
-                    category = "read" if tool.name in readonly_native else "external"
-                if (
-                    category == "read"
-                    or planning
-                    and not context.read_only
-                    and tool.name
-                    in {
-                        "write_file",
-                        "edit_file",
-                    }
-                ):
-                    permitted.append(tool)
-            request = request.override(tools=permitted)
+    )
+    if context.read_only or planning:
+        readonly_native = {
+            "ls",
+            "read_file",
+            "glob",
+            "grep",
+            "write_todos",
+            "task",
+        }
+        permitted = []
+        for tool in request.tools:
+            if isinstance(tool, dict):
+                continue
+            try:
+                category = context.registry.get_spec(tool.name).category
+            except ToolError:
+                category = "read" if tool.name in readonly_native else "external"
+            if (
+                category == "read"
+                or planning
+                and not context.read_only
+                and tool.name
+                in {
+                    "write_file",
+                    "edit_file",
+                }
+            ):
+                permitted.append(tool)
+        request = request.override(tools=permitted)
     return request
 
 

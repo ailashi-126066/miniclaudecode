@@ -161,7 +161,10 @@ class SeatbeltSandbox:
         self._skill_read_roots = tuple(skill_read_roots)
 
     def for_skill(self, directory):
-        return SeatbeltSandbox(self._executable, skill_read_roots=(Path(directory).resolve(),))
+        return SeatbeltSandbox(
+            self._executable,
+            skill_read_roots=(*self._skill_read_roots, Path(directory).resolve()),
+        )
 
     async def usable(self):
         process = None

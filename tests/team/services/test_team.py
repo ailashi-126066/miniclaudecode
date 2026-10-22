@@ -10,7 +10,7 @@ from pycode.kernel.domain.completion import RunResult
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.session.services.durable_inputs import DurableInputs
-from pycode.team.services.team import AgentTeam
+from pycode.team.api import AgentTeam
 from tests.models.services.test_model_control import store_for
 
 

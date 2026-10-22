@@ -1,5 +1,8 @@
 from dataclasses import replace
 
+import pytest
+
+from pycode.app.api import RunOptions, SessionResources
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.context.services.context_projector import ContextProjector
@@ -32,7 +35,8 @@ async def test_selected_provider_and_branch_context_drive_real_framework_after_r
             provider = await control.restore()
             history = ContextProjector().project(await store.snapshot()).messages
             container = await compose_application(config).runtime(
-                provider, session_id="s1", run_id=input_id, journal=store, tools=(), consumers=()
+                SessionResources(session_id="s1", journal=store, tools=(), consumers=()),
+                RunOptions(provider=provider, run_id=input_id),
             )
             try:
                 return await container.runtime.run(
@@ -59,3 +63,7 @@ async def test_selected_provider_and_branch_context_drive_real_framework_after_r
         assert not any(message.get("content") == "second provider" for message in contexts)
         assert final.entries[-1].message.model_selection.provider == "first"
         await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

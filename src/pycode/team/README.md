@@ -1,23 +1,18 @@
 # Team
 
-负责进程内 asyncio 团队、任务板、收件箱、取消，以及 worker Git worktree 的审查和集成。
-固定 readonly/worker 权限不能由临时角色文字扩大。领域事实和服务不导入 app。
+保留进程内 Team、邮箱通信、任务板、独立 Git worktree、审查、合并和清理。
+子任务仍是项目自己的 AgentSession；框架只负责每个会话中的图执行。
 
-`module.py:TeamModule` 组装团队服务、worktree manager、lead/child tools 和事件 relay。
-输入为 child-session/repository 回调、snapshot factory、事件与明确的并发/权限设置；
-不创建模型、会话适配器或其他功能内部实现。
+- `api.py`：AgentTeam/TeamMember 的公开入口；`engine.py` 实现协调与生命周期。
+- `mailbox.py`：消息投递、接收和结果持久化后的 ACK。
+- `tasks.py`：负责人、任务状态与依赖。
+- `worktrees.py`：创建、检查差异、审查/合并与安全清理。
+- `tools.py`：主 Agent 和成员可调用的工具。
+- `types.py`：状态与纯策略；`contracts.py`：子会话与工作区依赖。
+- `module.py`：供应用组装，普通调用方不构造内部实现。
 
-应用组装层的 Git 能力可以单独建立：
+普通 Team 委派经 AgentTeam 进入原有子会话工厂。移除的是只用于旧 agent Hook 的
+TeamDelegate 包装，以及 Skill 自带的 fork 入口；邮箱、TeamSpawn/查询/消息等操作不变。
 
-```python
-from pathlib import Path
-from pycode.snapshot.module import SnapshotModule
-from pycode.team.module import TeamModule
-
-worktrees = TeamModule().worktrees(
-    Path("/project"), Path("/state/worktrees"), snapshot_factory=SnapshotModule.factory
-)
-```
-
-团队拥有 ledger 与子任务。取消会等待已派出的子任务收拢；关闭释放 ledger。worker 合并仍
-绑定被审查的 tree/目标 HEAD，并逐次审批。子作用域由根显式重绑定已选模块；它不选择默认实现。
+取消信号直接作用于所拥有的任务，不依赖成员及时读取邮箱。合并需要对应审批和验证；
+冲突、取消、未知执行影响时保留工作成果。任务完成不等于可以删除 worktree。

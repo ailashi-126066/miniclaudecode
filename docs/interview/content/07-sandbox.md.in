@@ -46,7 +46,7 @@ Bash的timeout输入范围是0.1～600秒，默认120秒。随后它创建输出
 
 假如这次任务较大，主Agent把一部分工作交给另一个能写代码的子Agent。只把它的cwd改成独立工作树还不够：shell仍能写绝对路径。工具层的 `WorkerBoundaryGate` 因而先检查只读限制、父会话已有的拒绝条件，以及是否真的能启用OS隔离。
 
-真正启动时还有 `RequiredSandbox.launch` 再查一次。系统没有可用且已启用的隔离，就拒绝worker的命令和Python资源，不退化为裸执行。Windows Job能帮助结束进程树，却不能据此宣称提供了同等的文件读写隔离。
+真正启动时还有 `RequiredSandbox.launch` 再查一次。系统没有可用且已启用的隔离，就拒绝worker的命令和通过 Bash 执行的 Skill 脚本，不退化为裸执行。Windows Job能帮助结束进程树，却不能据此宣称提供了同等的文件读写隔离。
 
 子Agent有时需要执行放在用户目录里的Skill脚本。普通规则会保护用户私有目录，不能为了让它能读脚本就开放整个HOME。因此 `PythonSkillTool` 先确认资源目录与摘要，再通过注入的 `skill_read_grant` 只允许读这个Skill根。`RequiredSandbox.for_skill`继续保留原来的工作区写限制和网络设置。
 

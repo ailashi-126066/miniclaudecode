@@ -10,7 +10,7 @@
 
 | 设计项 | 实际落地位置与注入点 |
 | --- | --- |
-| C01 模型身份 | `kernel/contracts/model_identity.py` 定义 ModelSelection、ModelCapabilities、ProviderKind；ProviderConfig/发现/选择器策略留 `models/domain/` |
+| C01 模型身份 | `kernel/contracts/model_identity.py` 定义 ModelSelection、ModelCapabilities、ProviderKind；ProviderConfig/模型发现策略留 `models/domain/` |
 | C02 usage/operation | `models/domain/usage.py` 聚合 RequestRecord；`tools/domain/operations.py` 计算工具声明 hash；kernel 不依赖 models/tools |
 | C03 会话/执行 | RuntimeLauncher 留 `session/ports/runtime.py`，RunResult 在 kernel；`app/runtime_launcher.py` 实现。标题通过 `agent.TitleAssignment` → `composition.runtime.BoundTitleAssignment`，保留初始用户消息落盘后的时点 |
 | C04 投影能力 | `models/ports/context.py:Projector`，`composition.models.build_model_control` 注入 ContextProjector，无 models → context 源码依赖 |
@@ -18,12 +18,11 @@
 | C06 校准与 fallback | `models/ports/context.py` 的 CalibrationContext、RegistryLookup、ResourceLookup、SummaryBudget、CalibrationReport；`models/adapters/calibration.py` 仅在框架边界 cast，显式收窄可空能力；composition partial 注入 converter/estimate，fallback 使用相同 calibrator |
 | C07 工具结算 | `tools/adapters/{settlement,framework_tool,state}.py`；ToolSettlementState 只拥有工具 failure 字段；composition 的 factory(context) 传入绑定的 AgentMessagePublisher、生命周期闭包与 converter/normalizer。publisher 保留 JSONL → output bind → snapshot fact → event 次序 |
 | C08 工具执行守卫 | `tools/domain/turn_guard.py:tool_calls_may_execute`；NextTurn/next_turn 仍在 agent domain |
-| C09 Hooks | `tools.ToolHooks` → `hooks/services/tool_bridge.py:ToolHookBridge`；HookEngine 由 HookExecutorFactory 获取 executor；`composition.runtime.build_hook_engine` 构造 registry、tools 的 ConfiguredActionGate 与 ToolExecutor。前置/授权/命令/持久化后事件分别保持原时点 |
-| C10 MCP | ToolDispatch 在 `tools/ports/dispatch.py`，MCPCall 实现；result_from_mcp 仍是 MCP 纯策略，由 composition 注入 tools adapter，tools 不 import mcp |
+| C09 Hooks | `tools.ToolHooks` → `hooks/services/tool_bridge.py:ToolHookBridge`；Hooks 由 HookExecutorFactory 获取 executor；`composition.runtime.build_hook_engine` 构造 registry、tools 的 ConfiguredActionGate 与 ToolExecutor。前置/授权/命令/持久化后事件分别保持原时点 |
 | C11 通用脱敏 | SECRET_PATTERNS 在 `kernel/redaction.py`；写入拒绝策略留 memory/domain；LangMem tools 采用共享 ExecutableTool 声明 |
 | C12 沙箱输出 | `sandbox/ports/output.py` 只声明 begin/append/finish/abort；FileToolOutputStore/StreamingOutputWriter 通过 composition 注入，sandbox 无 tools import。审批 gate 留 tools，纯命令与环境策略留 sandbox |
 | C13 回退与快照 | RevertService 在 `session/services/revert.py`，revert_state/RevertPlan 在 session domain；snapshot 只拥有文件版本、RestorePlan、SnapshotStore/GitSnapshotStore；无 snapshot → session |
-| C14 Skills 会话写保护 | `skills.CatalogWriteGuard` → `session/domain/guards.py:SessionCatalogWriteGuard`，composition.build_skills 注入；SkillService 无 session/snapshot import，原 pending-run/revert 拒绝条件保留 |
+| C14 Skills 会话写保护 | `skills.CatalogWriteGuard` → `session/domain/guards.py:SessionCatalogWriteGuard`，composition.build_skills 注入；Skills 无 session/snapshot import，原 pending-run/revert 拒绝条件保留 |
 | C15 历史事实 | SessionEntry/Header/Draft/Snapshot、SessionTree 和最小 HistoryReader/HistoryJournal 在 kernel；branch/aclose 仍归 SessionStore；UsageService 通过 models.RunOwnership → SessionRunOwnership 使用原归属规则 |
 | C16 记忆/压缩 | `context/domain/retention.py:retained_context_entries` 共享 retained-tail 纯策略；memory 使用其公开 API。MemoryUpdater 由 `composition.memory.ConfiguredMemoryUpdater` 实现；thinking off、0 重试、后台失败日志和撤销保持阶段二约定 |
 | C17 工具门 | `tools/services/{permissions,plan_gate,skill_gate,hook_gate}.py` 与 `tools/adapters/permissions.py`；单复数统一为 permissions；plans 自有 QuestionPrompt，Skills/Plan 工具声明使用 kernel，避免反向依赖 |

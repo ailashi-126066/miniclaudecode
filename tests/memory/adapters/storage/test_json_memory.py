@@ -94,49 +94,30 @@ async def test_recording_view_logs_changes_and_can_skip_rejected(tmp_path):
     assert store.read(USER)["records"]["k"] == before
 
 
-async def test_legacy_memory_json_remains_readable_and_is_simplified_on_write(tmp_path):
+@pytest.mark.parametrize(
+    "removed_field",
+    ["migration", "processed_batches", "group_receipts", "tool_receipts", "move_receipts"],
+)
+async def test_old_memory_fields_are_rejected_without_conversion(tmp_path, removed_field):
     root = tmp_path / "user"
     root.mkdir()
-    legacy = {
+    old = {
         "schema_version": 1,
         "namespace": list(USER),
         "revision": 3,
-        "records": {
-            "old": {
-                "value": {
-                    "kind": "SemanticMemory",
-                    "content": {
-                        "title": "testing",
-                        "summary": "pytest",
-                        "body": "Always use pytest.",
-                        "category": "user_preference",
-                        "sources": [],
-                    },
-                },
-                "created_at": "2026-01-01T00:00:00+00:00",
-                "updated_at": "2026-01-01T00:00:00+00:00",
-            }
-        },
-        "processed_batches": {},
-        "group_receipts": {},
-        "tool_receipts": {},
-        "move_receipts": {},
-        "migration": {"format": "legacy-records-v1", "source_sha256": "a" * 64, "record_ids": []},
+        "records": {},
+        removed_field: {},
     }
-    (root / "memory.json").write_text(json.dumps(legacy))
+    path = root / "memory.json"
+    path.write_text(json.dumps(old))
+    before = path.read_bytes()
     store = make_store(tmp_path)
-    found = await store.asearch(USER, query="pytest")
-    assert [item.key for item in found] == ["old"]
-    state = store.read(USER)
-    assert state["revision"] == 3 and state["migration"]["format"] == "legacy-records-v1"
-    await store.aput(USER, "new", text("Explain argument flow."))
-    written = json.loads((root / "memory.json").read_text())
-    assert written["revision"] == 4 and set(written["records"]) == {"old", "new"}
-    assert "processed_batches" not in written and "tool_receipts" not in written
-    (root / "memory.json").write_text("{not json")
     with pytest.raises(StorageError) as error:
-        store.read(USER)
+        await store.asearch(USER)
     assert error.value.code == "memory_corrupt"
+    with pytest.raises(StorageError):
+        await store.aput(USER, "new", text("new memory"))
+    assert path.read_bytes() == before
 
 
 async def test_mode_settings_and_change_log(tmp_path):
@@ -169,3 +150,39 @@ async def test_undo_checks_every_scope_before_restoring_anything(tmp_path):
     assert error.value.code == "memory_undo_conflict"
     assert (await store.aget(USER, "u")).value == text("user memory")
     assert (await store.aget(PROJECT, "p")).value == text("changed concurrently")
+
+
+@pytest.mark.parametrize(
+    "change", [{"revision": "3"}, {"schema_version": 0}, {"schema_version": True}]
+)
+async def test_memory_snapshot_does_not_coerce_old_values(tmp_path, change):
+    root = tmp_path / "user"
+    root.mkdir()
+    path = root / "memory.json"
+    path.write_text(
+        json.dumps(
+            {"schema_version": 1, "namespace": list(USER), "revision": 0, "records": {}, **change}
+        )
+    )
+    original = path.read_bytes()
+    with pytest.raises(StorageError):
+        await make_store(tmp_path).snapshot(USER)
+    assert path.read_bytes() == original
+
+
+async def test_removed_review_mode_is_not_converted_to_auto(tmp_path):
+    root = tmp_path / "user"
+    root.mkdir()
+    path = root / "settings.json"
+    path.write_text('{"mode": "review"}')
+    with pytest.raises(StorageError):
+        await make_store(tmp_path).get_mode(USER)
+    assert path.read_text() == '{"mode": "review"}'
+
+
+async def test_memory_ids_are_exact_without_uuid_alias_lookup(tmp_path):
+    store = make_store(tmp_path)
+    key = "0123456789abcdef0123456789abcdef"
+    await store.aput(USER, key, text("exact key"))
+    assert await store.aget(USER, "01234567-89ab-cdef-0123-456789abcdef") is None
+    assert (await store.aget(USER, key)).value == text("exact key")

@@ -4,11 +4,28 @@ import asyncio
 import json
 import sqlite3
 import time
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 from pycode.kernel import StorageError, UsageRecord, json_dumps, plain_data
+from pycode.kernel.adapters.path_io import owned_io
 from pycode.models.domain.requests import RequestRecord
+
+
+def decode_request(payload):
+    try:
+        data = json.loads(payload)
+        if not isinstance(data, dict) or set(data) != {
+            field.name for field in fields(RequestRecord)
+        }:
+            raise ValueError("Unsupported request record fields")
+        if data["usage"] is not None:
+            data["usage"] = UsageRecord(**data["usage"])
+        return RequestRecord(**data)
+    except (ValueError, TypeError, KeyError) as error:
+        raise StorageError(
+            "invalid_request_record", "Invalid or unsupported request record format"
+        ) from error
 
 
 class SQLiteRequestStore:
@@ -33,12 +50,8 @@ class SQLiteRequestStore:
 
     async def run_io(self, operation):
         async with self._lock:
-            owned = asyncio.create_task(asyncio.to_thread(operation))
             try:
-                return await asyncio.shield(owned)
-            except asyncio.CancelledError:
-                await owned
-                raise
+                return await owned_io(operation)
             except sqlite3.Error as error:
                 raise StorageError(
                     "request_store_error", "Request database operation failed"
@@ -70,7 +83,7 @@ class SQLiteRequestStore:
                 raise StorageError(
                     "request_id_conflict", "Request ID already has different settled content"
                 )
-            original = json.loads(previous[1])
+            original = plain_data(decode_request(previous[1]))
             identity_fields = (
                 "request_id",
                 "session_id",
@@ -82,13 +95,8 @@ class SQLiteRequestStore:
                 "started_at",
                 "agent_id",
                 "logical_id",
-                "candidate_index",
             )
-            if any(
-                original.get(field, 0 if field == "candidate_index" else None)
-                != getattr(record, field)
-                for field in identity_fields
-            ):
+            if any(original[field] != getattr(record, field) for field in identity_fields):
                 raise StorageError(
                     "request_id_conflict", "Request settlement changes attempt identity"
                 )
@@ -110,10 +118,7 @@ class SQLiteRequestStore:
             query += " ORDER BY rowid"
             output = []
             for (payload,) in self._connection.execute(query, arguments):
-                data = json.loads(payload)
-                if data["usage"] is not None:
-                    data["usage"] = UsageRecord(**data["usage"])
-                output.append(RequestRecord(**data))
+                output.append(decode_request(payload))
             return tuple(output)
 
         return await self.run_io(read)

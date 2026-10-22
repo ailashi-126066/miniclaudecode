@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -28,3 +30,7 @@ async def test_context_view_matches_runtime_anchor_and_remains_available_without
         assert (await view.usage())["context"] == report
     finally:
         await view.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

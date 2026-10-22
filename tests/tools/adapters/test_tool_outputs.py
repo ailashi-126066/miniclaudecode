@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from pycode.app.composition.bindings import build_agent_runtime
@@ -100,3 +101,7 @@ async def test_large_tool_and_readback_run_through_actual_framework_and_same_exe
     assert outputs.metadata(results[1].output_id).storage == "inline"
     assert sum(event.kind == "tool_execution_start" for event in recorder.events) == 2
     await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -78,7 +78,7 @@
         "guide": "main把设置和命令名称交到这里后，command还需要准备模型配置及会话。它读providers.json，通过Application打开会话，再从命令表找到execute_run。会话准备好以后，execute_run才能把用户的话提交进去；这和模型随后选择工具是两层不同的工作。"
       },
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.open_session",
         "purpose": "把打开会话的工作交给已选模块",
         "notes": [
@@ -254,7 +254,7 @@
     "why": "会话不是一个模型对象：它同时拥有历史、权限状态、后台任务和可恢复的运行边界。",
     "nodes": [
       {
-        "file": "src/pycode/app/bootstrap.py",
+        "file": "src/pycode/app/api.py",
         "name": "Application.open_session",
         "purpose": "把打开会话的工作交给已选模块",
         "notes": [
@@ -275,7 +275,7 @@
         ],
         "helpers": [
           {
-            "file": "src/pycode/app/composition/outputs.py",
+            "file": "src/pycode/app/composition/factories.py",
             "name": "build_outputs",
             "purpose": "让会话有地方保存完整工具结果",
             "notes": [

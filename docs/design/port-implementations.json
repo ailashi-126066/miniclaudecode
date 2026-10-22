@@ -23,7 +23,7 @@
     },
     {
       "port": "pycode.agent.ports.runtime.TeamMailbox",
-      "implementation": "pycode.team.services.team.TeamMember",
+      "implementation": "pycode.team.engine.TeamMember",
       "kind": "class"
     },
     {
@@ -37,16 +37,6 @@
       "kind": "class"
     },
     {
-      "port": "pycode.agent.ports.runtime.FallbackControl",
-      "implementation": "pycode.models.adapters.model_fallback.ModelFallback",
-      "kind": "class"
-    },
-    {
-      "port": "pycode.agent.ports.runtime.SelectorSettingsView",
-      "implementation": "pycode.models.adapters.tool_selection.ToolSelector",
-      "kind": "class"
-    },
-    {
       "port": "pycode.context.ports.summaries.SummaryGenerator",
       "implementation": "pycode.context.adapters.background.ConfiguredSummaryGenerator",
       "kind": "class"
@@ -57,32 +47,32 @@
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.hooks.HookActions",
-      "implementation": "pycode.hooks.adapters.actions.ConfiguredHookActions",
+      "port": "pycode.hooks.contracts.HookActions",
+      "implementation": "pycode.hooks.actions.ConfiguredHookActions",
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.lifecycle.LifecycleHooks",
-      "implementation": "pycode.hooks.services.hooks.HookEngine",
+      "port": "pycode.hooks.contracts.LifecycleHooks",
+      "implementation": "pycode.hooks.api.Hooks",
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.lifecycle.LifecycleContext",
+      "port": "pycode.hooks.contracts.LifecycleContext",
       "implementation": "pycode.agent.services.context.RunContext",
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.runtime.HookExecution",
+      "port": "pycode.hooks.contracts.HookExecution",
       "implementation": "pycode.tools.services.tool_executor.ToolExecutor",
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.runtime.HookPlanGuard",
+      "port": "pycode.hooks.contracts.HookPlanGuard",
       "implementation": "pycode.plans.services.plans.PlanService",
       "kind": "class"
     },
     {
-      "port": "pycode.hooks.ports.runtime.HookExecutorFactory",
+      "port": "pycode.hooks.contracts.HookExecutorFactory",
       "implementation": "pycode.app.composition.hooks.build_hook_engine",
       "kind": "factory"
     },
@@ -127,13 +117,8 @@
       "kind": "class"
     },
     {
-      "port": "pycode.mcp.ports.mcp.MCPConnections",
-      "implementation": "pycode.mcp.adapters.manager.MCPAdapterConnections",
-      "kind": "class"
-    },
-    {
-      "port": "pycode.mcp.ports.schema.SchemaChecker",
-      "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
+      "port": "pycode.mcp.contracts.MCPConnections",
+      "implementation": "pycode.mcp.connection.MCPAdapterConnections",
       "kind": "class"
     },
     {
@@ -252,38 +237,23 @@
       "kind": "class"
     },
     {
-      "port": "pycode.skills.ports.guard.CatalogWriteGuard",
+      "port": "pycode.skills.contracts.CatalogWriteGuard",
       "implementation": "pycode.session.domain.guards.SessionCatalogWriteGuard",
       "kind": "class"
     },
     {
-      "port": "pycode.skills.ports.guard.SchemaChecker",
-      "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
+      "port": "pycode.skills.contracts.SkillCatalog",
+      "implementation": "pycode.skills.catalog.FileSkillCatalog",
       "kind": "class"
     },
     {
-      "port": "pycode.skills.ports.sandbox.SkillReadGrant",
-      "implementation": "pycode.sandbox.module.skill_read_grant",
-      "kind": "function"
-    },
-    {
-      "port": "pycode.skills.ports.skills.SkillCatalog",
-      "implementation": "pycode.skills.adapters.catalog.FileSkillCatalog",
+      "port": "pycode.skills.contracts.SkillCatalogCommands",
+      "implementation": "pycode.skills.api.Skills",
       "kind": "class"
     },
     {
-      "port": "pycode.skills.ports.skills.SkillResourceToolFactory",
-      "implementation": "pycode.skills.adapters.python_tool.PythonSkillToolFactory",
-      "kind": "factory"
-    },
-    {
-      "port": "pycode.skills.ports.skills.SkillCatalogCommands",
-      "implementation": "pycode.skills.services.skills.SkillService",
-      "kind": "class"
-    },
-    {
-      "port": "pycode.skills.ports.skills.SkillInstaller",
-      "implementation": "pycode.skills.adapters.install.GitHubSkillInstaller",
+      "port": "pycode.skills.contracts.SkillInstaller",
+      "implementation": "pycode.skills.install.GitHubSkillInstaller",
       "kind": "class"
     },
     {
@@ -292,38 +262,33 @@
       "kind": "class"
     },
     {
-      "port": "pycode.team.ports.team.ChildSession",
+      "port": "pycode.team.contracts.ChildSession",
       "implementation": "pycode.session.services.agent_session.AgentSession",
       "kind": "class"
     },
     {
-      "port": "pycode.team.ports.team.ChildSessions",
+      "port": "pycode.team.contracts.ChildSessions",
       "implementation": "pycode.app.composition.team.ConfiguredChildSessions",
       "kind": "class"
     },
     {
-      "port": "pycode.team.ports.team.Worktrees",
-      "implementation": "pycode.team.adapters.worktrees.WorktreeManager",
+      "port": "pycode.team.contracts.Worktrees",
+      "implementation": "pycode.team.worktrees.WorktreeManager",
       "kind": "class"
     },
     {
-      "port": "pycode.team.ports.team.WorktreeSnapshot",
+      "port": "pycode.team.contracts.WorktreeSnapshot",
       "implementation": "pycode.snapshot.adapters.git_tree.GitSnapshotStore",
       "kind": "class"
     },
     {
-      "port": "pycode.team.ports.team.WorktreeSnapshotFactory",
+      "port": "pycode.team.contracts.WorktreeSnapshotFactory",
       "implementation": "pycode.snapshot.adapters.git_tree.GitSnapshotStore",
       "kind": "factory"
     },
     {
-      "port": "pycode.tools.ports.dispatch.ToolDispatch",
-      "implementation": "pycode.mcp.adapters.tools.MCPCall",
-      "kind": "class"
-    },
-    {
       "port": "pycode.tools.ports.hooks.ToolHooks",
-      "implementation": "pycode.hooks.services.tool_bridge.ToolHookBridge",
+      "implementation": "pycode.hooks.api.ToolHookBridge",
       "kind": "class"
     },
     {
@@ -357,7 +322,7 @@
       "kind": "class"
     },
     {
-      "port": "pycode.tools.ports.tools.ArgumentValidator",
+      "port": "pycode.kernel.ports.tools.ArgumentValidator",
       "implementation": "pycode.tools.adapters.schema.JsonSchemaValidator",
       "kind": "class"
     },
@@ -398,12 +363,12 @@
     },
     {
       "port": "pycode.tools.ports.extensions.ToolExtension",
-      "implementation": "pycode.skills.adapters.extension.SkillsToolExtension",
+      "implementation": "pycode.skills.framework.SkillsToolExtension",
       "kind": "class"
     },
     {
       "port": "pycode.tools.ports.extensions.NativeToolBinding",
-      "implementation": "pycode.mcp.adapters.native.MCPNativeBinding",
+      "implementation": "pycode.mcp.framework.MCPRun",
       "kind": "class"
     },
     {

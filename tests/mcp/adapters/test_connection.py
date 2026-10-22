@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from pycode.mcp.adapters.connection import MCPAdapterConnection
-from pycode.mcp.adapters.manager import MCPAdapterConnections
-from pycode.mcp.domain.mcp import MCPServer
+from pycode.mcp.connection import MCPAdapterConnection, MCPAdapterConnections
+from pycode.mcp.types import MCPServer
 from pycode.tools.adapters.schema import JsonSchemaValidator
 
 SERVER = Path(__file__).parents[2] / "support/mcp_server.py"
@@ -22,23 +21,15 @@ def configured(tmp_path):
     )
 
 
-async def test_official_stdio_initialization_tools_resources_prompts_and_close(tmp_path):
+async def test_official_stdio_initialization_tools_and_close(tmp_path):
     connection = MCPAdapterConnection(configured(tmp_path), dict(os.environ))
     try:
         await connection.connect()
         assert connection.info["serverInfo"]["name"] == "pycode fixture"
-        assert "echo" in {
-            tool["name"] for tool in (await connection.request("list_tools", {}))["tools"]
-        }
+        assert "echo" in {tool["name"] for tool in await connection.list_tools()}
         assert (await connection.invoke("echo", {"value": "中文"}, call_id="stdio-echo")).content[
             0
         ]["text"] == "echo:中文"
-        resource = await connection.request("read_resource", {"uri": "fixture://note"})
-        assert "on demand" in resource["contents"][0]["text"]
-        prompt = await connection.request(
-            "get_prompt", {"name": "explain", "arguments": {"topic": "context"}}
-        )
-        assert prompt["messages"][0]["content"]["text"] == "Explain context"
     finally:
         await connection.aclose()
     assert connection.closed and connection.adapter is None
@@ -138,3 +129,35 @@ async def test_dead_stdio_server_reconnects_on_next_call_without_retrying_effect
         assert current != previous
     finally:
         await manager.aclose()
+
+
+async def test_one_discovery_snapshot_and_explicit_refresh(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from fastmcp.client import Client
+
+    from pycode.mcp.connection import MCPAdapterConnections
+    from pycode.tools.adapters.schema import JsonSchemaValidator
+
+    calls = []
+    original = Client.list_tools
+
+    async def counted(self, *args, **kwargs):
+        calls.append(kwargs)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Client, "list_tools", counted)
+    config = replace(configured(tmp_path), disabled_tools=("mutate",))
+    connections = MCPAdapterConnections((config,), {}, validator=JsonSchemaValidator())
+    try:
+        catalog = await connections.catalog()
+        assert len(calls) == 1
+        mutate = next(tool for tool in catalog["tools"] if tool["original_name"] == "mutate")
+        assert mutate["enabled"] is False
+        await connections.catalog()
+        assert len(calls) == 2
+        echo = next(tool for tool in catalog["tools"] if tool["original_name"] == "echo")
+        await connections.validate_call(echo)
+        assert len(calls) == 3  # Execution-time validation remains deliberate.
+    finally:
+        await connections.aclose()

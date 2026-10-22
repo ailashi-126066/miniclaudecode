@@ -1,4 +1,4 @@
-"""Persistence and critical Hooks stop a run and collect its other live tools."""
+"""Persistence failure stops a run; failed checks block their tool and return a paired result."""
 
 import asyncio
 import json
@@ -61,7 +61,7 @@ async def test_result_write_failure_collects_other_parallel_tool_before_return()
     assert not context.tool_tasks
 
 
-async def test_real_failing_pretool_hook_is_paired_and_stops_before_next_model(
+async def test_real_failing_pretool_hook_blocks_tool_and_reports_to_next_model(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
@@ -87,10 +87,8 @@ async def test_real_failing_pretool_hook_is_paired_and_stops_before_next_model(
             "s", create=True, refresh_models=False
         )
         try:
-            with pytest.raises(StorageError) as error:
-                await session.run(Message("u", "user", "read"))
-            assert error.value.code == "critical_hook_failed"
-            assert len(requests) == 1
+            result = await session.run(Message("u", "user", "read"))
+            assert result.outcome == "completed" and len(requests) == 2
             state = await session.inspect()
             assert state["pending_run_id"] is None
             results = [
@@ -98,8 +96,13 @@ async def test_real_failing_pretool_hook_is_paired_and_stops_before_next_model(
                 for entry in state["snapshot"]["entries"]
                 if entry["message"] is not None and entry["message"]["tool_result"] is not None
             ]
-            assert len(results) == 1 and results[0]["error_code"] == "hook_failed"
-            assert (await session.run(Message("next", "user", "continue"))).outcome == "completed"
-            assert len(requests) == 2
+            assert len(results) == 1 and results[0]["error_code"] == "hook_rejected"
+            assert results[0]["call_id"] == "read"
+            assert "original" not in results[0]["text"]
+            assert (tmp_path / "code.py").read_text() == "original"
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

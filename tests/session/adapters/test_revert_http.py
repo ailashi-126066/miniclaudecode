@@ -225,3 +225,7 @@ async def test_public_session_recovers_crashed_revert_and_continues_real_http_ex
             )
         finally:
             await session.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

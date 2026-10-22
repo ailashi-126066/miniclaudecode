@@ -2,12 +2,10 @@
 
 from pycode.agent.ports.runtime import (
     DurableInputDelivery,
-    FallbackControl,
     HistoryProjector,
     InputQueue,
     RequestTracking,
     Runtime,
-    SelectorSettingsView,
     TeamMailbox,
     TitleAssignment,
     WorkspaceReadback,
@@ -16,8 +14,6 @@ from pycode.agent.ports.runtime import (
 __all__ = [
     "Runtime",
     "DurableInputDelivery",
-    "FallbackControl",
-    "SelectorSettingsView",
     "WorkspaceReadback",
     "HistoryProjector",
     "InputQueue",

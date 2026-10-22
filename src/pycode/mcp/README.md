@@ -1,31 +1,5 @@
 # MCP
 
-`module.py` owns configuration loading, schema checking, connection lifetime,
-run catalogs, native tool boundaries and elicitation receipts. It receives
-credentials explicitly and never imports the application configuration.
+MCP 提供会话连接、当前分支工具目录和原生工具执行。Tools 组件负责统一 ToolSearch；MCP 不再提供 MCPCall，也没有独立工具选择模型。
 
-```python
-from pycode.mcp.module import MCPModule, MCPSettings
-
-module = MCPModule(schema=schema)
-session = await module.open_session(
-    MCPSettings(workspace, user_data), credentials, pending=pending_run
-)
-try:
-    run = session.prepare_run(history, input_limit=12000)
-    if run is not None:
-        await run.refresh(registry)
-finally:
-    await session.aclose()
-```
-
-The application injects `run.native_binding` into framework tools and settlement,
-`run.question_extension` into the runtime, and calls `run.refresh` before each
-model input. The executor authorizes first; the native call scope then verifies
-current remote schemas and owns elicitation. Run objects borrow connections and
-never close a sibling run's session resources.
-
-`connect=False` still reads configuration and verifies the pending configuration
-hash, while creating no connections. A disabled module is not opened at all.
-`MCPProjection` and `MCPModule.view_specs` use historical native values without
-reading configuration or starting processes.
+同次发现快照生成目录和 LangChain 工具。FastMCP 处理协议及分页，执行前重新校验远端 schema 和权限标记。取消或断线可能产生效果未知记录，不自动重跑。不支持 resources、prompts、elicitation。

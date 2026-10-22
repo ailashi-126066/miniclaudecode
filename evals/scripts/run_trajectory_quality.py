@@ -84,16 +84,11 @@ def messages(view):
 
 
 async def collect(case, directory):
-    from tests.models.adapters.test_model_fallback import failure, roster
-    from tests.models.adapters.test_tool_selection import (
-        Probe,
-        reply_selection,
-        selection_request,
-        selection_settings,
-    )
+    from tests.models.adapters.test_primary_model import failure
     from tests.skills.adapters.test_skills_http import skill_reply
     from tests.support.execution import provider as loopback_provider
     from tests.support.http_provider import chat_completion, protocol_server
+    from tests.support.probe import Probe
 
     workspace = directory / case["id"] / "workspace"
     workspace.mkdir(parents=True)
@@ -104,37 +99,42 @@ async def collect(case, directory):
     probe = ReadProbe()
     started, release = threading.Event(), threading.Event()
     main_schemas = []
-    if scenario == "model-fallback":
+    if scenario == "model-error":
 
         def respond(request):
             return failure() if request["body"]["model"] == "wire-model" else chat_completion()
 
         replies = respond
-    elif scenario == "tool-selection":
+    elif scenario == "tool-search":
 
         def respond(request):
-            if selection_request(request):
-                return reply_selection(request, ["probe_0"])
-            main_schemas.append([item["function"]["name"] for item in request["body"]["tools"]])
+            names = [item["function"]["name"] for item in request["body"]["tools"]]
+            main_schemas.append(names)
+            if names == ["ToolSearch"]:
+                return skill_reply("ToolSearch", {"query": "probe_0"}, "search")
             return chat_completion()
 
         replies = respond
     elif scenario == "read-error-recovery":
-        replies = [skill_reply("QualityRead", {}, "controlled-read"), chat_completion()]
+        replies = [
+            skill_reply("ToolSearch", {"query": "QualityRead"}, "search"),
+            skill_reply("QualityRead", {}, "controlled-read"),
+            chat_completion(),
+        ]
     elif scenario == "cancel-resume":
         held = chat_completion()
         held.started, held.release = started, release
         replies = [held, chat_completion()]
     else:
         replies = [
+            skill_reply("ToolSearch", {"query": "read_file"}, "search"),
             skill_reply("read_file", {"file_path": "/workspace/control.py"}, "read-control"),
             chat_completion(),
         ]
     with protocol_server(replies) as (url, captured):
-        configured = roster(url) if scenario == "model-fallback" else (loopback_provider(url),)
+        configured = (loopback_provider(url),)
         tools = (probe,) if scenario == "read-error-recovery" else ()
-        if scenario == "tool-selection":
-            configured = (replace(configured[0], tool_selector=selection_settings()),)
+        if scenario == "tool-search":
             tools = tuple(Probe("probe_" + str(i)) for i in range(4))
         session_id = scenario + "-" + uuid4().hex
         session = await compose_application(config, configured).open_session(
@@ -159,32 +159,35 @@ async def collect(case, directory):
                 if entry.get("message") and entry["message"].get("tool_result")
             ]
             checks = {
-                "finished": result.outcome == "completed",
+                "finished": result.outcome
+                == ("error" if scenario == "model-error" else "completed"),
                 "settled_requests": all(record["status"] != "started" for record in records),
             }
             if scenario == "read-error-recovery":
                 checks.update(
                     read_attempts=probe.calls == 3,
-                    one_result=len(paired) == 1 and not paired[0]["is_error"],
+                    one_result=len(paired) == 2 and not any(item["is_error"] for item in paired),
                 )
             elif scenario == "normal-read":
-                checks["one_result"] = len(paired) == 1 and not paired[0]["is_error"]
-            elif scenario == "model-fallback":
-                checks["finite_retry_then_fallback"] = [r["provider"] for r in records] == [
+                checks["one_result"] = len(paired) == 2 and not any(
+                    item["is_error"] for item in paired
+                )
+            elif scenario == "model-error":
+                checks["finite_retry_without_model_switch"] = [r["provider"] for r in records] == [
                     "test"
-                ] * 4 + ["secondary"]
+                ] * 4
             elif scenario == "cancel-resume":
                 checks["interruption_then_fresh_success"] = [r["status"] for r in records] == [
                     "interrupted",
                     "completed",
                 ]
-            elif scenario == "tool-selection":
-                checks["only_selected_optional_probe"] = len(main_schemas) == 1 and {
-                    n for n in main_schemas[0] if n.startswith("probe_")
+            elif scenario == "tool-search":
+                checks["only_loaded_optional_probe"] = len(main_schemas) == 2 and {
+                    n for n in main_schemas[-1] if n.startswith("probe_")
                 } == {"probe_0"}
-                checks["separate_selector_request"] = len(records) == 2 and sorted(
-                    r["purpose"] for r in records
-                ) == ["agent", "tool_selection"]
+                checks["no_selector_request"] = len(records) == 2 and all(
+                    r["purpose"] == "agent" for r in records
+                )
             return {
                 "messages": messages(view),
                 "events": events.items,
@@ -231,13 +234,6 @@ async def main(resume=None, only=None):
             if resume is not None:
                 prior = json.loads(resume.read_bytes())
                 observed = next(c["observed"] for c in prior["cases"] if c["id"] == case["id"])
-                if case["id"] == "tool-selection":
-                    observed["checks"]["separate_selector_request"] = len(
-                        observed["requests"]
-                    ) == 2 and sorted(r["purpose"] for r in observed["requests"]) == [
-                        "agent",
-                        "tool_selection",
-                    ]
                 result["reused_trajectory_from"] = str(resume)
             else:
                 observed = await collect(case, directory)

@@ -1,3 +1,4 @@
+import pytest
 from textual.widgets import Static
 
 from pycode.app.bootstrap import compose_application
@@ -29,3 +30,7 @@ async def test_tui_usage_is_readable_has_unknown_cache_values_and_closes_with_es
             assert "Context: 25 / 32000" in text and "provider_usage" in text
             await pilot.press("escape")
             assert not isinstance(app.screen, UsageScreen) and len(requests) == 1
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

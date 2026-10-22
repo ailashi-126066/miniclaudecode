@@ -1,40 +1,26 @@
 # Skills
 
-`module.py` assembles trusted catalogs, installation, version-pinned read-only routes,
-Python resource tools, permission constraints and the native framework loader. Its
-settings contain no application configuration object. Project sources require
-`project_trusted=True`.
+本模块负责本地 Skill 的发现、读取、创建、更新、下载和安装。加载使用 Deep Agents 的
+`SkillsMiddleware`；Skill 的脚本通过普通 Bash 工具执行，不自动注册 Python 函数。
 
-```python
-from pycode.skills.module import SkillsModule, SkillsSettings
+阅读顺序：`api.py` → `catalog.py` / `install.py` → `framework.py`。`module.py` 只供应用组装。
+`history.py` 保存压缩、分支和重启后恢复已读说明的纯投影；不是第二个执行循环。
 
-module = SkillsModule(
-    schema=schema,
-    process_runner=process_runner,
-    backend_factory=backend_factory,
-    skill_read_grant=skill_read_grant,
-)
-session = module.open_session(
-    SkillsSettings(workspace, user_data), history, catalog_write_guard=catalog_write_guard
-)
-await session.initialize()
-run = await session.prepare_run(
-    outputs=outputs,
-    sandbox=sandbox,
-    sandbox_settings=sandbox_settings,
-    reserved_tools=reserved_names,
-)
-```
+- `Skills.list/search/read`：查找定义，`search` 返回用于更新的 revision。
+- `Skills.load(name, args)`：只准备请求，不访问模型，也不启动任务。
+- `Skills.create/update`：写入正文；update 必须提供当前 revision，不静默覆盖。
+- `Skills.install`：下载 GitHub 定义和附属文件，校验路径/大小，原子安装并保留旧版本。
+- `AgentSession.load_skill`：用户命令入口，准备请求后显式运行一次。
+- `SaveSkill`：模型通过公共审批路径创建/更新定义；安装/创建不激活 Skill。
 
-The application installs `run.tools`, mounts `run.routes`, composes
-`run.permission_constraint` with its parent gate, and injects `run.extension` and
-`run.tool_extension` into the agent and settlement boundaries. Resource lookup only
-permits SDK-disclosed tools; the final model declarations are checked again before
-execution. Durable Skill receipts follow successful tool-result publication.
-Optional fork delegates receive an injected async `run_blocking` callable; this
-module owns context selection and Skill task instructions.
+CLI：`skill create NAME --file SKILL.md`、`skill read NAME`、
+`skill update NAME --file SKILL.md --revision SHA256`、`skill install URL`。
+默认写入用户目录；`--scope project` 使用已信任项目的 `.pycode/skills`。
+TUI：`/skill create NAME DESCRIPTION` 创建正文草稿，`/skill read NAME` 显示正文和 revision。
 
-`SkillsProjection` reads persisted history only. It remains usable when runtime
-Skills are disabled. Standalone runtime construction uses `standalone_routes` and
-`standalone_extension` without scanning resource declarations. Skills owns no
-long-lived background connection and has no independent close obligation.
+加载后的说明包含物理资源目录，Agent 通过 `Bash` 执行例如 `python /path/to/skill/scripts/check.py`。
+读取资料仍使用 `/skills/...` 虚拟挂载。命令审批、环境过滤、进程取消、输出记录继续由公共设施负责。
+OS 沙箱只增加受信任 Skill 目录的读取范围，不开放用户配置目录，也不扩大工作区写入范围。
+`tool.json` 是普通文件，不会触发导入或工具注册。`mode: fork` 明确拒绝；内置 review 已改为 inline。
+
+目录与目录索引属于会话，搜索选择和读取版本属于本次运行；本模块没有长期连接或后台任务。

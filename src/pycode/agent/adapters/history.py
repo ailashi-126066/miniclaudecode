@@ -49,8 +49,6 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
 
     async def abefore_model(self, state, runtime):
         context = runtime.context
-        if context.model_fallback is not None:
-            context.model_fallback.restore_primary(context)
 
         async def maintain_context(current):
             for callback in self.bindings.before_model:
@@ -137,8 +135,9 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             extension.prepares_model_boundary for extension in self.bindings.framework_extensions
         ):
             request = await prepare_model_boundary(request, self.bindings)
-        requests = context.model_fallback or context.requests
-        model_step = self.bindings.model_request_step(requests, handler, logical_id=boundary)
+        model_step = self.bindings.model_request_step(
+            context.requests, handler, logical_id=boundary
+        )
         try:
             response = await model_step.ainvoke(request)
         except ModelError as error:

@@ -39,7 +39,7 @@ class CalibrationContext(Protocol):
     """Native footprint state used by calibration, independent of AgentRuntime."""
 
     model_tools: tuple[ToolSpec, ...]
-    selected_tool_names: tuple[str, ...] | None
+    disclosed_tool_names: tuple[str, ...] | None
     system_hash: str
     model_source_leaf_id: str | None
 

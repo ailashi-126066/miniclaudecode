@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -60,3 +62,7 @@ async def test_conversation_fork_does_not_inherit_source_execution_owner(tmp_pat
         assert await source.snapshot() == original
         await source.aclose()
         assert len(requests) == 2
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

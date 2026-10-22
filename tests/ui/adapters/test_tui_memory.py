@@ -2,6 +2,8 @@
 
 import hashlib
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.memory.adapters.storage.json_memory import JsonMemoryStore, MemoryChangeLog
@@ -63,7 +65,7 @@ async def test_tui_memory_panel_edit_delete_and_undo(tmp_path, monkeypatch):
 async def test_tui_memory_edit_and_delete_can_disambiguate_scope(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    user, project = compose_application(config).modules.memory.namespaces
+    user, project = compose_application(config)._modules.memory.namespaces
     store = JsonMemoryStore(
         {user: config.user_data / "memory", project: tmp_path / ".pycode" / "memory"}
     )
@@ -88,3 +90,7 @@ async def test_tui_memory_edit_and_delete_can_disambiguate_scope(tmp_path, monke
             assert await store.aget(project, "same") is None
             assert await store.aget(user, "same") is not None
         assert not requests
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

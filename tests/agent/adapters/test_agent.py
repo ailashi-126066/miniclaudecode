@@ -341,3 +341,7 @@ async def test_partial_stream_is_displayed_but_never_saved_as_complete_reply():
     assert any(event.data.get("text") == "partial stream" for event in recorder.events)
     assert [message.role for message in journal.messages] == ["user"]
     assert model.cleaned.is_set()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

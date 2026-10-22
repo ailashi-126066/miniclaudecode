@@ -163,7 +163,7 @@ async def test_conflicting_duplicate_and_mid_log_damage_fail_without_mutation(tm
     await restored.aclose()
 
 
-async def test_native_draft_v0_upgrade_preserves_original_backup(tmp_path):
+async def test_native_draft_v0_is_rejected_without_rewriting(tmp_path):
     store = open_store(tmp_path)
     await store.append_message(Message("u1", "user", "hello"))
     await store.aclose()
@@ -175,10 +175,10 @@ async def test_native_draft_v0_upgrade_preserves_original_backup(tmp_path):
     (tmp_path / "session/position.json").unlink()
     original = path.read_bytes()
     restored = open_store(tmp_path)
-    assert "schema_upgrade_pending" in (await restored.snapshot()).issues
-    await restored.append_message(Message("u2", "user", "continued"))
-    assert json.loads(path.read_bytes().splitlines()[0])["schema_version"] == 1
-    assert next((tmp_path / "session/recovery").glob("*.jsonl")).read_bytes() == original
+    with pytest.raises(StorageError, match="unsupported"):
+        await restored.snapshot()
+    assert path.read_bytes() == original
+    assert not (tmp_path / "session/recovery").exists()
     await restored.aclose()
 
 

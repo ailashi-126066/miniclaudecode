@@ -29,8 +29,8 @@
     ],
     "guide": "用户刚看过将要恢复的差异，程序需要把这次决定完整保留下来，稍后执行时再核对。这个定义保存恢复ID、工作区、开始前树，以及每个文件的预期和目标版本、冲突名单。预览构造它，执行和中断恢复都读取它，所以它不只是一段展示diff，也不会因为用户点过确认就放弃执行时的再次比较。"
   },
-  "src/pycode/skills/domain/skills.py::SkillEntry": {
-    "file": "src/pycode/skills/domain/skills.py",
+  "src/pycode/skills/types.py::SkillEntry": {
+    "file": "src/pycode/skills/types.py",
     "name": "SkillEntry",
     "purpose": "目录元数据与双版本身份",
     "notes": [
@@ -39,8 +39,8 @@
     ],
     "guide": "目录扫描找到了review指令，需要把名称、说明、可信来源和版本传给后续步骤，这个定义承载这些信息。正文与资源各有摘要，模式和上下文设置供普通或fork加载使用。目录、请求和记录器围绕它继续工作，但得到一条entry只代表找到文档，不代表模型已读过，更不代表附带Python已经被允许运行。"
   },
-  "src/pycode/mcp/domain/mcp.py::MCPServer": {
-    "file": "src/pycode/mcp/domain/mcp.py",
+  "src/pycode/mcp/types.py::MCPServer": {
+    "file": "src/pycode/mcp/types.py",
     "name": "MCPServer",
     "purpose": "远端连接与加载配置的原生值",
     "notes": [
@@ -49,8 +49,8 @@
     ],
     "guide": "用户配置已经通过验证，连接器需要一份明确设置来知道怎样连接哪个外部服务。这个定义保存传输、目录、超时和环境引用，以及本地信任和工具加载选择。后面建立client、发现目录和判断工具类别分别读取它；配置对象不是连接结果，记录凭据引用也不意味着可以把真实密钥写进会话或交给模型。"
   },
-  "src/pycode/hooks/domain/hooks.py::Hook": {
-    "file": "src/pycode/hooks/domain/hooks.py",
+  "src/pycode/hooks/types.py::Hook": {
+    "file": "src/pycode/hooks/types.py",
     "name": "Hook",
     "purpose": "持久化Hook声明和执行时机",
     "notes": [

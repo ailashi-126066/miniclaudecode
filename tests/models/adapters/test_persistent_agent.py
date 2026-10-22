@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -41,3 +43,7 @@ async def test_application_service_uses_durable_projection_and_common_real_frame
         assert len([entry for entry in snapshot.entries if entry.type == "message"]) == 4
         assert len([entry for entry in snapshot.entries if entry.type == "model_change"]) == 1
         await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

@@ -35,11 +35,26 @@
     }
   ],
   "trajectory_cases": [
-    {"id": "normal-read", "rubric": "Registered read tools succeed without approvals or writes. Exactly one result pairs with each tool call; a completed final response follows the results."},
-    {"id": "read-error-recovery", "rubric": "A retryable read error may retry within policy, then succeeds. Only one final tool result is committed for the call; the failed attempt must not be reported as a successful tool effect."},
-    {"id": "tool-selection", "rubric": "Required tools remain present, selection only narrows permitted optional tools, and the final visible schema matches the selection. Selector and main requests are accounted separately."},
-    {"id": "model-fallback", "rubric": "Primary finite retries finish before fallback. Actual fallback model and each attempt are recorded; only one successful assistant result is committed. No tool effect is replayed."},
-    {"id": "cancel-resume", "rubric": "An interrupted request is settled and never replayed as a successful result. A subsequent fresh run completes; IDs pair correctly, no stale approval or side effect is reused."}
+    {
+      "id": "normal-read",
+      "rubric": "Registered read tools succeed without approvals or writes. Exactly one result pairs with each tool call; a completed final response follows the results."
+    },
+    {
+      "id": "read-error-recovery",
+      "rubric": "A retryable read error may retry within policy, then succeeds. Only one final tool result is committed for the call; the failed attempt must not be reported as a successful tool effect."
+    },
+    {
+      "id": "tool-search",
+      "rubric": "Required tools remain present, selection only narrows permitted optional tools, and the final visible schema matches the selection. Selector and main requests are accounted separately."
+    },
+    {
+      "id": "model-error",
+      "rubric": "Retry the selected model a finite number of times, then report failure without switching models or replaying tools. Preserve each request attempt."
+    },
+    {
+      "id": "cancel-resume",
+      "rubric": "An interrupted request is settled and never replayed as a successful result. A subsequent fresh run completes; IDs pair correctly, no stale approval or side effect is reused."
+    }
   ],
   "rule_comparison": {
     "id": "inferred-rule-before-after",

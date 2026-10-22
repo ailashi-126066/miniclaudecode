@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
@@ -68,3 +70,7 @@ async def test_read_receipt_survives_approval_restart_and_exact_edit_gets_snapsh
         assert len(boundaries) == 1 and boundaries[0].data["paths"] == ("file.txt",)
         assert boundaries[0].data["before"] != boundaries[0].data["after"]
         await store.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

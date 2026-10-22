@@ -13,7 +13,11 @@ async def setup(tmp_path):
     store = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     await store.append_message(Message("u1", "user", "task"))
     await store.append_entry(
-        EntryDraft("custom", data={"kind": "run_start", "input_id": "u1"}, run_id="r1")
+        EntryDraft(
+            "custom",
+            data={"kind": "run_start", "input_id": "u1", "execution_session_id": "s1"},
+            run_id="r1",
+        )
     )
     return store, DurableInputs(store)
 

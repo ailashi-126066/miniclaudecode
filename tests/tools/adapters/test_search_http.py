@@ -109,3 +109,7 @@ async def test_public_agent_executes_parallel_read_searches_without_approval_and
         )
     finally:
         await reader.aclose()
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

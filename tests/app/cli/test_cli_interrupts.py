@@ -124,3 +124,6 @@ async def test_cli_cancellation_collects_request_and_publishes_aborted_result_th
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

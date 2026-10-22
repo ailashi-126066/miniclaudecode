@@ -8,6 +8,7 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
+from pycode.app.api import RunOptions, SessionResources
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message, ToolResult
@@ -126,12 +127,13 @@ async def verify(args) -> int:
     consumer = AuditConsumer()
     probe = AcceptanceProbe(journal)
     container = await compose_application(config).runtime(
-        provider,
-        session_id=f"acceptance-{args.provider}",
-        run_id=os.urandom(12).hex(),
-        journal=journal,
-        tools=(probe,),
-        consumers=(consumer,),
+        SessionResources(
+            session_id=f"acceptance-{args.provider}",
+            journal=journal,
+            tools=(probe,),
+            consumers=(consumer,),
+        ),
+        RunOptions(provider=provider, run_id=os.urandom(12).hex()),
     )
     try:
         result = await container.runtime.run(

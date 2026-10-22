@@ -1,3 +1,5 @@
+import pytest
+
 from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from tests.session.adapters.test_revert_http import command_reply
@@ -29,3 +31,7 @@ async def test_standard_80_by_24_terminal_keeps_prompt_and_focused_approval_visi
             await settled(app)
             assert (tmp_path / "file.txt").read_text(encoding="utf-8") == "ok"
             assert len(requests) == 2
+
+
+# This suite tests execution with tool definitions already disclosed.
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

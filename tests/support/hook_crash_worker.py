@@ -15,6 +15,13 @@ from pycode.models.domain.models import ProviderConfig
 
 
 async def main():
+    from pycode.tools.adapters.discovery import ToolDiscovery
+
+    async def disclosed(self, request):
+        return request
+
+    ToolDiscovery.disclose = disclosed
+
     request = json.load(sys.stdin)
 
     class CrashConsumer:

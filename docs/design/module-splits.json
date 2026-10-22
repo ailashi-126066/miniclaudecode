@@ -105,7 +105,7 @@
     },
     "pycode.services.skills": {
       "skills.service": [
-        "SkillService"
+        "Skills"
       ],
       "tools.services.permissions": [
         "SkillToolGate"

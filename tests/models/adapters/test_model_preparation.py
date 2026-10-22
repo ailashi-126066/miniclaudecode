@@ -17,7 +17,9 @@ from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import ModelError
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message
+from pycode.models.module import ModelsModule
 from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.tools.module import ToolsModule
 from tests.agent.adapters.test_agent import Journal, assemble
 from tests.support.model import ScriptedChatModel
 from tests.support.requests import TestTiming
@@ -94,7 +96,12 @@ def preparation():
 async def test_preparation_keeps_refresh_summary_protection_steering_and_turn_order():
     context, trace, refresh = preparation()
     updates = await HistoryMiddleware(
-        build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),))
+        build_runtime_bindings(
+            agent=AgentModule(),
+            models=ModelsModule,
+            tools=ToolsModule(),
+            before_model=(partial(refresh.refresh, context.registry),),
+        )
     ).abefore_model({"turn": 1}, SimpleNamespace(context=context))
     assert trace == [
         "refresh",
@@ -120,7 +127,12 @@ async def test_failed_or_cancelled_refresh_does_not_execute_dependent_steps(canc
         refresh.failure = ModelError("refresh_failed", "test")
     running = asyncio.create_task(
         HistoryMiddleware(
-            build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),))
+            build_runtime_bindings(
+                agent=AgentModule(),
+                models=ModelsModule,
+                tools=ToolsModule(),
+                before_model=(partial(refresh.refresh, context.registry),),
+            )
         ).abefore_model({"turn": 0}, SimpleNamespace(context=context))
     )
     try:
@@ -174,7 +186,12 @@ async def test_dynamic_tools_after_skills_disclosure_are_in_final_budget_snapsho
     model = ToolCapturingModel(responses=[AIMessage(content="done")])
     runtime = AgentModule().runtime(
         model,
-        bindings=build_runtime_bindings(before_model=(partial(refresh.refresh, context.registry),)),
+        bindings=build_runtime_bindings(
+            agent=AgentModule(),
+            models=ModelsModule,
+            tools=ToolsModule(),
+            before_model=(partial(refresh.refresh, context.registry),),
+        ),
     )
     try:
         result = await runtime.run((Message("user", "user", "inspect"),), context)
@@ -185,3 +202,6 @@ async def test_dynamic_tools_after_skills_disclosure_are_in_final_budget_snapsho
         assert "dynamic" in {spec.name for spec in context.model_tools}
     finally:
         await history.aclose()
+
+
+pytestmark = pytest.mark.usefixtures("disclosed_tools")

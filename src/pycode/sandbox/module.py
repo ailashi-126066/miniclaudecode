@@ -16,7 +16,11 @@ from pycode.sandbox.ports.sandbox import SandboxBackend
 
 
 def skill_read_grant(sandbox: SandboxBackend, directory: Path) -> SandboxBackend:
-    return sandbox.for_skill(directory) if isinstance(sandbox, RequiredSandbox) else sandbox
+    return (
+        sandbox.for_skill(directory)
+        if isinstance(sandbox, (RequiredSandbox, SeatbeltSandbox))
+        else sandbox
+    )
 
 
 class SandboxModule:
@@ -59,15 +63,20 @@ class SandboxModule:
         """History inspection needs a declaration without probing the host shell."""
         return Bash.spec
 
-    def bash(self, outputs: OutputSink, *, executable: str | None = None) -> ExecutableTool:
+    def bash(
+        self, outputs: OutputSink, *, executable: str | None = None, skill_roots=()
+    ) -> ExecutableTool:
         environment = None
         if self.path_prefix:
             environment = dict(os.environ)
             environment["PATH"] = os.pathsep.join((*self.path_prefix, environment.get("PATH", "")))
+        sandbox = self.worker()
+        for root in skill_roots:
+            sandbox = skill_read_grant(sandbox, root)
         return Bash(
             executable or self.shell(),
             outputs,
-            self.worker(),
+            sandbox,
             self.settings,
             environment=environment,
             passthrough=self.passthrough,
