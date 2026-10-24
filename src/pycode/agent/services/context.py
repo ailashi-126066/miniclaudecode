@@ -52,6 +52,7 @@ class RunContext:
     summary: SummaryService | None = None
     model_source_leaf_id: str | None = None
     model_projection: ProjectedContext | None = None
+    output_continuations: int = 0
     plans: PlanService | None = None
     workspace_files: WorkspaceReadback | None = None
     model_tools: tuple[ToolSpec, ...] = ()

@@ -16,7 +16,14 @@ from pycode.agent.adapters.boundaries import deliver_input, prepare_model_bounda
 from pycode.agent.adapters.state import PycodeState
 from pycode.agent.domain.turn_policy import next_turn
 from pycode.agent.services.context import RunContext
-from pycode.kernel import ModelError, data_hash, plain_data
+from pycode.kernel import Message, ModelError, data_hash, plain_data
+
+MAX_OUTPUT_CONTINUATIONS = 3
+OUTPUT_CONTINUATION_PROMPT = (
+    "Your previous response was cut off by the output limit. Continue it from exactly "
+    "where it stopped: do not repeat earlier content, do not summarize it, and do not "
+    "mention this instruction."
+)
 
 
 def take_queued(context):
@@ -36,6 +43,24 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
 
     def __init__(self, bindings):
         self.bindings = bindings
+
+    async def continue_truncated_output(self, context):
+        """Resume a length-truncated response instead of ending the turn cut off."""
+
+        index = context.output_continuations
+        context.output_continuations += 1
+        message = Message(
+            f"{context.run_id}:continue-{index}",
+            "user",
+            OUTPUT_CONTINUATION_PROMPT,
+            provider_metadata={"pycode_output_continuation": True},
+        )
+        await deliver_input(context, message, "continuation")
+        return {
+            "messages": [self.bindings.to_framework(message, context.selection)],
+            "outcome": "running",
+            "jump_to": "model",
+        }
 
     async def current_projection(self, context):
         """One projection per model call, reused while the history leaf is unchanged."""
@@ -242,6 +267,11 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             await context.team.flush_inbox(context)
         if context.summary is not None:
             await context.summary.prepare(wait_for_capacity=False)
+        if (
+            state.get("outcome") == "output_limit"
+            and context.output_continuations < MAX_OUTPUT_CONTINUATIONS
+        ):
+            return await self.continue_truncated_output(context)
         if context.durable_inputs is not None:
             context.inputs = await context.durable_inputs.pending(context.run_id)
         kind, pending = take_queued(context)

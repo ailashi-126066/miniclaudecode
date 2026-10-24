@@ -288,13 +288,29 @@ async def test_sequential_tool_forces_barrier_under_parallel_default():
 
 
 async def test_length_limited_text_does_not_report_success():
-    runtime, context, _, _, _, _ = assemble(
+    truncated = AIMessage(content="partial", response_metadata={"finish_reason": "length"})
+    runtime, context, _, _, journal, _ = assemble([truncated] * 4)
+    result = await runtime.run((Message("u1", "user", "start"),), context)
+    assert result.outcome == "output_limit"
+    continuations = [
+        message
+        for message in journal.messages
+        if message.role == "user" and message.id.startswith("run-1:continue-")
+    ]
+    assert len(continuations) == 3
+
+
+async def test_output_limit_continuation_finishes_the_answer():
+    runtime, context, _, _, journal, _ = assemble(
         [
-            AIMessage(content="partial", response_metadata={"finish_reason": "length"}),
+            AIMessage(content="partial answer ", response_metadata={"finish_reason": "length"}),
+            AIMessage(content="continued end", response_metadata={"finish_reason": "stop"}),
         ]
     )
     result = await runtime.run((Message("u1", "user", "start"),), context)
-    assert result.outcome == "output_limit"
+    assert result.outcome == "completed"
+    assert result.final_text == "continued end"
+    assert any(message.id.startswith("run-1:continue-") for message in journal.messages)
 
 
 async def test_graph_tool_cancellation_is_collected_before_run_returns():
