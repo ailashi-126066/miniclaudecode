@@ -63,7 +63,7 @@ def select_old_results(
     }
     for contribution in reversed(projection.entries):
         for message in reversed(contribution.messages):
-            if message.role == "user" and not message.provider_metadata.get("system_reminder"):
+            if message.role == "user":
                 users += 1
             if users < 2:
                 continue

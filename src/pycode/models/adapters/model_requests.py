@@ -14,7 +14,6 @@ from pycode.kernel import (
     ModelSelection,
     Purpose,
     Timing,
-    data_hash,
     plain_data,
 )
 from pycode.models.adapters.messages import normalize_usage
@@ -25,11 +24,6 @@ from pycode.models.ports.models import ModelFailureClassifier, ModelObservation,
 @dataclass(frozen=True)
 class ModelMessages:
     messages: list[BaseMessage]
-
-
-@dataclass
-class AttemptCounter:
-    value: int = 0
 
 
 def retryable_model_error(error):
@@ -46,11 +40,6 @@ def model_request_step(requests, handler, *, logical_id):
 
 
 class ModelRequestRunner:
-    @property
-    def model_signature(self):
-
-        return data_hash(plain_data(self._selection))
-
     def __init__(
         self,
         store: RequestStore,
@@ -103,11 +92,12 @@ class ModelRequestRunner:
             ]
             if previous:
                 offset = max(record.attempt for record in previous) + 1
-        attempts = AttemptCounter()
+        attempts = 0
 
         async def metered_attempt(current):
-            index = attempts.value
-            attempts.value += 1
+            nonlocal attempts
+            index = attempts
+            attempts += 1
             try:
                 return await self.invoke_attempt(current, handler, logical_id, offset + index)
             except ModelError as error:

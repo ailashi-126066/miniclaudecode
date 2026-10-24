@@ -101,8 +101,6 @@ class ProviderObservation:
     def wrap(self, value):
         if hasattr(value, "__aiter__"):
             return ObservedAsyncStream(value, self)
-        if hasattr(value, "__next__"):
-            return ObservedStream(value, self)
         self.capture(value)
         return value
 
@@ -137,33 +135,6 @@ class ObservedAsyncStream:
         await self._stream.__aexit__(exc_type, exc, traceback)
 
 
-class ObservedStream:
-    def __init__(self, stream, observation: ProviderObservation) -> None:
-        self._stream = stream
-        self._observation = observation
-
-    def __getattr__(self, name):
-        return getattr(self._stream, name)
-
-    def __iter__(self):
-        try:
-            for item in self._stream:
-                self._observation.capture(item)
-                yield item
-        except LengthFinishReasonError as error:
-            self._observation.capture(error.completion)
-            raise
-        finally:
-            self._stream.close()
-
-    def __enter__(self):
-        self._stream.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc, traceback):
-        return self._stream.__exit__(exc_type, exc, traceback)
-
-
 class ObservedAsyncStreamManager:
     def __init__(self, manager, observation):
         self.manager = manager
@@ -174,18 +145,6 @@ class ObservedAsyncStreamManager:
 
     async def __aexit__(self, exc_type, exc, traceback):
         return await self.manager.__aexit__(exc_type, exc, traceback)
-
-
-class ObservedStreamManager:
-    def __init__(self, manager, observation):
-        self.manager = manager
-        self.observation = observation
-
-    def __enter__(self):
-        return self.observation.wrap(self.manager.__enter__())
-
-    def __exit__(self, exc_type, exc, traceback):
-        return self.manager.__exit__(exc_type, exc, traceback)
 
 
 class ObservedRawResponse:
@@ -250,11 +209,6 @@ class ObservedResource:
     @property
     def with_raw_response(self):
         return ObservedResource(self._resource.with_raw_response, self._observation, raw=True)
-
-    def stream(self, **kwargs):
-        return ObservedStreamManager(
-            self._resource.stream(**self._observation.request_options(kwargs)), self._observation
-        )
 
     def parse(self, **kwargs):
         result = self._resource.parse(**self._observation.request_options(kwargs))
