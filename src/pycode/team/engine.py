@@ -156,25 +156,10 @@ class AgentTeam:
                 tasks.extend(self.board.settled(record["agent_id"], "interrupted", ""))
         for message in self.inbox.records.values():
             if message["status"] == "delivering":
-                via = message.get("delivery", {}).get("via")
-                owner = message.get("delivery", {}).get("owner")
-                accepted = await self.input_accepted(
-                    message["recipient"], "team-msg-" + message["id"]
-                )
-                if via == "wait":
-                    accepted = any(
-                        e.message is not None
-                        and e.message.tool_result is not None
-                        and not e.message.tool_result.is_error
-                        and e.message.tool_result.name == "wait_agents"
-                        and e.message.tool_result.operation_id == owner
-                        and message["id"]
-                        in e.message.tool_result.details.get("team_message_ids", ())
-                        for e in (await self.lead_history.snapshot()).entries
-                    )
-                if via == "wake":
-                    accepted = await self.input_accepted(message["recipient"], owner)
-                messages.append({**message, "status": "delivered" if accepted else "pending"})
+                # A delivery interrupted by the crash counts as undelivered: the
+                # next flush or wake redelivers idempotently, and flush skips
+                # inputs that already landed in the recipient's history.
+                messages.append({**message, "status": "pending", "delivery": None})
             recovered = next(
                 (item for item in reversed(messages) if item["id"] == message["id"]), message
             )

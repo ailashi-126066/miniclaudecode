@@ -7,6 +7,8 @@ from pycode.kernel import Message, ProjectedEntry, clone_value
 class SystemPromptProjection:
     name = "system_prompt"
     incremental_safe = True
+    # Reads both checkpoint keys: prompt_snapshot directly, and the meter's
+    # joined system_prompt through the projector's pre-snapshot compat branch.
     checkpoint_keys = frozenset({"prompt_snapshot", "system_prompt"})
 
     def contribute(self, snapshot, path, entries, checkpoint):
@@ -38,5 +40,5 @@ class SystemPromptProjection:
                     ),
                 ),
             ),
-            {"prompt_snapshot": clone_value(prompt), "system_prompt": prompt["text"]},
+            {"prompt_snapshot": clone_value(prompt)},
         )

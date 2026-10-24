@@ -299,7 +299,9 @@ class GitHubSkillInstaller:
             if previous:
                 os.replace(backup, final)
             raise
-        report["backup_dir"] = str(backup) if previous else None
+        # Reinstalling is the recovery path; the replaced version is not retained.
+        if previous:
+            shutil.rmtree(backup, ignore_errors=True)
         return report
 
     def cleanup(self, staging, lease):

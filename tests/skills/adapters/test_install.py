@@ -101,7 +101,7 @@ def test_root_and_ref_path_overrides_are_unambiguous():
     assert source.ref == "feature/task" and source.directory_name == "sample"
 
 
-async def test_full_install_pins_commit_keeps_previous_and_never_imports_python(tmp_path):
+async def test_full_install_pins_commit_replaces_previous_and_never_imports_python(tmp_path):
     requests = []
     old = tmp_path / "sample"
     old.mkdir()
@@ -111,7 +111,8 @@ async def test_full_install_pins_commit_keeps_previous_and_never_imports_python(
     assert report["skill_name"] == "vendor-sample" and Path(report["target_dir"]) == old
     assert report["commit"] == COMMIT and report["file_count"] == 2
     assert (old / "SKILL.md").read_bytes() == MANIFEST
-    assert (Path(report["backup_dir"]) / "notes.md").read_text() == "user notes"
+    assert not (old / "notes.md").exists()
+    assert not list(tmp_path.glob(".previous-*"))
     assert (old / "references/never.py").is_file()
     assert json.loads((old / ".pycode-source.json").read_text())["files"] == report["files"]
     assert not list(tmp_path.glob(".install-*"))
