@@ -296,8 +296,10 @@ class MCPAdapterConnections:
 
     async def validate_call(self, declaration):
         client = await self.client(declaration["server"])
-        # A reconnect may have different schemas; verify before sending effects.
-        current = await client.list_tools(refresh=True)
+        # Validate against the catalog captured at connect time; a reconnect
+        # re-discovers, so its cache is always fresh. Tool-set changes only take
+        # effect at turn boundaries, matching the documented reload semantics.
+        current = await client.list_tools()
         remote = next(
             (tool for tool in current if tool["name"] == declaration["original_name"]), None
         )

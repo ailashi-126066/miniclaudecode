@@ -158,6 +158,6 @@ async def test_one_discovery_snapshot_and_explicit_refresh(tmp_path, monkeypatch
         assert len(calls) == 2
         echo = next(tool for tool in catalog["tools"] if tool["original_name"] == "echo")
         await connections.validate_call(echo)
-        assert len(calls) == 3  # Execution-time validation remains deliberate.
+        assert len(calls) == 2  # Execution-time validation reads the connection cache.
     finally:
         await connections.aclose()

@@ -43,6 +43,7 @@ class JsonlSessionStore:
         self._header = header
         self._timing = timing
         self._entries_by_id: dict[str, SessionEntry] = {}
+        self._entries_by_message_id: dict[str, list[str]] = {}
         self._active_path_ids: list[str] = []
         self._leaf = None
         self._revision = 0
@@ -161,6 +162,7 @@ class JsonlSessionStore:
                 self.validate_branch_entry(entry, tree.path(entry.parent_id))
         self._header = header
         self._entries_by_id = index
+        self._rebuild_message_index()
         self._active_path_ids = [entry.id for entry in tree.path(leaf)]
         self._leaf = leaf
         self._revision = revision
@@ -220,6 +222,20 @@ class JsonlSessionStore:
         )
         return entry.id
 
+    def _index_message_entry(self, entry) -> None:
+        if entry.type not in {"message", "input_queued"} or entry.message is None:
+            return
+        self._entries_by_message_id.setdefault(entry.message.id, []).append(entry.id)
+
+    def _rebuild_message_index(self) -> None:
+        self._entries_by_message_id = {}
+        for entry in self._entries_by_id.values():
+            self._index_message_entry(entry)
+
+    def _previous_message_entries(self, message_id):
+        for entry_id in self._entries_by_message_id.get(message_id, ()):
+            yield self._entries_by_id[entry_id]
+
     async def append_entry(self, draft: EntryDraft) -> SessionEntry:
         def append():
             self.load()
@@ -228,10 +244,8 @@ class JsonlSessionStore:
                 queued_message = draft.message
                 if queued_message is None:
                     raise StorageError("invalid_session_entry", "Queued input requires its message")
-                for previous in self._entries_by_id.values():
+                for previous in self._previous_message_entries(queued_message.id):
                     if previous.type not in {"input_queued", "message"}:
-                        continue
-                    if previous.require_message().id != queued_message.id:
                         continue
                     if previous.message != draft.message or (
                         previous.type == "input_queued"
@@ -249,11 +263,8 @@ class JsonlSessionStore:
                     raise StorageError(
                         "invalid_session_entry", "Message entry requires its completed message"
                     )
-                for previous in self._entries_by_id.values():
-                    if (
-                        previous.type != "message"
-                        or previous.require_message().id != draft.message.id
-                    ):
+                for previous in self._previous_message_entries(draft.message.id):
+                    if previous.type != "message":
                         continue
                     if previous.message != draft.message:
                         raise StorageError(
@@ -282,9 +293,8 @@ class JsonlSessionStore:
                 draft.operation_id,
             )
             entry = freeze_value(decode_entry(encode_entry(entry)))
-            for previous in self._entries_by_id.values():
-                if previous.id == entry.id:
-                    raise StorageError("entry_id_conflict", "Entry ID already exists")
+            if entry.id in self._entries_by_id:
+                raise StorageError("entry_id_conflict", "Entry ID already exists")
             self.validate_branch_entry(entry)
             will_persist = (
                 self._persisted
@@ -295,6 +305,7 @@ class JsonlSessionStore:
                 self.repair_log()
                 self.write_entry(entry)
             self._entries_by_id[entry.id] = entry
+            self._index_message_entry(entry)
             self._active_path_ids.append(entry.id)
             self._leaf = entry.id
             self._revision += 1
@@ -464,6 +475,7 @@ class JsonlSessionStore:
             self._entries_by_id = {}
             for entry in entries:
                 self._entries_by_id[entry.id] = freeze_value(entry)
+            self._rebuild_message_index()
             self._active_path_ids = [
                 entry.id for entry in SessionTree(self._entries_by_id).path(leaf_id)
             ]
