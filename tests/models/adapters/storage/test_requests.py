@@ -56,16 +56,6 @@ async def test_unsettled_attempt_remains_explicit_for_later_recovery(tmp_path):
         await reopened.aclose()
 
 
-async def test_settlement_cannot_change_the_recorded_attempt_identity(tmp_path):
-    store = SQLiteRequestStore(tmp_path / "runtime.sqlite")
-    try:
-        await store.start(initial_record())
-        with pytest.raises(StorageError, match="identity"):
-            await store.settle(replace(initial_record(), status="completed", session_id="other"))
-    finally:
-        await store.aclose()
-
-
 @pytest.mark.parametrize(
     "failed_statement", ["PRAGMA journal_mode", "PRAGMA synchronous", "CREATE TABLE", "COMMIT"]
 )

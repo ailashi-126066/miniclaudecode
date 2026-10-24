@@ -20,7 +20,8 @@ class ToolRegistry:
             )
         self._validator.check_schema(tool.spec.input_schema)
         self._tools[name] = tool
-        self._specs[name] = clone_value(tool.spec)
+        # Specs are frozen dataclasses; copies are taken when specs leave the registry.
+        self._specs[name] = tool.spec
 
     def get(self, name: str) -> Tool:
         tool = self._tools.get(name)

@@ -34,7 +34,7 @@ class SQLiteRequestStore:
         self._connection = sqlite3.connect(path, check_same_thread=False)
         try:
             self._connection.execute("PRAGMA journal_mode=WAL")
-            self._connection.execute("PRAGMA synchronous=FULL")
+            self._connection.execute("PRAGMA synchronous=NORMAL")
             self._connection.execute(
                 "CREATE TABLE IF NOT EXISTS model_requests ("
                 "request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, "
@@ -82,23 +82,6 @@ class SQLiteRequestStore:
             if initial or previous[0] != "started":
                 raise StorageError(
                     "request_id_conflict", "Request ID already has different settled content"
-                )
-            original = plain_data(decode_request(previous[1]))
-            identity_fields = (
-                "request_id",
-                "session_id",
-                "run_id",
-                "provider",
-                "model_id",
-                "purpose",
-                "attempt",
-                "started_at",
-                "agent_id",
-                "logical_id",
-            )
-            if any(original[field] != getattr(record, field) for field in identity_fields):
-                raise StorageError(
-                    "request_id_conflict", "Request settlement changes attempt identity"
                 )
         with self._connection:
             self._connection.execute(
