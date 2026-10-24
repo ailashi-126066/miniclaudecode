@@ -10,7 +10,6 @@ from langchain.agents.middleware import (
     hook_config,
 )
 from langchain_core.messages import AIMessage, BaseMessage, RemoveMessage
-from langchain_core.runnables import RunnableLambda
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from pycode.agent.adapters.boundaries import deliver_input, prepare_model_boundary, save_message
@@ -37,6 +36,18 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
 
     def __init__(self, bindings):
         self.bindings = bindings
+
+    async def current_projection(self, context):
+        """One projection per model call, reused while the history leaf is unchanged."""
+
+        assert context.history_store is not None and context.projector is not None
+        snapshot = await context.history_store.snapshot()
+        cached = context.model_projection
+        if cached is None or cached.leaf_id != snapshot.leaf_id:
+            cached = context.projector.project(snapshot)
+            context.model_projection = cached
+        context.model_source_leaf_id = snapshot.leaf_id
+        return cached
 
     async def abefore_agent(self, state, runtime):
         context = runtime.context
@@ -82,26 +93,20 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
                 await context.events.emit("turn_start", {"turn": turn})
             updates: dict[str, Any] = {"turn": turn}
             if context.history_store is not None:
-                snapshot = await context.history_store.snapshot()
-                assert context.projector is not None
-                projection = context.projector.project(snapshot)
-                context.model_source_leaf_id = snapshot.leaf_id
+                projection = await self.current_projection(context)
                 messages: list[BaseMessage] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
                 for message in projection.messages:
                     messages.append(self.bindings.to_framework(message, context.selection))
-                updates.update(messages=messages, branch_leaf_id=snapshot.leaf_id)
+                updates.update(messages=messages, branch_leaf_id=projection.leaf_id)
             elif pending:
                 updates["messages"] = [
                     self.bindings.to_framework(message, context.selection) for message in pending
                 ]
             return updates
 
-        chain = (
-            RunnableLambda(maintain_context)
-            | RunnableLambda(deliver_steering)
-            | RunnableLambda(project_turn)
-        )
-        return await chain.ainvoke(context)
+        await maintain_context(context)
+        pending = await deliver_steering(context)
+        return await project_turn(pending)
 
     async def awrap_model_call(self, request, handler):
         context = request.runtime.context
@@ -110,10 +115,7 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
         await self.bindings.run_hook(context, "pre_send", boundary)
         projection = None
         if context.history_store is not None:
-            snapshot = await context.history_store.snapshot()
-            assert context.projector is not None
-            projection = context.projector.project(snapshot)
-            context.model_source_leaf_id = snapshot.leaf_id
+            projection = await self.current_projection(context)
             request = request.override(
                 messages=[
                     self.bindings.to_framework(message, context.selection)
@@ -146,10 +148,7 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             report = await context.summary.prepare(force=True)
             if report.applied_job_id is None:
                 raise
-            assert context.history_store is not None and context.projector is not None
-            snapshot = await context.history_store.snapshot()
-            projection = context.projector.project(snapshot)
-            context.model_source_leaf_id = snapshot.leaf_id
+            projection = await self.current_projection(context)
             request = request.override(
                 messages=[
                     self.bindings.to_framework(message, context.selection)
@@ -163,10 +162,7 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
         if isinstance(model_response, AIMessage):
             model_response = ModelResponse(result=[model_response])
         if context.history_store is not None:
-            snapshot = await context.history_store.snapshot()
-            assert context.projector is not None
-            projection = context.projector.project(snapshot)
-            context.model_source_leaf_id = snapshot.leaf_id
+            projection = await self.current_projection(context)
         assistant = model_response.result[-1]
         if not isinstance(assistant, AIMessage):
             raise ModelError("invalid_model_response", "Model response must end with an AI message")

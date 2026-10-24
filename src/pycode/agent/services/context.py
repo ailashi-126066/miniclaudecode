@@ -11,7 +11,7 @@ from pycode.agent.ports import (
     TeamMailbox,
     WorkspaceReadback,
 )
-from pycode.context import SummaryService, ToolEvictionService
+from pycode.context import ProjectedContext, SummaryService, ToolEvictionService
 from pycode.hooks import Hooks
 from pycode.kernel import (
     EventSink,
@@ -51,6 +51,7 @@ class RunContext:
     agent_id: str = "lead"
     summary: SummaryService | None = None
     model_source_leaf_id: str | None = None
+    model_projection: ProjectedContext | None = None
     plans: PlanService | None = None
     workspace_files: WorkspaceReadback | None = None
     model_tools: tuple[ToolSpec, ...] = ()

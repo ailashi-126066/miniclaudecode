@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
-from langchain.agents.middleware import ExtendedModelResponse, ModelResponse, ModelRetryMiddleware
+from langchain.agents.middleware import ExtendedModelResponse, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import RunnableLambda
 
@@ -24,10 +24,6 @@ from pycode.models.ports.models import ModelFailureClassifier, ModelObservation,
 @dataclass(frozen=True)
 class ModelMessages:
     messages: list[BaseMessage]
-
-
-def retryable_model_error(error):
-    return isinstance(error, ModelError) and error.retryable
 
 
 def model_request_step(requests, handler, *, logical_id):
@@ -98,34 +94,28 @@ class ModelRequestRunner:
             nonlocal attempts
             index = attempts
             attempts += 1
-            try:
-                return await self.invoke_attempt(current, handler, logical_id, offset + index)
-            except ModelError as error:
-                if error.retryable and index < self._policy.max_retries:
-                    # LangChain owns retry scheduling. Accounting owns the header-
-                    # aware delay so Retry-After is honored for every provider.
-                    delay = self._policy.delay(index + 1, error.retry_after)
-                    await self._events.emit(
-                        "retry",
-                        {
-                            "request_id": error.request_id,
-                            "attempt": index + 1,
-                            "max_retries": self._policy.max_retries,
-                            "delay_seconds": delay,
-                            "error_code": error.code,
-                        },
-                    )
-                    await self._timing.sleep(delay)
-                raise
+            return await self.invoke_attempt(current, handler, logical_id, offset + index)
 
-        retry = ModelRetryMiddleware(
-            max_retries=self._policy.max_retries,
-            retry_on=retryable_model_error,
-            on_failure="error",
-            initial_delay=0,
-            jitter=False,
-        )
-        return await retry.awrap_model_call(request, metered_attempt)
+        total = self._policy.max_retries + 1
+        for index in range(total):
+            try:
+                return await metered_attempt(request)
+            except ModelError as error:
+                if not error.retryable or index >= total - 1:
+                    raise
+                # Accounting owns the header-aware delay so Retry-After is honored.
+                delay = self._policy.delay(index + 1, error.retry_after)
+                await self._events.emit(
+                    "retry",
+                    {
+                        "request_id": error.request_id,
+                        "attempt": index + 1,
+                        "max_retries": self._policy.max_retries,
+                        "delay_seconds": delay,
+                        "error_code": error.code,
+                    },
+                )
+                await self._timing.sleep(delay)
 
     async def invoke_attempt(self, request, handler, logical_id, attempt):
         record = RequestRecord(

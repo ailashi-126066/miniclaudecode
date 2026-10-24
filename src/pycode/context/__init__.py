@@ -16,6 +16,7 @@ from pycode.context.services.tool_eviction import ToolEvictionService
 __all__ = [
     "ProjectionContribution",
     "ProjectionContributor",
+    "ProjectedContext",
     "valid_kept_boundary",
     "estimate_messages",
     "ContextMeter",
@@ -34,3 +35,4 @@ __all__ = [
 
 from pycode.context.domain.projection import ProjectionContribution
 from pycode.context.ports.projection import ProjectionContributor
+from pycode.kernel import ProjectedContext
