@@ -60,7 +60,13 @@ async def open_agent_session(
     try:
         await store.claim_writer()
         outputs = build_outputs(modules, session_id, store)
-        await recover_conversation(store, outputs)
+        pending_execution = pending_run_entry(await store.snapshot())
+        resumable = pending_execution is not None and await store.has_checkpoint(
+            pending_execution.run_id
+        )
+        await recover_conversation(
+            store, outputs, started_only=resumable, finish_runs=not resumable
+        )
         if config.agent_id == "lead" and (modules.sessions.layout.project / "worktrees").exists():
             await build_worktree_manager(config, modules=modules).scan()
         plan_session = modules.plans.session(session_id, store)

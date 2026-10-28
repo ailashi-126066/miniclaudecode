@@ -4,14 +4,14 @@ import pytest
 
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.messages import Message
-from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
+from pycode.session.adapters.storage.session_repository import SqliteSessionRepository
 from pycode.session.domain.session_names import session_title, validate_title
 from pycode.session.services.sessions import SessionService, assign_initial_title, name_session
 from tests.support.requests import TestTiming
 
 
 async def test_initial_title_after_user_manual_override_restart_and_fork(tmp_path):
-    repository = JsonlSessionRepository(tmp_path / "sessions", str(tmp_path), TestTiming())
+    repository = SqliteSessionRepository(tmp_path / "sessions", str(tmp_path), TestTiming())
     store = await repository.open("opaque", create=True)
     message = Message("u1", "user", "  中文   task\nwith whitespace  ")
     await store.append_message(message)
@@ -40,7 +40,7 @@ async def test_initial_title_after_user_manual_override_restart_and_fork(tmp_pat
 
 
 async def test_duplicate_title_requires_id_and_never_merges_writers(tmp_path):
-    repository = JsonlSessionRepository(tmp_path / "sessions", str(tmp_path), TestTiming())
+    repository = SqliteSessionRepository(tmp_path / "sessions", str(tmp_path), TestTiming())
     for identifier in ("first", "second"):
         store = await repository.open(identifier, create=True)
         await store.append_message(Message("u", "user", "body"))

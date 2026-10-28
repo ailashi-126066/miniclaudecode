@@ -520,7 +520,7 @@ class StreamingOutputWriter:
                 body + f"\n[Output limited; full result {self._id}. Read with ReadToolResult.]"
             )
         directory = self._store.directory(self._context.session_id)
-        # Streaming bytes remain on disk until their JSONL result is bound.
+        # Streaming bytes remain on disk until their session Store result is bound.
         storage: Literal["file", "inline"] = "file"
         artifact = not small and (result.structured_content is not None or bool(result.details))
         artifact_digest = None

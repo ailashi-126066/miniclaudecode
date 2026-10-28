@@ -53,7 +53,6 @@ class RunContext:
     summary: SummaryService | None = None
     model_source_leaf_id: str | None = None
     model_projection: ProjectedContext | None = None
-    output_continuations: int = 0
     plans: PlanService | None = None
     workspace_files: WorkspaceReadback | None = None
     model_tools: tuple[ToolSpec, ...] = ()
@@ -61,17 +60,23 @@ class RunContext:
     disclosed_tool_names: tuple[str, ...] | None = None
     read_only: bool = False
     failure_guard: dict = field(default_factory=dict)
-    serial_failure_signature: str | None = None
     interrupted_calls: set[str] = field(default_factory=set)
     duplicate_calls: asyncio.Condition = field(default_factory=asyncio.Condition)
     dispatched_calls: set[str] = field(default_factory=set)
     team: TeamMailbox | None = None
     hooks: Hooks | None = None
     mcp_config_hash: str = ""
-    assistant: Message | None = None
-    call_order: list[str] = field(default_factory=list)
     ready_results: dict[str, tuple[ToolCall, ToolResult, dict]] = field(default_factory=dict)
     settled_calls: set[str] = field(default_factory=set)
     settlement: asyncio.Condition = field(default_factory=asyncio.Condition)
     turn_end_sent: bool = False
     tool_tasks: set[asyncio.Task] = field(default_factory=set)
+
+    @property
+    def assistant(self) -> Message | None:
+        return next((m for m in reversed(self.completed) if m.role == "assistant"), None)
+
+    @property
+    def call_order(self) -> list[str]:
+        message = self.assistant
+        return [call.id for call in message.tool_calls] if message is not None else []

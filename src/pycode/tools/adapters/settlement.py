@@ -3,7 +3,7 @@
 import asyncio
 import re
 from dataclasses import replace
-from typing import Protocol, TypedDict, cast
+from typing import Protocol, cast
 
 from langchain.agents.middleware import (
     AgentMiddleware,
@@ -14,8 +14,10 @@ from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
 from pycode.kernel import (
+    EntryDraft,
     EventSink,
     ExecutionMode,
+    HistoryJournal,
     Message,
     ModelSelection,
     StorageError,
@@ -33,16 +35,14 @@ from pycode.tools import ToolExecutor, ToolOutputStore, ToolRegistry
 from pycode.tools.adapters.framework_tool import make_framework_tool
 from pycode.tools.adapters.state import ToolSettlementState
 from pycode.tools.domain.execution import batch_execution_mode
-from pycode.tools.domain.tool_failures import repeated_tool_failure, tool_failure
+from pycode.tools.domain.tool_failures import (
+    FailureGuard,
+    failure_update,
+    repeated_tool_failure,
+    tool_failure,
+)
 from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
 from pycode.tools.ports.publication import MessagePublisher, ToolLifecycle
-
-
-class FailureGuard(TypedDict, total=False):
-    failure_tool: str
-    failure_arguments: str
-    failure_code: str
-    failure_count: int
 
 
 class SettlementMailbox(Protocol):
@@ -54,6 +54,8 @@ class WorkspaceInvocation(Protocol):
 
 
 class WorkspaceTools(Protocol):
+    receipts: dict[str, str]
+
     def begin_invocation(
         self, context: ToolContext, outputs: ToolOutputStore | None
     ) -> tuple[object, WorkspaceInvocation]: ...
@@ -66,6 +68,7 @@ class WorkspaceTools(Protocol):
 class SettlementContext(Protocol):
     """The fields settlement actually uses, without depending on AgentRuntime state."""
 
+    history_store: HistoryJournal | None
     session_id: str
     run_id: str
     workspace: str
@@ -80,7 +83,6 @@ class SettlementContext(Protocol):
     call_order: list[str]
     execution_mode: ExecutionMode
     failure_guard: FailureGuard
-    serial_failure_signature: str | None
     tool_tasks: set[asyncio.Task]
     interrupted_calls: set[str]
     dispatched_calls: set[str]
@@ -126,6 +128,13 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
         context.tool_tasks.add(owner)
         try:
             return await self.ordered_call(request, handler)
+        except asyncio.CancelledError:
+            if context.handoff_pending:
+                # Completed parallel results may still be waiting for an earlier call.
+                # Publish them before discarding the old runtime's transient queue.
+                async with context.settlement:
+                    await self.settle_ready(context, stopping=True)
+            raise
         finally:
             context.tool_tasks.discard(owner)
 
@@ -253,6 +262,14 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 {"call_id": result.call_id, "name": result.name, "output_id": result.output_id},
                 operation_id=tool_context.operation_id,
             )
+        if context.workspace_files is not None:
+            result = replace(
+                result,
+                details={
+                    **result.details,
+                    "read_receipts": dict(context.workspace_files.receipts),
+                },
+            )
         for extension in self.tool_extensions:
             result = extension.prepare_result(call, result)
         async with context.settlement:
@@ -293,7 +310,11 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                 result = message.tool_result
                 break
         digest = data_hash(call.arguments)
-        if context.serial_failure_signature == call.name + ":" + digest:
+        if (
+            context.failure_guard.get("failure_count", 0) > 0
+            and context.failure_guard.get("failure_tool") == call.name
+            and context.failure_guard.get("failure_arguments") == digest
+        ):
             async with context.duplicate_calls:
                 preceding = set()
                 for candidate in context.assistant.tool_calls:
@@ -530,6 +551,15 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
         current_call,
         current_spec,
     ):
+        if current_spec.category != "read" and context.history_store is not None:
+            await context.history_store.append_entry(
+                EntryDraft(
+                    "custom",
+                    data={"kind": "tool_started"},
+                    run_id=context.run_id,
+                    operation_id=current_context.operation_id,
+                )
+            )
         for extension in self.tool_extensions:
             await extension.before_call(current_context, current_call)
         current_request = self.domain_request(
@@ -554,34 +584,20 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
             response, context, call, current_context, current_call, native_binding
         )
 
-    async def settle_ready(self, context: SettlementContext):
+    async def settle_ready(self, context: SettlementContext, *, stopping=False):
         for identifier in context.call_order:
             if identifier in context.settled_calls or identifier in context.interrupted_calls:
                 continue
             ready = context.ready_results.get(identifier)
             if ready is None:
+                if stopping:
+                    continue
                 break
             saved_call, saved_result, saved_updates = ready
             saved_digest = data_hash(saved_call.arguments)
-            previous = context.failure_guard
-            count = 0
-            if saved_result.is_error:
-                same = (
-                    previous.get("failure_tool") == saved_call.name
-                    and previous.get("failure_arguments") == saved_digest
-                    and previous.get("failure_code") == saved_result.error_code
-                )
-                count = previous.get("failure_count", 0) + 1 if same else 1
-            if saved_result.error_code == "repeated_tool_failure":
-                count = previous.get("failure_count", 3)
-            context.failure_guard = {
-                "failure_tool": saved_call.name if saved_result.is_error else "",
-                "failure_arguments": saved_digest if saved_result.is_error else "",
-                "failure_code": previous.get("failure_code", "")
-                if saved_result.error_code == "repeated_tool_failure"
-                else saved_result.error_code or "",
-                "failure_count": count,
-            }
+            context.failure_guard = failure_update(
+                context.failure_guard, saved_call, saved_result, saved_digest
+            )
             assert saved_result.operation_id is not None
             entry_id = await self.publisher.publish(
                 Message("result:" + saved_result.operation_id, "tool", tool_result=saved_result),

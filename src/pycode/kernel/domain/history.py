@@ -58,7 +58,7 @@ class SessionSnapshot:
     entries: tuple[SessionEntry, ...]
     leaf_id: str | None
     revision: int
-    log_offset: int
+    record_count: int
     issues: tuple[str, ...] = ()
     entries_by_id: Mapping[str, SessionEntry] | None = field(
         default=None, compare=False, repr=False, metadata={"serialize": False}

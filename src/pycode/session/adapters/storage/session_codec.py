@@ -1,4 +1,4 @@
-"""Strict native JSONL boundary; never reads upstream session formats."""
+"""Strict native session Store boundary; never reads upstream session formats."""
 
 import json
 from dataclasses import fields

@@ -16,7 +16,7 @@ from pycode.agent.adapters.boundaries import deliver_input, prepare_model_bounda
 from pycode.agent.adapters.state import PycodeState
 from pycode.agent.domain.turn_policy import next_turn
 from pycode.agent.services.context import RunContext
-from pycode.kernel import Message, ModelError, data_hash, plain_data
+from pycode.kernel import Message, ModelError, plain_data
 
 MAX_OUTPUT_CONTINUATIONS = 3
 OUTPUT_CONTINUATION_PROMPT = (
@@ -44,11 +44,10 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
     def __init__(self, bindings):
         self.bindings = bindings
 
-    async def continue_truncated_output(self, context):
+    async def continue_truncated_output(self, context, state):
         """Resume a length-truncated response instead of ending the turn cut off."""
 
-        index = context.output_continuations
-        context.output_continuations += 1
+        index = state.get("output_continuations", 0)
         message = Message(
             f"{context.run_id}:continue-{index}",
             "user",
@@ -60,6 +59,7 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             "messages": [self.bindings.to_framework(message, context.selection)],
             "outcome": "running",
             "jump_to": "model",
+            "output_continuations": index + 1,
         }
 
     async def current_projection(self, context):
@@ -207,22 +207,6 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             },
         )
         await save_message(context, message)
-        context.assistant = message
-        context.call_order = [call.id for call in message.tool_calls]
-        signatures = set()
-        context.serial_failure_signature = None
-        failed_signature = None
-        if context.failure_guard.get("failure_count", 0) > 0:
-            failed_signature = (
-                context.failure_guard["failure_tool"]
-                + ":"
-                + context.failure_guard["failure_arguments"]
-            )
-        for call in message.tool_calls:
-            signature = call.name + ":" + data_hash(call.arguments)
-            if signature in signatures and signature == failed_signature:
-                context.serial_failure_signature = signature
-            signatures.add(signature)
         context.dispatched_calls.clear()
         context.interrupted_calls.clear()
         context.ready_results.clear()
@@ -258,7 +242,12 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
         if not message.tool_calls:
             await context.events.emit("turn_end", {"turn": state["turn"], "message_id": message.id})
             await self.bindings.run_hook(context, "turn_end", message.id, message=message.text)
-        return {"outcome": outcome, "final_text": message.text}
+        return {
+            "outcome": outcome,
+            "final_text": message.text,
+            "model_tools": plain_data(context.model_tools),
+            "disclosed_tool_names": plain_data(context.disclosed_tool_names),
+        }
 
     @hook_config(can_jump_to=["model"])
     async def aafter_agent(self, state, runtime):
@@ -269,9 +258,9 @@ class HistoryMiddleware(AgentMiddleware[PycodeState, RunContext]):
             await context.summary.prepare(wait_for_capacity=False)
         if (
             state.get("outcome") == "output_limit"
-            and context.output_continuations < MAX_OUTPUT_CONTINUATIONS
+            and state.get("output_continuations", 0) < MAX_OUTPUT_CONTINUATIONS
         ):
-            return await self.continue_truncated_output(context)
+            return await self.continue_truncated_output(context, state)
         if context.durable_inputs is not None:
             context.inputs = await context.durable_inputs.pending(context.run_id)
         kind, pending = take_queued(context)

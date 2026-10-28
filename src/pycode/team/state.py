@@ -1,4 +1,4 @@
-"""Team business state and keyed reducers; JSONL remains the durable journal."""
+"""Team business state and keyed reducers; session Store remains the durable journal."""
 
 from typing import Annotated, TypedDict
 
@@ -36,3 +36,17 @@ class TeamState(TypedDict):
 
 def empty_state() -> TeamState:
     return {"agents": {}, "tasks": {}, "mailboxes": {}}
+
+
+def apply_transition(current: TeamState, transition: dict) -> TeamState:
+    return {
+        "agents": merge_agents(
+            current["agents"], {row["agent_id"]: row for row in transition.get("agents", ())}
+        ),
+        "tasks": merge_records(
+            current["tasks"], {row["task_id"]: row for row in transition.get("tasks", ())}
+        ),
+        "mailboxes": merge_records(
+            current["mailboxes"], {row["id"]: row for row in transition.get("messages", ())}
+        ),
+    }

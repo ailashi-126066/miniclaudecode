@@ -6,14 +6,14 @@ from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.kernel.domain.tools import ToolContext
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.support.requests import TestTiming
 
 
 async def test_eviction_is_append_only_idempotent_and_readback_survives_branch_restore(tmp_path):
     directory = tmp_path / "sessions"
-    store = JsonlSessionStore(directory / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
+    store = SqliteSessionStore(directory / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     outputs = FileToolOutputStore(
         directory, "s1", store, header_reader=FileSessionHeaderReader(directory)
     )
@@ -47,13 +47,13 @@ async def test_eviction_is_append_only_idempotent_and_readback_survives_branch_r
         output_ids.append(result.output_id)
     await store.append_message(Message("u2", "user", "recent second"))
     prior_leaf = await store.append_message(Message("u3", "user", "recent third"))
-    original = (directory / "s1/entries.jsonl").read_bytes()
+    original = (await store.snapshot()).entries
     projector = ContextProjector()
     service = ToolEvictionService(store, projector, EvictionBudget(200000))
     report = await service.apply()
     assert set(report.entry_ids) == set(entry_ids[:3])
     assert report.reclaimed_tokens > 20000
-    assert (directory / "s1/entries.jsonl").read_bytes().startswith(original)
+    assert (await store.snapshot()).entries[: len(original)] == original
     assert report.context_tokens == estimate_messages(
         projector.project(await store.snapshot()).messages
     )
@@ -69,7 +69,7 @@ async def test_eviction_is_append_only_idempotent_and_readback_survives_branch_r
     assert "exit code 1" in first.text and output_ids[0] in first.text
     assert (await outputs.read(output_ids[0], 1, 1, 4096)).text == "x" * 4096
     await store.aclose()
-    restored = JsonlSessionStore(
+    restored = SqliteSessionStore(
         directory / "s1", SessionHeader("s1", "/project", "t"), TestTiming()
     )
     assert projector.project(await restored.snapshot()).messages == projected.messages

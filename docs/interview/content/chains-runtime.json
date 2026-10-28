@@ -34,7 +34,7 @@
         "purpose": "根据当前选中位置取出整条历史",
         "notes": [
           "if leaf_id is None: return ()：空分支有明确含义。",
-          "path.reverse()：沿parent逆向回溯后再反转，不能拿JSONL最后N行冒充当前分支。 未知叶直接ValueError；没有在这里隐式选择“最新”分支。"
+          "path.reverse()：沿parent逆向回溯后再反转，不能拿会话 Store最后N行冒充当前分支。 未知叶直接ValueError；没有在这里隐式选择“最新”分支。"
         ],
         "edge": "调用方顺序步骤：完成索引构造后查询选中叶",
         "guide": "树已经建立，但模型仍不知道用户选择的是初次修复还是回退后的路线。调用方传入明确叶节点，这里沿父节点追到根，再反转成阅读顺序。返回的记录元组交给历史整理方法；未知叶会直接失败，不会擅自换成日志里最后追加的路线。"
@@ -68,7 +68,7 @@
         "purpose": "在内存中按会话和运行分别编号",
         "notes": [
           "key = (session_id, run_id)：共享journal也不会混用两个运行的序号。",
-          "self.events.append(event)：写入有容量上限的deque；这不是JSONL完成消息事实。"
+          "self.events.append(event)：写入有容量上限的deque；这不是会话 Store完成消息事实。"
         ],
         "helpers": [
           {
@@ -88,7 +88,7 @@
     ],
     "result": [
       "界面取得带会话、运行和序号的通知，可及时刷新。",
-      "内存事件只供本进程显示和诊断，重开历史仍读取JSONL。"
+      "内存事件只供本进程显示和诊断，重开历史仍读取会话 Store。"
     ]
   },
   "02-kernel:io": {
@@ -670,7 +670,7 @@
         "purpose": "校验当前历史并模拟压缩后的输入大小",
         "notes": [
           "valid_source(source, snapshot, projection, self.config_hash(projection))：来源或配置变了就保留历史并报错。",
-          "candidate = replace(snapshot, ... leaf_id=identifier)：真正append之前先整理后的发送消息候选结果检查容量。 await self._history.append_entry(EntryDraft(\"compaction\", ...))：只追加摘要事实，不删除旧JSONL。"
+          "candidate = replace(snapshot, ... leaf_id=identifier)：真正append之前先整理后的发送消息候选结果检查容量。 await self._history.append_entry(EntryDraft(\"compaction\", ...))：只追加摘要事实，不删除旧会话 Store。"
         ],
         "helpers": [
           {
@@ -1118,7 +1118,7 @@
         "purpose": "按模型原调用顺序保存结果，然后确认消息已收到",
         "notes": [
           "if ready is None: break：后面的快工具不能跳过尚未准备好的前项。",
-          "entry_id = await self.publisher.publish(...)：publisher完成JSONL与输出引用绑定后才有真实entry_id。 extension.after_persist(...)、team.settle_tool(... accepted=True)：Skill/Team ACK发生在事实持久化之后。"
+          "entry_id = await self.publisher.publish(...)：publisher完成会话 Store与输出引用绑定后才有真实entry_id。 extension.after_persist(...)、team.settle_tool(... accepted=True)：Skill/Team ACK发生在事实持久化之后。"
         ],
         "helpers": [
           {

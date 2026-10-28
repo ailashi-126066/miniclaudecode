@@ -1,7 +1,6 @@
 """In-process team services and Git integration without application configuration."""
 
 from pycode.team.api import AgentTeam
-from pycode.team.framework import transition_graph
 from pycode.team.tools import child_tools, lead_tools
 from pycode.team.worktrees import WorktreeManager
 
@@ -11,9 +10,7 @@ class TeamModule:
         return WorktreeManager(workspace, storage_root, snapshot_factory=snapshot_factory)
 
     def create(self, ledger, history, children, worktrees, events, **settings):
-        return AgentTeam(
-            ledger, history, children, worktrees, events, transition=transition_graph(), **settings
-        )
+        return AgentTeam(ledger, history, children, worktrees, events, **settings)
 
     def tools(self, member, provider):
         return lead_tools(member, provider) if member.agent_id == "lead" else child_tools(member)

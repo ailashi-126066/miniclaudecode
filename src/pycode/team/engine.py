@@ -1,14 +1,16 @@
 """Team api: component-owned implementation."""
 
 import asyncio
+import contextvars
 import logging
 import time
 from uuid import uuid4
 
 from pycode.kernel import DomainError, EntryDraft, Message, StorageError, ToolError, plain_data
 from pycode.team.execution import TaskExecution
+from pycode.team.framework import member_graph
 from pycode.team.mailbox import TeamInbox
-from pycode.team.state import empty_state
+from pycode.team.state import apply_transition, empty_state
 from pycode.team.tasks import TeamManager
 from pycode.team.types import (
     ACTIVE_AGENT_STATES,
@@ -32,7 +34,6 @@ class AgentTeam:
         worktrees,
         events,
         *,
-        transition,
         max_agents=4,
         idle_timeout=180,
         stop_timeout=15,
@@ -49,7 +50,7 @@ class AgentTeam:
         self.ledger, self.lead_history = ledger, lead_history
         self.children, self.worktrees, self.events = children, worktrees, events
         self.max_agents, self.plans, self.lead_read_only = max_agents, plans, lead_read_only
-        self.state, self.transition = empty_state(), transition
+        self.state = empty_state()
         self.sessions = {}
         self.executions = {}
         self.idle_timeout, self.stop_timeout, self.max_handoffs = (
@@ -96,7 +97,7 @@ class AgentTeam:
 
     def apply(self, data):
         self.validate_transition(data)
-        self.state = self.transition(self.state, plain_data(data))
+        self.state = apply_transition(self.state, plain_data(data))
 
     async def commit(self, *, agents=(), tasks=(), messages=()):
         if not agents and not tasks and not messages:
@@ -114,7 +115,7 @@ class AgentTeam:
                     self.degraded = True
                     self.changed.set()
                     raise
-                self.state = self.transition(self.state, data)
+                self.state = apply_transition(self.state, data)
                 self.changed.set()
 
         operation = asyncio.create_task(persist())
@@ -236,8 +237,8 @@ class AgentTeam:
         except Exception:
             _LOG.warning("Team event delivery failed", exc_info=True)
 
-    def own(self, coroutine):
-        task = asyncio.create_task(coroutine)
+    def own(self, coroutine, *, context=None):
+        task = asyncio.create_task(coroutine, context=context)
         self.tasks.add(task)
         task.add_done_callback(self.background_done)
         return task
@@ -520,12 +521,6 @@ class AgentTeam:
         if execution is not None:
             execution.activity.set()
         await self.emit("agent", record)
-        if (
-            status == "failed"
-            and error_code in {"provider_timeout", "provider_connection"}
-            and record["handoffs"] < self.max_handoffs
-        ):
-            self.own(self.handoff_task(record["task_id"], automatic=True))
         if messages:
             await self.emit("wake", {})
 
@@ -609,7 +604,7 @@ class AgentTeam:
         elif kind == "error":
             execution.failure_code = data.get("code")
             return
-        # Activity has one timestamp in the same TeamState. No per-token JSONL writes.
+        # Activity has one timestamp in the same TeamState. No per-token session Store writes.
         current = self.records[identifier]
         if current["status"] not in {"running", "starting"} or current["generation"] != generation:
             return
@@ -627,7 +622,10 @@ class AgentTeam:
                 ]
             }
         )
-        execution.activity.set()
+        if execution.heartbeat is not None:
+            execution.heartbeat()
+        if steps != record["active_steps"] or phase != record["phase"]:
+            execution.activity.set()
         if kind == "tool_execution_end" and data.get("output_id"):
             source = None
             if operation in execution.source_versions:
@@ -665,39 +663,15 @@ class AgentTeam:
             and not execution.watcher.done()
         ):
             execution.watcher.cancel()
-        execution.watcher = self.own(self.monitor(identifier, record["generation"]))
+        execution.watcher = self.own(
+            self.monitor(identifier, record["generation"]), context=contextvars.Context()
+        )
 
     async def monitor(self, identifier, generation):
-        execution = self.executions[self.records[identifier]["task_id"]]
-        while True:
-            execution.activity.clear()
-            record = self.records[identifier]
-            if record["generation"] != generation or record["status"] not in {
-                "running",
-                "needs_approval",
-            }:
-                return
-            if record["status"] == "needs_approval" or record["phase"] == "approval":
-                await execution.activity.wait()
-                continue
-            deadlines = [
-                step["deadline_at"] + self.stop_timeout
-                for step in record["active_steps"].values()
-                if step["deadline_at"] is not None
-            ]
-            # Quiet bounded commands use their own limit, plus time for process cleanup.
-            deadline = (
-                min(deadlines) if deadlines else record["last_activity_at"] + self.idle_timeout
-            )
-            delay = deadline - time.time()
-            if delay <= 0:
-                await self.handoff_task(record["task_id"], automatic=True)
-                return
-            try:
-                async with asyncio.timeout(delay):
-                    await execution.activity.wait()
-            except TimeoutError:
-                continue
+        await member_graph(self).ainvoke(
+            {"agent_id": identifier, "generation": generation},
+            config={"recursion_limit": 1_000_000_000},
+        )
 
     async def handoff_task(self, task_id, *, automatic=False):
         async with self.lock:

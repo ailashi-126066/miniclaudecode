@@ -1,5 +1,5 @@
 # Source: Pi agent-loop.ts at 42a3497d03ad17e308a2299fa824727894f2c0ec.
-# Adaptation: framework middleware owns scheduling and JSONL settlement.
+# Adaptation: framework middleware owns scheduling and session Store settlement.
 """Validate, authorize and execute one tool; no second execution ledger."""
 
 from dataclasses import replace

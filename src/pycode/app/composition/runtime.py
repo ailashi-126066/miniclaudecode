@@ -32,7 +32,11 @@ async def build_runtime(
     summary_service = session.summary_service
     async with RunAssembly() as assembling:
         checkpointer = (
-            options.checkpointer if options.checkpointer is not None else modules.agent.checkpoint()
+            options.checkpointer
+            if options.checkpointer is not None
+            else await session.history_store.checkpoint()
+            if session.history_store is not None
+            else modules.agent.checkpoint()
         )
         outputs = session.outputs or build_outputs(
             modules, session.session_id, session.history_store

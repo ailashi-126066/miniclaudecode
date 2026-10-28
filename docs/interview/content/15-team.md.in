@@ -4,9 +4,9 @@
 
 ## 框架与三类数据的归属
 
-TeamState 包含 agents、tasks 和 mailboxes。协调图只应用按 ID 的 reducers，不调用模型，也不继承子图 checkpoint。业务变更追加到现有 Team JSONL，落盘成功后更新 State。records 属性只是 State 的访问入口，不是另外三份可写状态。
+TeamState 包含 agents、tasks 和 mailboxes。业务更新直接应用按 ID 的 reducers，不再通过单节点图合并字典。成员生命周期图处理等待、超时和交接分支，不调用模型，也不继承子图 checkpoint。业务变更追加到现有 Team 会话 Store，落盘成功后更新 State。records 属性只是 State 的访问入口，不是另外三份可写状态。
 
-完整对话、工具结果和消息 parent_id 仍保存到任务会话 JSONL。任务持有的运行容器另有内存 checkpoint，用于当前进程内继续执行；它不替代完整历史，也不声称能跨程序重启恢复原图。
+完整对话、工具结果和消息 parent_id 仍保存到任务会话 会话 Store。任务持有的运行容器另有持久化 checkpoint，用于当前进程内继续执行；它不替代完整历史，也不声称能跨程序重启恢复原图。
 
 {{chain:15-team:state}}
 
@@ -48,7 +48,7 @@ ChildEventRelay 接收模型开始/响应/结束、工具实际开始/输出/结
 
 最近活动时间存在 TeamState.agents[id].last_activity_at。phase 和 active_steps 表示当前阶段及并行请求/工具。事件必须匹配会话、运行和代次，重复事件与普通通知不能续期。高频输出更新内存，阶段边界落盘；耗时和超期状态查看时计算。
 
-watchdog 等待活动通知或期限到达，不扫描 JSONL，也不调用模型。默认 180 秒无活动触发停止，确认等待 15 秒，最多自动交接一次；任务总时长不设硬上限。审批等待暂停无活动计时，安静的 Bash 按自己的执行超时运行，并给清理进程留出确认时间。
+成员图用 TimeoutPolicy 管理无活动期限，筛选后的有效输出调用 runtime.heartbeat() 续期；阶段变化由条件边选择等待节点，NodeTimeoutError 通过 error_handler / Command 转入交接。没有手写倒计时循环，不扫描 会话 Store，也不调用模型。默认 180 秒无活动触发停止，确认等待 15 秒，最多自动交接一次；任务总时长不设硬上限。审批等待暂停无活动计时，安静的 Bash 按自己的执行超时运行，并给清理进程留出确认时间。
 
 {{chain:15-team:activity}}
 
@@ -56,7 +56,7 @@ watchdog 等待活动通知或期限到达，不扫描 JSONL，也不调用模�
 
 lead 可以调用 handoff_task；无活动超时和允许重试的模型连接故障也可以自动发起交接。程序先标记 stopping、取消旧 driver，等待工具清理。停止未确认则记录 stop_unconfirmed，不能启动 B。旧执行后来退出才变为 interrupted。
 
-确认停止后，程序更换负责人和执行代次，保留 session_id、run_id、thread_id、worktree、完整历史和内存 checkpointer，相关未处理邮件改投新成员。B 重建模型与工具资源，继续原任务；不是再保存一次用户输入，也不是从干净的 HEAD 重做。
+确认停止后，程序更换负责人和执行代次，保留 session_id、run_id、thread_id、worktree、完整历史和持久化 checkpointer，相关未处理邮件改投新成员。B 重建模型与工具资源，继续原任务；不是再保存一次用户输入，也不是从干净的 HEAD 重做。
 
 ToolSearch 披露结果、已完成结果和文件读取版本随任务衔接。中断中的写操作保存效果不确定的结果，恢复时不盲目执行旧写调用。B 如需新的操作，仍走正常权限与审批。
 
@@ -68,6 +68,10 @@ ToolSearch 披露结果、已完成结果和文件读取版本随任务衔接。
 
 普通 cancel_agent 结束任务执行，并保留原有取消语义；交接使用独立的暂停路径，不提前写 run_end 或销毁任务 checkpoint。旧代次的事件和提交都不能影响接管后的任务。
 
-整个程序重启后，TeamState 和原始历史可以从 JSONL 恢复，内存 checkpoint 已消失。旧活跃执行标为 interrupted，不自动续跑；用户明确发起的新运行使用历史重新开始。当前进程内交接与这种重新开始严格区分。
+整个程序重启后，TeamState 与完整历史从 Store 恢复，checkpoint 保存在 execution.sqlite。旧成员标为 interrupted，不自动启动；独立任务会话可显式 resume 重建资源继续原图。
 
 {{chain:15-team:cancel}}
+
+## 框架 State 与恢复来源
+
+续写次数和当前模型工具声明进入图 State，工具失败字段继续通过 reducer 更新。助手消息和工具调用顺序从本轮消息推导，交接从原分支 会话 Store 恢复已保存结果，不再逐字段复制旧 Context。交接先保存并行队列里已经完成的结果，未入 checkpoint 的已保存结果仍阻止重复执行；并行结算缓冲和锁重新建立，工作区读取版本凭据随资源绑定。后台摘要预生成与旧工具输出清理保持不变。

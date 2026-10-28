@@ -5,12 +5,12 @@ from pycode.kernel import ModelSelection
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.history_tree import SessionTree
 from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.support.requests import TestTiming
 
 
 async def test_cut_moves_before_a_call_whose_result_follows_an_intervening_reminder(tmp_path):
-    store = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
+    store = SqliteSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     try:
         await store.append_message(Message("u1", "user", "old history " * 1000))
         await store.append_message(Message("a1", "assistant", "old answer " * 1000))

@@ -54,7 +54,7 @@
 
 模型需要继续看时，调用 `ReadToolResult(output_id, offset, limit, byte_offset)`。这个工具只接受输出ID，不接受机器上的任意文件路径。存储层先确认当前分支里确实有消息引用该输出，必要时检查它属于允许读取的父会话，再按行数和字节数返回下一片。
 
-小结果可以直接留在JSONL中，不必重复保存正文；大结果留在文件里。两种情况都有元数据，也都要在结果消息提交后绑定到那条真实消息，才能说明“这个输出究竟是谁产生的”。
+小结果可以直接留在会话 Store中，不必重复保存正文；大结果留在文件里。两种情况都有元数据，也都要在结果消息提交后绑定到那条真实消息，才能说明“这个输出究竟是谁产生的”。
 
 {{chain:06-tools:outputs}}
 
@@ -79,7 +79,7 @@ Deep Agents负责模型和工具之间的循环，`FilesystemMiddleware`提供�
 | 路径与文件版本正确吗 | `PycodeBackend.resolve/check_version` | 文件读写函数 |
 | 这次调用能执行吗 | `declaration_error`、`ToolExecutor.execute` | 实际工具或明确拒绝结果 |
 | 用户在批准什么 | `InterruptToolGate.authorize` | 当前图的interrupt |
-| 结果什么时候真正保存 | `settle_ready`、`save_message` | JSONL与后续通知 |
+| 结果什么时候真正保存 | `settle_ready`、`save_message` | 会话 Store与后续通知 |
 | 大输出在哪里、怎么接着读 | `FileToolOutputStore`、`ReadToolResult.execute` | 模型和界面的有界切片 |
 
 {{inline:src/pycode/tools/domain/outputs.py:OutputMetadata}}

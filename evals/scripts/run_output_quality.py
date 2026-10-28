@@ -135,7 +135,7 @@ async def main(resume_memory=None, only=None, retry_memory=False):
             workspace = resume_memory / "workspace"
             config = AppConfig(workspace, resume_memory / "data", credential_workspace=ROOT)
             sessions = list(
-                StorageLayout(workspace, config.user_data).sessions.glob("*/entries.jsonl")
+                StorageLayout(workspace, config.user_data).sessions.glob("*/session.sqlite")
             )
             if len(sessions) != 1:
                 raise ValueError("Resume exactly one recorded memory generation session")

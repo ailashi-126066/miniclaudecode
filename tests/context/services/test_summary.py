@@ -15,7 +15,7 @@ from pycode.kernel.domain.history import EntryDraft, SessionHeader
 from pycode.kernel.domain.history_tree import SessionTree
 from pycode.kernel.domain.messages import Message, UsageRecord
 from pycode.kernel.services.events import EventStream
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.support.requests import TestTiming
 
 
@@ -44,7 +44,9 @@ class Generator:
 
 
 async def setup(tmp_path, generator, *, on_compacted=None):
-    history = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
+    history = SqliteSessionStore(
+        tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming()
+    )
     for index in range(6):
         await history.append_message(Message(f"u{index}", "user", "x" * 6000))
         await history.append_message(Message(f"a{index}", "assistant", "x" * 6000))
@@ -93,7 +95,7 @@ async def test_source_append_during_generation_keeps_tail_and_adopts_once(tmp_pa
         await service.prepare()
         await generator.started.wait()
         source = generator.sources[0]
-        original = (tmp_path / "s1/entries.jsonl").read_bytes()
+        original = (await history.snapshot()).entries
         await history.append_message(Message("appended", "user", "new message while summary runs"))
         applying = asyncio.create_task(service.prepare(manual=True))
         await asyncio.sleep(0)
@@ -104,7 +106,7 @@ async def test_source_append_during_generation_keeps_tail_and_adopts_once(tmp_pa
         projection = ContextProjector().project(await history.snapshot())
         assert projection.messages[-1].id == "appended"
         assert any(message.id == "a5" for message in projection.messages)
-        assert (tmp_path / "s1/entries.jsonl").read_bytes().startswith(original)
+        assert (await history.snapshot()).entries[: len(original)] == original
         assert await objects.load(source.job_id) is None
         assert list((tmp_path / "summaries").glob("*.result.json"))
         assert (await service.prepare()).applied_job_id is None

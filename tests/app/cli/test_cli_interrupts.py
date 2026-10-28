@@ -31,7 +31,7 @@ def test_question_cli_retains_named_question_and_accepts_answer_file_after_resta
         assert pending["kind"] == "ask_user"
         assert main([*common, "resume", *execution, "--output-format", "json"]) == 0
         again = rows(capsys)[0]
-        assert again["pending"] == [] and again["pending_run_id"] is None
+        assert again["pending"] and again["pending_run_id"] is not None
         assert len(requests) == 1
         answer_file = tmp_path / "answers.json"
         answer_file.write_text(
@@ -55,21 +55,16 @@ def test_question_cli_retains_named_question_and_accepts_answer_file_after_resta
                     "json",
                 ]
             )
-            == 1
-        )
-        final = rows(capsys)[0]
-        assert final["error"]["code"] == "run_expired" and len(requests) == 1
-        assert (
-            main([*common, "run", "Continue from history", *execution, "--output-format", "json"])
             == 0
         )
-        rows(capsys)
+        final = rows(capsys)[0]
+        assert final["outcome"] == "completed" and len(requests) == 2
         results = [
             entry.message.tool_result
             for entry in asyncio.run(read_session(tmp_path)).entries
             if entry.message and entry.message.tool_result
         ]
-        assert len(results) == 1 and results[0].error_code == "tool_interrupted"
+        assert len(results) == 1 and not results[0].is_error
         assert len(requests) == 2
 
 

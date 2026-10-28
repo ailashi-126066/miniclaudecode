@@ -9,7 +9,7 @@ from pycode.kernel.domain.messages import Message
 from pycode.models.adapters.storage.catalog import FileCatalogStore
 from pycode.models.services.model_catalog import ModelCatalog
 from pycode.models.services.model_control import ModelControl
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.models.adapters.test_factory import configuration
 from tests.models.services.test_model_catalog import FixedDirectory
 from tests.support.requests import TestTiming
@@ -23,7 +23,7 @@ def controller(tmp_path, providers, store):
 
 
 def store_for(tmp_path):
-    return JsonlSessionStore(
+    return SqliteSessionStore(
         tmp_path / "session", SessionHeader("s1", "/project", "created"), TestTiming()
     )
 
@@ -38,7 +38,7 @@ async def test_model_changes_and_branch_restoration_are_durable(tmp_path):
     first_leaf = (await store.snapshot()).leaf_id
     second = await control.select(providers[1].name, providers[1].model_id)
     assert first != second
-    raw = (tmp_path / "session/entries.jsonl").read_bytes()
+    raw = (await store.snapshot()).entries
     await store.aclose()
     restored = store_for(tmp_path)
     control = controller(tmp_path, providers, restored)
@@ -46,7 +46,7 @@ async def test_model_changes_and_branch_restoration_are_durable(tmp_path):
     assert (await control.restore()).implementation == "openai"
     await restored.branch(first_leaf)
     assert (await control.restore()).implementation == "deepseek"
-    assert (tmp_path / "session/entries.jsonl").read_bytes() == raw
+    assert (await restored.snapshot()).entries == raw
     await restored.aclose()
 
 

@@ -36,22 +36,6 @@ from pycode.ui.adapters.usage import UsageScreen
 from pycode.ui.ports.ui import InteractiveSession, InteractiveSessions
 
 
-def token_text(usage):
-    parts = []
-    for label, key in (
-        ("input", "input_tokens"),
-        ("output", "output_tokens"),
-        ("cache hit", "cache_read_tokens"),
-        ("cache miss", "cache_miss_tokens"),
-        ("cache write", "cache_write_tokens"),
-        ("reasoning", "reasoning_tokens"),
-        ("total", "total_tokens"),
-    ):
-        value = usage.get(key)
-        parts.append(f"{label} {value if value is not None else 'unavailable'}")
-    return " · ".join(parts)
-
-
 def abbreviated_tokens(value):
     if value >= 1_000_000:
         return f"{value / 1_000_000:.1f}M"
@@ -535,10 +519,6 @@ class PyApp(App):
                 await self.query_one("#pending", Vertical).mount(PlanPanel(payload))
             elif payload["kind"] == "ask_user":
                 await self.query_one("#pending", Vertical).mount(QuestionPanel(payload))
-            else:
-                self.notice(
-                    "Pending operation review; use /resume or explicit reconciliation", "warning"
-                )
         if self.view_state["pending_revert_id"]:
             self.notice(
                 "Revert recovery required: " + self.view_state["pending_revert_id"], "warning"

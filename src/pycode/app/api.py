@@ -35,7 +35,7 @@ class Application:
         return self._modules.sandbox.backend()
 
     def session_trace_path(self, session_id):
-        return self._modules.sessions.layout.sessions / session_id / "entries.jsonl"
+        return self._modules.sessions.layout.sessions / session_id / "session.sqlite"
 
     def session_service(self):
         return self._modules.sessions.service()

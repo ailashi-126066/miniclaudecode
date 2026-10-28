@@ -12,7 +12,7 @@ from pycode.kernel.domain.errors import StorageError, ToolError
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.kernel.domain.tools import ToolSpec
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.permissions import InterruptToolGate
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.adapters.tool_errors import execute_tool_errors
@@ -55,7 +55,7 @@ def parallel_reply():
 
 async def test_parallel_tool_cancellation_collects_both_and_never_restarts_them(tmp_path):
     _, context, model, _, _, _ = assemble([parallel_reply()])
-    journal = JsonlSessionStore(
+    journal = SqliteSessionStore(
         tmp_path / "session", SessionHeader(context.session_id, "/workspace", "t"), TestTiming()
     )
     validator = JsonSchemaValidator()

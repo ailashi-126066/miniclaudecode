@@ -1,40 +1,84 @@
-"""A model-free LangGraph transition uses the TeamState reducers."""
+"""Native timeout and outcome routing for one background member generation."""
 
+import time
+from typing import Any, TypedDict, cast
+
+from langgraph.errors import NodeError, NodeTimeoutError
 from langgraph.graph import END, START, StateGraph
-
-from pycode.team.state import TeamState
-
-
-class TransitionState(TeamState):
-    transition: dict
+from langgraph.runtime import Runtime
+from langgraph.types import Command, Send, TimeoutPolicy
 
 
-def apply_transition(state: TransitionState):
-    transition = state["transition"]
-    return {
-        field: {record[key]: record for record in transition.get(group, ())}
-        for group, field, key in (
-            ("agents", "agents", "agent_id"),
-            ("tasks", "tasks", "task_id"),
-            ("messages", "mailboxes", "id"),
+class MemberState(TypedDict):
+    agent_id: str
+    generation: int
+
+
+def member_graph(team):
+    def route(state: MemberState):
+        record = team.records[state["agent_id"]]
+        execution = team.executions[record["task_id"]]
+        execution.activity.clear()
+        if record["generation"] != state["generation"]:
+            return END
+        if record["status"] == "failed":
+            return (
+                "handoff"
+                if record["error_code"] in {"provider_timeout", "provider_connection"}
+                and record["handoffs"] < team.max_handoffs
+                else END
+            )
+        if record["status"] not in {"running", "needs_approval"}:
+            return END
+        if record["status"] == "needs_approval" or record["phase"] == "approval":
+            return Send("approval", state)
+        deadlines = [
+            step["deadline_at"] + team.stop_timeout
+            for step in record["active_steps"].values()
+            if step["deadline_at"] is not None
+        ]
+        if deadlines:
+            remaining = min(deadlines) - time.time()
+            if remaining <= 0:
+                return "handoff"
+            return Send("wait", state, timeout=TimeoutPolicy(run_timeout=remaining))
+        return Send(
+            "wait",
+            state,
+            timeout=TimeoutPolicy(idle_timeout=team.idle_timeout, refresh_on="heartbeat"),
         )
-    }
 
+    async def wait(state: MemberState, runtime: Runtime):
+        record = team.records[state["agent_id"]]
+        execution = team.executions[record["task_id"]]
+        execution.heartbeat = runtime.heartbeat
+        try:
+            await execution.activity.wait()
+        finally:
+            execution.heartbeat = None
+        return {}
 
-def transition_graph():
-    builder = StateGraph(TransitionState)
-    builder.add_node("apply", apply_transition)
-    builder.add_edge(START, "apply")
-    builder.add_edge("apply", END)
-    # Called from tool/model callbacks: never inherit their task checkpoint.
-    graph = builder.compile(checkpointer=False)
+    def timed_out(state: MemberState, error: NodeError) -> Command:
+        if not isinstance(error.error, NodeTimeoutError):
+            raise error.error
+        record = team.records[state["agent_id"]]
+        # An approval or completion can arrive while the timeout handler is scheduled.
+        if record["status"] != "running" or record["phase"] == "approval":
+            return Command(goto=route(state))
+        return Command(goto="handoff")
 
-    def reduce(current: TeamState, transition: dict) -> TeamState:
-        updated = graph.invoke({**current, "transition": transition})
-        return {
-            "agents": updated["agents"],
-            "tasks": updated["tasks"],
-            "mailboxes": updated["mailboxes"],
-        }
+    async def handoff(state: MemberState):
+        record = team.records[state["agent_id"]]
+        await team.handoff_task(record["task_id"], automatic=True)
+        return {}
 
-    return reduce
+    builder = StateGraph(MemberState)
+    builder.add_node("wait", wait, error_handler=cast(Any, timed_out))
+    builder.add_node("approval", wait)
+    builder.add_node("handoff", handoff)
+    builder.add_conditional_edges(START, route)
+    builder.add_conditional_edges("wait", route)
+    builder.add_conditional_edges("approval", route)
+    builder.add_edge("handoff", END)
+    # The child owns its execution checkpoint; this graph observes live host resources.
+    return builder.compile(checkpointer=False)

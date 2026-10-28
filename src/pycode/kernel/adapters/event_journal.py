@@ -1,4 +1,4 @@
-"""Bounded process-local events; restart reads JSONL completed history only."""
+"""Bounded process-local events; restart reads session Store completed history only."""
 
 import asyncio
 from collections import deque
@@ -29,7 +29,7 @@ class MemoryEventJournal:
         """Inspect a bounded live event trace for diagnostics and embedded consumers.
 
         Normal UI delivery uses EventStream. This optional cursor API intentionally
-        reads only this process's ring buffer; JSONL remains the restart authority.
+        reads only this process's ring buffer; session Store remains the restart authority.
         """
         if not isinstance(after, int) or after < 0 or not 1 <= limit <= 10000:
             raise StorageError("invalid_event_cursor", "Event cursor or page size is invalid")

@@ -130,6 +130,7 @@ async def test_real_process_death_does_not_drop_or_redeliver_durable_inputs(
         tool = WritingEcho()
         restored = await session_at(config, provider(url), tool)
         before = len(requests)
+        await restored.cancel()
         with pytest.raises(StorageError) as error:
             await restored.resume()
         assert error.value.code == "no_pending_run" and len(requests) == before

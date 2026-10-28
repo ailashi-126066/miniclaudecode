@@ -98,7 +98,7 @@ async def test_real_question_resumes_in_process_and_returns_one_paired_result(
 
 
 @pytest.mark.parametrize("boundary", ["question_wait", "question_answered"])
-async def test_actual_process_death_expires_wait_and_preserves_confirmed_answer(
+async def test_actual_process_death_preserves_answer_and_explicit_cancel_ends_wait(
     tmp_path, monkeypatch, boundary
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
@@ -129,6 +129,8 @@ async def test_actual_process_death_expires_wait_and_preserves_confirmed_answer(
             "s1", refresh_models=False
         )
         try:
+            assert len(requests) == 1
+            await restored.cancel()
             state = await restored.inspect()
             assert state["pending"] == () and state["pending_run_id"] is None
             with pytest.raises(StorageError):

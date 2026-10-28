@@ -6,7 +6,7 @@ from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.history import EntryDraft, SessionEntry, SessionHeader
 from pycode.kernel.domain.messages import Message
 from pycode.kernel.domain.values import plain_data
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.support.requests import TestTiming
 
 
@@ -21,7 +21,7 @@ class CountingProjector(ContextProjector):
 
 
 async def test_5000_entries_share_immutable_values_and_append_converts_only_one(tmp_path):
-    store = JsonlSessionStore(
+    store = SqliteSessionStore(
         tmp_path / "session", SessionHeader("s1", str(tmp_path), "t"), TestTiming()
     )
     entries = []
@@ -65,7 +65,7 @@ async def test_5000_entries_share_immutable_values_and_append_converts_only_one(
 
 
 async def test_state_only_append_reuses_messages_and_special_edit_invalidates(tmp_path):
-    store = JsonlSessionStore(
+    store = SqliteSessionStore(
         tmp_path / "session", SessionHeader("s1", str(tmp_path), "t"), TestTiming()
     )
     try:

@@ -1,15 +1,15 @@
-# Source: https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/coding-agent/src/core/session-manager.ts
-# Adaptation: native schema, fsync, atomic position, writer lease and corruption checks.
-"""Append-only JSONL history with a separately durable active branch position."""
+"""Complete record trees in LangGraph Store; execution positions in its checkpointer."""
 
 import asyncio
-import json
-import os
-import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
 from uuid import uuid4
+
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.store.base import PutOp
+from langgraph.store.sqlite.base import SqliteStore
 
 from pycode.context import valid_kept_boundary
 from pycode.kernel import (
@@ -23,9 +23,10 @@ from pycode.kernel import (
     Timing,
     clone_value,
     freeze_value,
+    plain_data,
 )
 from pycode.kernel.adapters.file_lease import FileLease
-from pycode.kernel.adapters.path_io import atomic_write, owned_io
+from pycode.kernel.adapters.path_io import owned_io
 from pycode.session.adapters.storage.session_codec import (
     decode_entry,
     decode_header,
@@ -35,148 +36,92 @@ from pycode.session.adapters.storage.session_codec import (
 from pycode.session.domain.execution_recovery import run_belongs_to_session
 
 
-class JsonlSessionStore:
-    def __init__(self, directory: Path, header: SessionHeader, timing: Timing) -> None:
+def open_database(path):
+    connection = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=FULL")
+    store = SqliteStore(connection)
+    store.setup()
+    return store
+
+
+def read_records(path):
+    store = open_database(path)
+    try:
+        saved = store.get(("session",), "position")
+        assert saved is not None
+        metadata = saved.value
+        entries = []
+        offset = 0
+        while True:
+            page = store.search(("entries",), limit=1000, offset=offset)
+            entries.extend(page)
+            if len(page) < 1000:
+                break
+            offset += len(page)
+        entries.sort(key=lambda item: item.value["sequence"])
+        return metadata, tuple(decode_entry(encode_entry(item.value["entry"])) for item in entries)
+    finally:
+        store.conn.close()
+
+
+def read_header(path):
+    store = open_database(path)
+    try:
+        saved = store.get(("session",), "position")
+        assert saved is not None
+        return decode_header(encode_header(saved.value["header"]))
+    finally:
+        store.conn.close()
+
+
+class SqliteSessionStore:
+    def __init__(self, directory: Path, header: SessionHeader, timing: Timing):
         self._directory = directory
-        self._log = directory / "entries.jsonl"
-        self._position = directory / "position.json"
-        self._header = header
-        self._timing = timing
-        self._entries_by_id: dict[str, SessionEntry] = {}
-        self._entries_by_message_id: dict[str, list[str]] = {}
-        self._active_path_ids: list[str] = []
+        self._log = directory / "session.sqlite"
+        self._header, self._timing = header, timing
+        self._entries_by_id = {}
+        self._entries_by_message_id = {}
+        self._active_path_ids = []
         self._leaf = None
-        self._revision = 0
-        self._offset = 0
-        self._issues = []
-        self._loaded = False
-        self._persisted = False
-        self._closed = False
-        self._fingerprint = None
-        self._position_fingerprint = None
+        self._revision = self._record_count = 0
+        self._loaded = self._persisted = self._closed = False
         self._lease = FileLease(directory / "writer.lock")
         self._lock = asyncio.Lock()
+        self._database = None
+        self._checkpoint_scope = None
+        self._checkpointer = None
 
     async def run_io(self, operation):
         async with self._lock:
             if self._closed:
                 raise StorageError("session_closed", "Session store is closed")
-            try:
-                return await owned_io(operation)
-            except (OSError, ValueError, TypeError, KeyError) as error:
-                raise StorageError(
-                    "session_storage_error", "Session storage operation failed"
-                ) from error
+            return await owned_io(operation)
 
-    def load(self) -> None:
+    def load(self):
         if self._loaded:
-            if self._persisted:
-                current = self._log.stat()
-                if self._fingerprint != (current.st_mtime_ns, current.st_size):
-                    raise StorageError(
-                        "session_changed_externally", "Session history changed outside its writer"
-                    )
             return
-        if not self._log.exists():
-            self._loaded = True
-            return
-        entries = []
-        physical = []
-        index = {}
-        offset = 0
-        issues = []
-        with self._log.open("rb") as source:
-            header_line = source.readline()
-            header = decode_header(header_line)
-            if (
-                header.session_id != self._header.session_id
-                or header.workspace != self._header.workspace
+        if self._log.exists():
+            metadata, entries = read_records(self._log)
+            header = decode_header(encode_header(metadata["header"]))
+            if (header.session_id, header.workspace) != (
+                self._header.session_id,
+                self._header.workspace,
             ):
-                raise StorageError(
-                    "session_identity_conflict",
-                    "Stored session belongs to a different identity or workspace",
-                )
-            offset = source.tell()
-            for line in source:
-                end = source.tell()
-                if not line.strip():
-                    offset = end
-                    continue
-                try:
-                    entry = freeze_value(decode_entry(line))
-                except StorageError:
-                    if not line.endswith(b"\n"):
-                        issues.append("partial_tail")
-                        break
-                    raise
-                if entry.id in index:
-                    if index[entry.id] != entry:
-                        raise StorageError(
-                            "duplicate_entry_conflict", "Duplicate entry ID has different content"
-                        )
-                    issues.append("duplicate_entry")
-                else:
-                    if entry.parent_id is not None and entry.parent_id not in index:
-                        raise StorageError(
-                            "broken_session_parent", "Session parent chain is broken"
-                        )
-                    index[entry.id] = entry
-                    entries.append(entry)
-                    physical.append((end, entry))
-                offset = end
-                if not line.endswith(b"\n"):
-                    issues.append("missing_newline")
-        leaf = entries[-1].id if entries else None
-        revision = len(entries)
-        if self._position.exists():
-            position = json.loads(self._position.read_bytes())
-            if (
-                not isinstance(position, dict)
-                or set(position)
-                != {"schema_version", "session_id", "leaf_id", "revision", "log_offset"}
-                or type(position["schema_version"]) is not int
-                or position["schema_version"] != 1
-                or position["session_id"] != header.session_id
-            ):
-                raise StorageError("invalid_session_position", "Session position is incompatible")
-            leaf = position["leaf_id"]
-            revision = position["revision"]
-            recorded_offset = position["log_offset"]
-            if recorded_offset > offset or (leaf is not None and leaf not in index):
-                raise StorageError(
-                    "invalid_session_position", "Session position refers to missing history"
-                )
-            for end, entry in physical:
-                if end > recorded_offset:
-                    if entry.parent_id != leaf:
-                        raise StorageError(
-                            "uncertain_session_position",
-                            "Unpublished history does not extend the recorded branch",
-                        )
-                    leaf = entry.id
-                    revision += 1
-                    issues.append("position_after_append_gap")
-        tree = SessionTree(index)
-        for entry in entries:
-            if entry.type in {"context_edit", "compaction"}:
-                self.validate_branch_entry(entry, tree.path(entry.parent_id))
-        self._header = header
-        self._entries_by_id = index
-        self._rebuild_message_index()
-        self._active_path_ids = [entry.id for entry in tree.path(leaf)]
-        self._leaf = leaf
-        self._revision = revision
-        self._offset = offset
-        self._issues = issues
+                raise StorageError("session_identity_conflict", "Session identity differs")
+            self._header = header
+            self._entries_by_id = {entry.id: freeze_value(entry) for entry in entries}
+            self._leaf = metadata["leaf_id"]
+            self._revision = metadata["revision"]
+            self._record_count = len(entries)
+            self._active_path_ids = [
+                entry.id for entry in SessionTree(self._entries_by_id).path(self._leaf)
+            ]
+            self._rebuild_message_index()
+            self._persisted = True
         self._loaded = True
-        self._persisted = True
-        current = self._log.stat()
-        self._fingerprint = (current.st_mtime_ns, current.st_size)
-        if self._position.exists():
-            position_stat = self._position.stat()
-            self._position_fingerprint = (position_stat.st_mtime_ns, position_stat.st_size)
 
-    async def snapshot(self) -> SessionSnapshot:
+    async def snapshot(self):
         def read():
             self.load()
             return SessionSnapshot(
@@ -184,32 +129,30 @@ class JsonlSessionStore:
                 tuple(self._entries_by_id.values()),
                 self._leaf,
                 self._revision,
-                self._offset,
-                tuple(self._issues),
+                self._record_count,
+                (),
                 MappingProxyType(self._entries_by_id),
                 tuple(self._active_path_ids),
             )
 
         return await self.run_io(read)
 
-    def acquire_writer(self) -> None:
-        acquired = self._lease.acquire()
-        if acquired and self._log.exists():
-            current = self._log.stat()
-            position = self._position.stat() if self._position.exists() else None
-            position_fingerprint = (
-                (position.st_mtime_ns, position.st_size) if position is not None else None
-            )
-            if (
-                self._fingerprint != (current.st_mtime_ns, current.st_size)
-                or self._position_fingerprint != position_fingerprint
-            ):
-                self._loaded = False
+    def acquire_writer(self):
+        if self._lease.acquire() and self._log.exists():
+            self._loaded = False
         self.load()
 
-    async def claim_writer(self) -> None:
-        """Take the native lease before classifying any prior executor as lost."""
+    async def claim_writer(self):
         await self.run_io(self.acquire_writer)
+
+    async def checkpoint(self):
+        if self._checkpointer is None:
+            self._directory.mkdir(parents=True, exist_ok=True)
+            self._checkpoint_scope = AsyncSqliteSaver.from_conn_string(
+                str(self._directory / "execution.sqlite")
+            )
+            self._checkpointer = await self._checkpoint_scope.__aenter__()
+        return self._checkpointer
 
     async def append_message(self, message: Message) -> str:
         run_id = message.usage.run_id if message.usage is not None else None
@@ -302,15 +245,12 @@ class JsonlSessionStore:
                 or (entry.type == "message" and entry.require_message().role == "user")
             )
             if will_persist:
-                self.repair_log()
                 self.write_entry(entry)
             self._entries_by_id[entry.id] = entry
             self._index_message_entry(entry)
             self._active_path_ids.append(entry.id)
             self._leaf = entry.id
             self._revision += 1
-            if will_persist:
-                self.publish_position()
             return entry
 
         return await self.run_io(append)
@@ -356,135 +296,84 @@ class JsonlSessionStore:
                     "Compaction would split a tool call from its result",
                 )
 
-    def write_entry(self, entry: SessionEntry) -> None:
-        self._directory.mkdir(parents=True, exist_ok=True)
-        if not self._persisted:
-            temporary = self._log.with_name(f"entries.{uuid4().hex}.partial")
-            try:
-                with temporary.open("xb") as output:
-                    output.write(encode_header(self._header))
-                    for pending in self._entries_by_id.values():
-                        output.write(encode_entry(pending))
-                    output.write(encode_entry(entry))
-                    output.flush()
-                    os.fsync(output.fileno())
-                if self._log.exists():
-                    raise StorageError("session_created_externally", "Session file already exists")
-                os.replace(temporary, self._log)
-            finally:
-                temporary.unlink(missing_ok=True)
-            self._persisted = True
-        else:
-            with self._log.open("ab") as output:
-                output.write(encode_entry(entry))
-                output.flush()
-                os.fsync(output.fileno())
-        self._offset = self._log.stat().st_size
-        current = self._log.stat()
-        self._fingerprint = (current.st_mtime_ns, current.st_size)
+    async def has_checkpoint(self, run_id):
+        if not (self._directory / "execution.sqlite").exists():
+            return False
+        saver = await self.checkpoint()
+        saved = await saver.aget_tuple(
+            {"configurable": {"thread_id": f"{self._header.session_id}:{run_id}"}}
+        )
+        return saved is not None
 
-    def publish_position(self) -> None:
-        data = {
-            "schema_version": 1,
-            "session_id": self._header.session_id,
-            "leaf_id": self._leaf,
-            "revision": self._revision,
-            "log_offset": self._offset,
-        }
-        atomic_write(self._position, json.dumps(data, sort_keys=True).encode("utf-8"))
-        current = self._position.stat()
-        self._position_fingerprint = (current.st_mtime_ns, current.st_size)
+    def database(self):
+        if self._database is None:
+            self._directory.mkdir(parents=True, exist_ok=True)
+            self._database = open_database(self._log)
+        return self._database
 
-    def repair_log(self) -> None:
-        if not self._persisted:
-            return
-        needs_repair = any(issue in self._issues for issue in ("partial_tail", "missing_newline"))
-        if not needs_repair:
-            return
-        backup = self._directory / "recovery" / f"entries.{uuid4().hex}.jsonl"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(self._log, backup)
-        temporary = self._log.with_name(f"entries.{uuid4().hex}.partial")
-        try:
-            with self._log.open("rb") as source, temporary.open("wb") as output:
-                header_line = source.readline()
-                output.write(header_line)
-                remaining = self._offset - len(header_line)
-                while remaining:
-                    data = source.read(min(remaining, 1024 * 1024))
-                    if not data:
-                        raise StorageError(
-                            "session_changed_during_repair", "Session log changed during repair"
-                        )
-                    output.write(data)
-                    remaining -= len(data)
-                if "missing_newline" in self._issues:
-                    output.write(b"\n")
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, self._log)
-            self._offset = self._log.stat().st_size
-            current = self._log.stat()
-            self._fingerprint = (current.st_mtime_ns, current.st_size)
-            self._issues = [
-                issue for issue in self._issues if issue not in {"partial_tail", "missing_newline"}
-            ]
-        finally:
-            temporary.unlink(missing_ok=True)
+    def position(self, leaf, revision):
+        return PutOp(
+            ("session",),
+            "position",
+            {
+                "header": plain_data(self._header),
+                "leaf_id": leaf,
+                "revision": revision,
+            },
+        )
 
-    async def branch(self, leaf_id: str | None) -> None:
+    def write_entry(self, entry):
+        pending = [*self._entries_by_id.values(), entry] if not self._persisted else [entry]
+        start = 0 if not self._persisted else len(self._entries_by_id)
+        writes = [
+            PutOp(("entries",), row.id, {"sequence": start + i, "entry": plain_data(row)})
+            for i, row in enumerate(pending)
+        ]
+        self.database().batch([*writes, self.position(entry.id, self._revision + 1)])
+        self._persisted = True
+        self._record_count = len(self._entries_by_id) + 1
+
+    async def branch(self, leaf_id):
         def change():
-            self.load()
             self.acquire_writer()
             path = SessionTree(self._entries_by_id).path(leaf_id)
+            if self._persisted:
+                self.database().batch([self.position(leaf_id, self._revision + 1)])
             self._active_path_ids = [entry.id for entry in path]
             self._leaf = leaf_id
             self._revision += 1
-            if self._persisted:
-                self.publish_position()
 
         await self.run_io(change)
 
-    async def aclose(self) -> None:
+    async def aclose(self):
         if self._closed:
             return
-        await self.run_io(self._lease.close)
+        if self._checkpoint_scope is not None:
+            await self._checkpoint_scope.__aexit__(None, None, None)
+
+        def close():
+            if self._database is not None:
+                self._database.conn.close()
+            self._lease.close()
+
+        await self.run_io(close)
         self._closed = True
 
-    async def import_path(self, entries: tuple[SessionEntry, ...], leaf_id: str | None) -> None:
+    async def import_path(self, entries, leaf_id):
         def publish():
-            self.load()
             self.acquire_writer()
             if self._persisted or self._entries_by_id:
                 raise StorageError("fork_target_exists", "Fork target already contains history")
-            SessionTree(entries).path(leaf_id)
-            self._directory.mkdir(parents=True, exist_ok=True)
-            temporary = self._log.with_name(f"fork.{uuid4().hex}.partial")
-            try:
-                with temporary.open("xb") as output:
-                    output.write(encode_header(self._header))
-                    for entry in entries:
-                        output.write(encode_entry(entry))
-                    output.flush()
-                    os.fsync(output.fileno())
-                if self._log.exists():
-                    raise StorageError("fork_target_exists", "Fork target already contains history")
-                os.replace(temporary, self._log)
-            finally:
-                temporary.unlink(missing_ok=True)
-            self._entries_by_id = {}
-            for entry in entries:
-                self._entries_by_id[entry.id] = freeze_value(entry)
-            self._rebuild_message_index()
-            self._active_path_ids = [
-                entry.id for entry in SessionTree(self._entries_by_id).path(leaf_id)
+            path = SessionTree(entries).path(leaf_id)
+            writes = [
+                PutOp(("entries",), entry.id, {"sequence": i, "entry": plain_data(entry)})
+                for i, entry in enumerate(entries)
             ]
-            self._leaf = leaf_id
-            self._revision = len(entries)
+            self.database().batch([*writes, self.position(leaf_id, len(entries))])
+            self._entries_by_id = {entry.id: freeze_value(entry) for entry in entries}
+            self._active_path_ids = [entry.id for entry in path]
+            self._leaf, self._revision, self._record_count = leaf_id, len(entries), len(entries)
+            self._rebuild_message_index()
             self._persisted = True
-            current = self._log.stat()
-            self._offset = current.st_size
-            self._fingerprint = (current.st_mtime_ns, current.st_size)
-            self.publish_position()
 
         await self.run_io(publish)

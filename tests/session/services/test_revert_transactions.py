@@ -11,7 +11,7 @@ from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.history import EntryDraft, SessionHeader
 from pycode.kernel.domain.history_tree import SessionTree
 from pycode.kernel.domain.messages import Message
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.session.domain.revert_state import pending_revert
 from pycode.session.services.revert import RevertService
 from pycode.snapshot.adapters.git_tree import GitSnapshotStore
@@ -51,7 +51,7 @@ async def scenario(tmp_path, mode):
     before = await files.capture()
     (root / "file").write_text("new", encoding="utf-8")
     after = await files.capture()
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         tmp_path / "sessions/s1", SessionHeader("s1", str(root), "t"), TestTiming()
     )
     target = await history.append_message(Message("u1", "user", "before"))
@@ -78,7 +78,7 @@ async def test_completed_revert_retry_preserves_later_messages_and_external_edit
     root, _, history, service, plan = await scenario(tmp_path, mode)
     await service.apply(plan)
     await history.aclose()
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         tmp_path / "sessions/s1", SessionHeader("s1", str(root), "t"), TestTiming()
     )
     service = RevertService(history, GitSnapshotStore(root, tmp_path / "snapshots"))
@@ -140,7 +140,7 @@ async def test_process_exit_recovers_revert_even_after_start_leaves_active_branc
     plan_path = tmp_path / "revert.json"
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     await exit_at(tmp_path, root, plan_path, stage)
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         tmp_path / "sessions/s1", SessionHeader("s1", str(root), "t"), TestTiming()
     )
     service = RevertService(history, files)
@@ -176,7 +176,7 @@ async def test_compensation_process_exit_preserves_action_and_recovers_original_
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     await exit_at(tmp_path, root, plan_path, "after-reminder")
     await exit_at(tmp_path, root, plan_path, "compensate-" + stage)
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         tmp_path / "sessions/s1", SessionHeader("s1", str(root), "t"), TestTiming()
     )
     service = RevertService(history, files)

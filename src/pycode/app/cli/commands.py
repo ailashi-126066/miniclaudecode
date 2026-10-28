@@ -179,12 +179,14 @@ async def execute_plan(args, session, output):
 
 
 async def execute_resume(args, session, output):
-    if args.answers or args.answers_file:
-        raise DomainError(
-            "run_expired", "Cross-process answers cannot resume old tools; start a new run"
-        )
-    output.value(await session.inspect())
-    return 0
+    if args.answers_file:
+        answers = read_json(args.answers_file)
+    elif args.answers:
+        answers = json.loads(args.answers)
+    else:
+        output.value(await session.inspect())
+        return 0
+    return await session.resume(answers)
 
 
 async def execute_compact(args, session, output):

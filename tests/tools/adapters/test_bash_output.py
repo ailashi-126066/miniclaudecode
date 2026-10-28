@@ -15,7 +15,7 @@ from pycode.kernel.domain.truncation import MAX_BYTES
 from pycode.kernel.services.events import EventStream
 from pycode.sandbox.adapters.tools.bash import Bash, find_bash
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from pycode.tools.adapters.schema import JsonSchemaValidator
 from pycode.tools.adapters.tool_errors import execute_tool_errors
@@ -32,7 +32,7 @@ class ApprovedGate:
 
 async def assemble(tmp_path, *, passthrough=()):
     sessions = tmp_path / "sessions"
-    journal = JsonlSessionStore(
+    journal = SqliteSessionStore(
         sessions / "s1", SessionHeader("s1", str(tmp_path), "t"), TestTiming()
     )
     await journal.append_message(Message("u1", "user", "command task"))

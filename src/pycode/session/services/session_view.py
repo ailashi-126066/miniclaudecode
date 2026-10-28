@@ -77,7 +77,7 @@ class SessionView:
             "entries": tuple(entries),
             "leaf_id": snapshot.leaf_id,
             "revision": snapshot.revision,
-            "log_offset": snapshot.log_offset,
+            "record_count": snapshot.record_count,
             "issues": snapshot.issues,
             "active_path_ids": snapshot.active_path_ids,
         }

@@ -88,7 +88,7 @@ async def test_fork_does_not_inherit_parent_revert_executor(tmp_path):
             parent.entries,
             parent.leaf_id,
             parent.revision,
-            parent.log_offset,
+            parent.record_count,
         )
         assert pending_revert(parent) is not None
         assert pending_revert(child) is None

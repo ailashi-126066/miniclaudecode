@@ -8,7 +8,7 @@ from pycode.kernel.domain.tools import ToolContext
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
 from pycode.session.adapters.storage.layout import StorageLayout
 from pycode.session.adapters.storage.objects import FileStorageObjects
-from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
+from pycode.session.adapters.storage.session_repository import SqliteSessionRepository
 from pycode.session.domain.storage import RETENTION_SECONDS
 from pycode.session.services.storage_gc import StorageGC
 from pycode.tools.adapters.output_store import FileToolOutputStore
@@ -21,7 +21,7 @@ async def setup_objects(tmp_path):
     user_data = tmp_path / "data"
     layout = StorageLayout(workspace, user_data)
     timing = TestTiming()
-    repository = JsonlSessionRepository(layout.sessions, str(workspace), timing)
+    repository = SqliteSessionRepository(layout.sessions, str(workspace), timing)
     objects = FileStorageObjects(user_data, workspace)
     return workspace, layout, timing, repository, objects
 
@@ -139,9 +139,11 @@ async def test_live_reference_and_partial_files_stay_protected(tmp_path):
 async def test_invalid_reference_log_stops_gc_without_deleting_objects(tmp_path):
     workspace, layout, timing, repository, objects = await setup_objects(tmp_path)
     output_id, _ = await write_output(repository, layout, workspace)
-    log = layout.sessions / "s1" / "entries.jsonl"
-    with log.open("ab") as output:
-        output.write(b'{"invalid":"complete record"}\n')
+    from pycode.session.adapters.storage.session import open_database
+
+    database = open_database(layout.sessions / "s1" / "session.sqlite")
+    database.put(("entries",), "invalid", {"sequence": 99, "entry": {"invalid": "record"}})
+    database.conn.close()
     with pytest.raises(StorageError):
         await StorageGC(objects, repository, timing).collect()
     assert (layout.sessions / "s1" / "tool-results" / (output_id + ".txt")).exists()

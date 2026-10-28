@@ -32,6 +32,7 @@ async def test_idle_timeout_automatically_hands_task_to_new_member(tmp_path):
         b = team.records[team.records[a["agent_id"]]["replaced_by"]]
         assert b["generation"] == 2 and b["session_id"] == a["session_id"]
         assert b["task_id"] == a["task_id"]
+        await eventually(lambda: b["agent_id"] in team.sessions)
         assert team.sessions[b["agent_id"]] is session
         await eventually(lambda: team.records[b["agent_id"]]["status"] == "completed")
         assert team.board.records[a["task_id"]]["status"] == "submitted"
@@ -256,5 +257,47 @@ async def test_completion_during_stop_is_submitted_without_replacement(tmp_path)
         await eventually(lambda: team.records[a["agent_id"]]["status"] == "completed")
         assert len(team.records) == 1
         assert team.board.records[a["task_id"]]["status"] == "submitted"
+    finally:
+        await close(team)
+
+
+async def test_parallel_output_cannot_extend_another_tools_deadline(tmp_path):
+    team = team_at(tmp_path)
+    team.idle_timeout = 1
+    team.stop_timeout = 0.02
+    try:
+        a = await spawn(team)
+        event = partial(activity_event, session_id=a["session_id"])
+        identifier = a["agent_id"]
+        await team.activity(
+            identifier, 1, event(1, "tool_action_start", {"name": "Bash", "timeout": 0.06}, "short")
+        )
+        await team.activity(
+            identifier, 1, event(2, "tool_action_start", {"name": "Bash", "timeout": 10}, "long")
+        )
+        for number in range(3, 15):
+            await asyncio.sleep(0.015)
+            await team.activity(
+                identifier, 1, event(number, "tool_execution_update", {"text": "output"}, "long")
+            )
+        assert team.records[identifier]["status"] == "handed_off"
+    finally:
+        await close(team)
+
+
+async def test_provider_failure_routes_to_handoff_without_retry_loop(tmp_path):
+    from pycode.kernel import RunResult
+
+    team = team_at(tmp_path)
+    try:
+        a = await spawn(team)
+        child = team.sessions[a["agent_id"]]
+        child.result = RunResult("error", "", ())
+        team.executions[a["task_id"]].failure_code = "provider_connection"
+        child.release.set()
+        await eventually(lambda: team.records[a["agent_id"]]["status"] == "handed_off")
+        b = team.records[a["agent_id"]]["replaced_by"]
+        await eventually(lambda: team.records[b]["status"] == "failed")
+        assert len(team.records) == 2
     finally:
         await close(team)

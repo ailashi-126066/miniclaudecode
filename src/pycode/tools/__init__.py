@@ -3,7 +3,7 @@
 from pycode.kernel import ArgumentValidator
 from pycode.tools.domain.approvals import validate_operation_answer
 from pycode.tools.domain.questions import validate_question_answer
-from pycode.tools.domain.tool_failures import repeated_tool_failure
+from pycode.tools.domain.tool_failures import failure_update, repeated_tool_failure
 from pycode.tools.ports.extensions import NativeToolBinding, ToolExtension
 from pycode.tools.ports.hooks import ToolHooks
 from pycode.tools.ports.outputs import OutputWriter, SessionHeaderReader, ToolOutputStore
@@ -25,6 +25,7 @@ __all__ = [
     "ToolExtension",
     "NativeToolBinding",
     "repeated_tool_failure",
+    "failure_update",
     "ArgumentValidator",
     "ConfiguredActionGate",
     "ContextT",

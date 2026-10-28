@@ -2,21 +2,22 @@ import hashlib
 
 import pytest
 
+from pycode.kernel import plain_data
 from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.history import EntryDraft, SessionHeader
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.domain.truncation import MAX_BYTES, MAX_LINES
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
-from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
+from pycode.session.adapters.storage.session import SqliteSessionStore
+from pycode.session.adapters.storage.session_repository import SqliteSessionRepository
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.support.requests import TestTiming
 
 
 async def setup(tmp_path):
     sessions = tmp_path / "sessions"
-    journal = JsonlSessionStore(
+    journal = SqliteSessionStore(
         sessions / "s1", SessionHeader("s1", "/project", "created"), TestTiming()
     )
     await journal.append_message(Message("u1", "user", "request"))
@@ -51,7 +52,7 @@ async def test_large_result_full_text_preview_and_scoped_read_survive_reopen(tmp
         hashlib.sha256(full.read_bytes()).hexdigest() == output.metadata(prepared.output_id).sha256
     )
     await journal.aclose()
-    restored = JsonlSessionStore(
+    restored = SqliteSessionStore(
         tmp_path / "sessions/s1", SessionHeader("s1", "/project", "created"), TestTiming()
     )
     output = FileToolOutputStore(
@@ -131,7 +132,7 @@ async def test_branch_edit_keeps_output_and_fork_can_read_only_copied_references
     )
     assert (await output.read(result.output_id, 1, 1, MAX_BYTES)).text == "original"
     await journal.aclose()
-    repository = JsonlSessionRepository(tmp_path / "sessions", "/project", TestTiming())
+    repository = SqliteSessionRepository(tmp_path / "sessions", "/project", TestTiming())
     fork = await repository.fork("s1", entry_id, "forked")
     inherited = FileToolOutputStore(
         tmp_path / "sessions",
@@ -175,7 +176,7 @@ async def test_large_structured_payload_is_preserved_without_bloating_history(tm
     )
     await save(journal, output, result)
     assert result.structured_content is None
-    assert len((tmp_path / "sessions/s1/entries.jsonl").read_bytes()) < 10000
+    assert len(json.dumps([plain_data(e) for e in (await journal.snapshot()).entries])) < 10000
     artifact = tmp_path / "sessions/s1/tool-results" / (result.output_id + ".artifact.json")
     assert json.loads(artifact.read_text())["structured_content"] == structured
     await journal.aclose()

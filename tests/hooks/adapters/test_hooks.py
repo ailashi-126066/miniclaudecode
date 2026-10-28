@@ -125,16 +125,12 @@ async def test_command_once_persists_and_cannot_approve_parent_tool(tmp_path, mo
         await session.aclose()
         session = await open_session(config, url)
         try:
-            with pytest.raises(StorageError):
-                await session.resume(
-                    {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
-                )
+            result = await session.resume(
+                {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
+            )
+            assert result.outcome == "completed"
             assert (tmp_path / "hook.txt").read_text() == "hook"
-            assert not (tmp_path / "parent.txt").exists() and len(requests) == 1
-            assert (
-                await session.run(Message("u2", "user", "inspect current state"))
-            ).outcome == "completed"
-            assert len(requests) == 2
+            assert (tmp_path / "parent.txt").read_text() == "parent" and len(requests) == 2
         finally:
             await session.aclose()
 
@@ -156,14 +152,9 @@ async def test_hook_configuration_change_cannot_bypass_pending_approval(tmp_path
         await hook_file(
             config, [{**original[0], "action": {"type": "prompt", "message": "changed"}}]
         )
-        restored = await open_session(config, url)
-        try:
-            assert (await restored.inspect())["pending"] == ()
-            with pytest.raises(StorageError):
-                await restored.resume()
-            assert len(requests) == 1 and not (tmp_path / "parent.txt").exists()
-        finally:
-            await restored.aclose()
+        with pytest.raises(StorageError, match="Hook configuration changed"):
+            await open_session(config, url)
+        assert len(requests) == 1 and not (tmp_path / "parent.txt").exists()
 
 
 async def test_startup_and_shutdown_run_at_open_close_without_user_input(tmp_path):
@@ -286,6 +277,7 @@ async def test_real_exit_after_hook_command_reuses_confirmed_effect_then_asks_pa
         ).exists()
         session = await open_session(config, url)
         try:
+            await session.cancel()
             assert (await session.inspect())["pending"] == ()
             with pytest.raises(StorageError):
                 await session.resume()

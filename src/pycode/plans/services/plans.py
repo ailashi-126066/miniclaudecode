@@ -1,4 +1,4 @@
-"""Read-only planning and run-scoped approval, with JSONL as durable authority."""
+"""Read-only planning and run-scoped approval, with session Store as durable authority."""
 
 from dataclasses import replace
 from uuid import uuid4

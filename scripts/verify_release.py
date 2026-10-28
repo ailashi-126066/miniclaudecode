@@ -71,12 +71,12 @@ def verify_distribution(directory):
             raise ValueError("Wheel includes non-product content: " + name)
     assert "pycode = pycode.app.cli.main:main" in entrypoints and "\npy =" not in entrypoints
     for package, version in (
-        ("deepagents", "0.7.23"),
-        ("langchain", "1.4.4"),
-        ("langgraph", "1.2.14"),
+        ("deepagents", "0.7.32"),
+        ("langchain", "1.4.7"),
+        ("langgraph", "1.2.18"),
     ):
         assert package in metadata and "==" + version in metadata
-    assert "langgraph-checkpoint-sqlite" not in metadata
+    assert "langgraph-checkpoint-sqlite" in metadata
     assert "pycode/licenses/pi-MIT.txt" in wheel_files
     assert "pycode/licenses/opencode-MIT.txt" in wheel_files
     assert "pycode/licenses/exercism-MIT.txt" in wheel_files
@@ -220,7 +220,7 @@ direct = requires('pycode')
 for requirement in direct:
     name = requirement.split(';')[0].split('[')[0].split('==')[0].split('>=')[0].strip()
     assert name not in {'mcp', 'langchain-mcp-adapters', 'langgraph-checkpoint-sqlite', 'aiosqlite'}
-for name, expected in {'deepagents': '0.7.23', 'langchain': '1.4.4', 'langgraph': '1.2.14'}.items():
+for name, expected in {'deepagents': '0.7.32', 'langchain': '1.4.7', 'langgraph': '1.2.18'}.items():
     assert version(name) == expected
 print(json.dumps({'module': pycode.__file__, 'direct_dependencies': direct, 'status': 'passed'}))
 """

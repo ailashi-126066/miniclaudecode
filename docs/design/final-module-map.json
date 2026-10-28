@@ -1,5 +1,5 @@
 {
-  "baseline": "working tree 2026-10-28: TeamState and task handoff",
+  "baseline": "working tree 2026-10-28: SQLite Store and persistent execution checkpoints",
   "modules": {
     "pycode": {
       "path": "src/pycode/__init__.py",

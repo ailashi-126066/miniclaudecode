@@ -1,4 +1,3 @@
-import json
 from dataclasses import replace
 
 import pytest
@@ -8,12 +7,12 @@ from pycode.kernel import ModelSelection
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.history import EntryDraft, SessionHeader
 from pycode.kernel.domain.messages import Message
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.support.requests import TestTiming
 
 
 def open_store(tmp_path):
-    return JsonlSessionStore(
+    return SqliteSessionStore(
         tmp_path / "session", SessionHeader("s1", "/project", "created"), TestTiming()
     )
 
@@ -24,16 +23,15 @@ async def test_setup_is_lazy_and_first_user_publishes_header_setup_and_input(tmp
     assert not (tmp_path / "session").exists()
     selection = ModelSelection("configured", "model", "openai")
     await store.append_entry(EntryDraft("model_change", selection=selection))
-    assert not (tmp_path / "session/entries.jsonl").exists()
+    assert not (tmp_path / "session/session.sqlite").exists()
     user_id = await store.append_message(Message("input-1", "user", "hello"))
     snapshot = await store.snapshot()
     assert snapshot.leaf_id == user_id
-    lines = (tmp_path / "session/entries.jsonl").read_text().splitlines()
-    assert [json.loads(line).get("type", "header") for line in lines] == [
-        "header",
-        "model_change",
-        "message",
-    ]
+    from pycode.session.adapters.storage.session import read_records
+
+    metadata, entries = read_records(tmp_path / "session/session.sqlite")
+    assert metadata["leaf_id"] == user_id
+    assert [entry.type for entry in entries] == ["model_change", "message"]
     await store.aclose()
     restored = open_store(tmp_path)
     try:
@@ -47,9 +45,9 @@ async def test_setup_is_lazy_and_first_user_publishes_header_setup_and_input(tmp
 async def test_append_preserves_prefix_and_branch_position_survives_reopen(tmp_path):
     store = open_store(tmp_path)
     root = await store.append_message(Message("u1", "user", "start"))
-    old = (tmp_path / "session/entries.jsonl").read_bytes()
+    old = (await store.snapshot()).entries
     await store.append_message(Message("a1", "assistant", "branch A"))
-    assert (tmp_path / "session/entries.jsonl").read_bytes().startswith(old)
+    assert (await store.snapshot()).entries[: len(old)] == old
     await store.branch(root)
     new = await store.append_message(Message("a2", "assistant", "branch B"))
     await store.aclose()
@@ -97,43 +95,6 @@ async def test_two_store_instances_cannot_write_same_session(tmp_path):
     await second.aclose()
 
 
-async def test_partial_tail_is_preserved_before_repair_and_append(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    await store.aclose()
-    path = tmp_path / "session/entries.jsonl"
-    with path.open("ab") as output:
-        output.write(b'{"id":"partial')
-    damaged = path.read_bytes()
-    restored = open_store(tmp_path)
-    snapshot = await restored.snapshot()
-    assert "partial_tail" in snapshot.issues
-    assert len(snapshot.entries) == 1
-    assert path.read_bytes() == damaged
-    await restored.append_message(Message("u2", "user", "continued"))
-    backups = list((tmp_path / "session/recovery").glob("*.jsonl"))
-    assert len(backups) == 1
-    assert backups[0].read_bytes() == damaged
-    assert len((await restored.snapshot()).entries) == 2
-    await restored.aclose()
-
-
-async def test_log_position_commit_gap_adopts_only_a_child_of_recorded_leaf(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    old_position = (tmp_path / "session/position.json").read_bytes()
-    new_leaf = await store.append_message(Message("a1", "assistant", "reply"))
-    await store.aclose()
-    (tmp_path / "session/position.json").write_bytes(old_position)
-    restored = open_store(tmp_path)
-    try:
-        snapshot = await restored.snapshot()
-        assert snapshot.leaf_id == new_leaf
-        assert "position_after_append_gap" in snapshot.issues
-    finally:
-        await restored.aclose()
-
-
 async def test_unknown_entry_is_kept_but_not_sent_to_model(tmp_path):
     store = open_store(tmp_path)
     await store.append_message(Message("u1", "user", "hello"))
@@ -146,78 +107,6 @@ async def test_unknown_entry_is_kept_but_not_sent_to_model(tmp_path):
         assert len(ContextProjector().project(snapshot).messages) == 1
     finally:
         await restored.aclose()
-
-
-async def test_conflicting_duplicate_and_mid_log_damage_fail_without_mutation(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    await store.aclose()
-    path = tmp_path / "session/entries.jsonl"
-    with path.open("ab") as output:
-        output.write(b"not valid JSON\n")
-    original = path.read_bytes()
-    restored = open_store(tmp_path)
-    with pytest.raises(StorageError):
-        await restored.snapshot()
-    assert path.read_bytes() == original
-    await restored.aclose()
-
-
-async def test_native_draft_v0_is_rejected_without_rewriting(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    await store.aclose()
-    path = tmp_path / "session/entries.jsonl"
-    lines = path.read_bytes().splitlines(keepends=True)
-    header = json.loads(lines[0])
-    header["schema_version"] = 0
-    path.write_bytes((json.dumps(header) + "\n").encode() + b"".join(lines[1:]))
-    (tmp_path / "session/position.json").unlink()
-    original = path.read_bytes()
-    restored = open_store(tmp_path)
-    with pytest.raises(StorageError, match="unsupported"):
-        await restored.snapshot()
-    assert path.read_bytes() == original
-    assert not (tmp_path / "session/recovery").exists()
-    await restored.aclose()
-
-
-async def test_external_history_mutation_is_not_silently_overwritten(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    path = tmp_path / "session/entries.jsonl"
-    with path.open("ab") as output:
-        output.write(b'{"unfinished')
-    changed = path.read_bytes()
-    with pytest.raises(StorageError) as error:
-        await store.append_message(Message("u2", "user", "must not overwrite"))
-    assert error.value.code == "session_changed_externally"
-    assert path.read_bytes() == changed
-    await store.aclose()
-
-
-async def test_identical_duplicate_is_read_once_but_conflict_is_rejected(tmp_path):
-    store = open_store(tmp_path)
-    await store.append_message(Message("u1", "user", "hello"))
-    await store.aclose()
-    path = tmp_path / "session/entries.jsonl"
-    row = path.read_bytes().splitlines(keepends=True)[1]
-    with path.open("ab") as output:
-        output.write(row)
-    restored = open_store(tmp_path)
-    snapshot = await restored.snapshot()
-    assert len(snapshot.entries) == 1
-    assert "duplicate_entry" in snapshot.issues
-    await restored.aclose()
-    changed = json.loads(row)
-    changed["message"]["text"] = "conflicting"
-    with path.open("ab") as output:
-        output.write((json.dumps(changed) + "\n").encode())
-    restored = open_store(tmp_path)
-    with pytest.raises(StorageError) as error:
-        await restored.snapshot()
-    assert error.value.code == "duplicate_entry_conflict"
-    await restored.aclose()
 
 
 async def test_compaction_cannot_split_tool_call_and_result(tmp_path):
@@ -240,3 +129,43 @@ async def test_compaction_cannot_split_tool_call_and_result(tmp_path):
         EntryDraft("compaction", data={"summary": "summary", "first_kept_entry_id": call})
     )
     await store.aclose()
+
+
+async def test_record_and_position_commit_atomically(tmp_path):
+    from langgraph.store.base import PutOp
+
+    from pycode.session.adapters.storage.session import open_database, read_records
+
+    store = open_store(tmp_path)
+    root = await store.append_message(Message("u1", "user", "start"))
+    await store.aclose()
+    database = open_database(tmp_path / "session/session.sqlite")
+    before, entries = read_records(tmp_path / "session/session.sqlite")
+    # The second invalid value aborts the whole official Store batch transaction.
+    with pytest.raises(TypeError):
+        database.batch(
+            [
+                PutOp(("session",), "position", {**before, "leaf_id": "not-committed"}),
+                PutOp(("entries",), "bad", {"unserializable": object()}),
+            ]
+        )
+    database.conn.close()
+    after, saved = read_records(tmp_path / "session/session.sqlite")
+    assert after["leaf_id"] == root and saved == entries
+
+
+async def test_unknown_schema_is_rejected(tmp_path):
+    from pycode.session.adapters.storage.session import open_database
+
+    store = open_store(tmp_path)
+    await store.append_message(Message("u1", "user", "hello"))
+    await store.aclose()
+    database = open_database(tmp_path / "session/session.sqlite")
+    record = database.get(("session",), "position").value
+    record["header"]["schema_version"] = 0
+    database.put(("session",), "position", record)
+    database.conn.close()
+    reopened = open_store(tmp_path)
+    with pytest.raises(StorageError, match="unsupported"):
+        await reopened.snapshot()
+    await reopened.aclose()

@@ -1,4 +1,4 @@
-"""JSONL restart recovery ends lost runs without executing their old calls."""
+"""persistent restart recovery ends lost runs without executing their old calls."""
 
 from dataclasses import replace
 
@@ -7,7 +7,14 @@ from pycode.session.domain.inputs import pending_input_entries
 
 
 async def recover_conversation(
-    store, outputs=None, *, reason="process_exit", outcome="interrupted", recover_tool=None
+    store,
+    outputs=None,
+    *,
+    reason="process_exit",
+    outcome="interrupted",
+    recover_tool=None,
+    started_only=False,
+    finish_runs=True,
 ):
     snapshot = await store.snapshot()
     path = SessionTree(snapshot.index).path(snapshot.leaf_id)
@@ -20,6 +27,9 @@ async def recover_conversation(
             ended.add(entry.run_id)
         if entry.type == "input_expired":
             expired_inputs.add(entry.data["input_entry_id"])
+    started_operations = {
+        entry.operation_id for entry in path if entry.data.get("kind") == "tool_started"
+    }
     issued = {}
     for entry in path:
         if entry.message is not None and entry.message.role == "assistant":
@@ -45,6 +55,8 @@ async def recover_conversation(
             if key in paired:
                 continue
             operation_id = f"{run_id}:{message.id}:{call.id}"
+            if started_only and operation_id not in started_operations:
+                continue
             context = ToolContext(
                 snapshot.header.session_id,
                 run_id,
@@ -63,7 +75,7 @@ async def recover_conversation(
             result = ToolResult(
                 call.id,
                 call.name,
-                "tool_interrupted: the previous process ended without a JSONL result. "
+                "tool_interrupted: the previous process ended without a persistent result. "
                 "Effects may have occurred; inspect current state before a new call.",
                 is_error=True,
                 error_code="tool_interrupted",
@@ -88,6 +100,8 @@ async def recover_conversation(
                 assert outputs is not None
                 await outputs.bind(output_id, result_entry_id)
             paired.add(key)
+    if not finish_runs:
+        return
     for start in starts:
         if (
             start.run_id in ended

@@ -1,4 +1,4 @@
-"""Identify the owning session and its unsettled JSONL run."""
+"""Identify the owning session and its unsettled session Store run."""
 
 from pycode.kernel import SessionTree
 

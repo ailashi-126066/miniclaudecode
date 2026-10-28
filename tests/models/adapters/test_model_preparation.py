@@ -18,7 +18,7 @@ from pycode.kernel.domain.errors import ModelError
 from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message
 from pycode.models.module import ModelsModule
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.module import ToolsModule
 from tests.agent.adapters.test_agent import Journal, assemble
 from tests.support.model import ScriptedChatModel
@@ -166,7 +166,7 @@ class ToolCapturingModel(ScriptedChatModel):
 
 async def test_dynamic_tools_after_skills_disclosure_are_in_final_budget_snapshot(tmp_path):
     _, context, _, original, _, _ = assemble([])
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         tmp_path / "session", SessionHeader(context.session_id, str(tmp_path), "t"), TestTiming()
     )
     context.journal = history

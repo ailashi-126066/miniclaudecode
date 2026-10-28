@@ -8,7 +8,7 @@ from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.kernel.domain.tools import ToolContext, ToolSpec
 from pycode.kernel.domain.truncation import MAX_BYTES
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore, output_identifier
 from pycode.tools.adapters.read_tool_result import ReadToolResult
 from pycode.tools.adapters.schema import JsonSchemaValidator
@@ -23,7 +23,7 @@ from tests.support.requests import TestTiming
 
 async def test_large_tool_and_readback_run_through_actual_framework_and_same_executor(tmp_path):
     _, context, _, _, _, recorder = assemble([])
-    store = JsonlSessionStore(
+    store = SqliteSessionStore(
         tmp_path / context.session_id,
         SessionHeader(context.session_id, "/workspace", "t"),
         TestTiming(),

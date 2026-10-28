@@ -8,18 +8,22 @@ version = "0.1.0"
 description = "pycode: a Python coding agent with persistent conversation branches"
 requires-python = ">=3.11"
 dependencies = [
-    "deepagents==0.7.23",
+    "deepagents==0.7.32",
     "httpx>=0.28,<0.29",
     "pyyaml>=6,<7",
     "textual>=8.2.5,<9",
     "jsonschema>=4.26,<5",
-    "langchain[mcp]==1.4.4",
-    "langgraph==1.2.14",
+    "langchain[mcp]==1.4.7",
+    "langgraph==1.2.18",
+    "langgraph-checkpoint==4.3.1",
+    "langgraph-checkpoint-sqlite==3.1.2",
+    "langchain-core==1.7.0",
+    "fastmcp==4.1.4",
     "langmem==0.0.30",
     "pydantic>=2.7,<3",
     "langchain-deepseek>=1,<2",
-    "langchain-openai>=1.7,<2",
-    "langchain-anthropic>=1.7.5,<2",
+    "langchain-openai>=1.7.3,<2",
+    "langchain-anthropic>=1.7.7,<2",
 ]
 
 [project.scripts]
@@ -44,6 +48,7 @@ testpaths = ["tests", "evals/tests"]
 norecursedirs = [".git", ".venv", ".runtime-tests", ".t", ".fix-20261013", "audit-20261013", "cache", "work", "results", "dependency-artifacts", "memory_rules"]
 pythonpath = ["src", "."]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --import-mode=importlib"
 
 [tool.ruff]

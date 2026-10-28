@@ -67,7 +67,7 @@ SDK构造和协议差异在`ModelFactory`中；同模型重试由官方中间件
 | ModelFallback | 仅在允许失败后检查候选 | 同一业务请求继续，账本保留候选位置 |
 | MeteredChatModel | 选择器、摘要、记忆等组件也要请求模型时 | 仍进入同一计费方法，不执行工具循环 |
 
-缓存`model-catalog.json`只保存模型身份与能力。实际尝试保存在SQLite的`model_requests`；JSONL中的工具集合和候选说明用于解释当时怎样执行，两者回答的问题不同。网络等待期间不持有一笔长SQLite事务。
+缓存`model-catalog.json`只保存模型身份与能力。实际尝试保存在SQLite的`model_requests`；会话 Store中的工具集合和候选说明用于解释当时怎样执行，两者回答的问题不同。网络等待期间不持有一笔长SQLite事务。
 
 ## 读懂检查：如果这次修复请求出了问题
 

@@ -11,14 +11,6 @@ def validate_operation_answer(question: dict, answer: dict) -> None:
         if answer.get("decision") not in ("approve", "deny"):
             raise StorageError("invalid_approval", "Approval decision must be approve or deny")
         return
-    if question["kind"] == "tool_reconcile":
-        action = answer.get("action")
-        if action in ("retry", "abandon"):
-            return
-        if action == "result" and isinstance(answer.get("text"), str):
-            if isinstance(answer.get("is_error", False), bool):
-                return
-        raise StorageError("invalid_reconciliation", "Review requires retry, abandon or a result")
     if question["kind"] == "ask_user":
         validate_question_answer(question, answer)
         return

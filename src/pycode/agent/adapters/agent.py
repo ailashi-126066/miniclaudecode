@@ -27,8 +27,8 @@ from pycode.agent.adapters.history import HistoryMiddleware
 from pycode.agent.adapters.state import PycodeState
 from pycode.agent.ports import TitleAssignment
 from pycode.agent.services.context import RunContext
-from pycode.kernel import ModelError, RunResult, StorageError
-from pycode.tools import validate_operation_answer
+from pycode.kernel import ModelError, RunResult, SessionTree, StorageError, ToolSpec, data_hash
+from pycode.tools import failure_update, validate_operation_answer
 
 AGENTS_MD_PROMPT = (
     "<agent_memory>\n{agent_memory}\n</agent_memory>\n"
@@ -100,7 +100,7 @@ class AgentRuntime:
         ]
         if self.instructions and self.instruction_backend is not None:
             # Loaded once per run into private graph state and appended to the system message
-            # of every model call; never written to JSONL history, so compaction cannot drop it.
+            # of every model call; kept outside history so compaction cannot drop it.
             middleware.append(
                 MemoryMiddleware(
                     backend=self.instruction_backend,
@@ -162,13 +162,66 @@ class AgentRuntime:
                 "outcome": "running",
                 "final_text": "",
                 "failure_count": 0,
+                "output_continuations": 0,
             },
             context,
         )
 
     async def continue_task(self, context):
-        self.build(context)
+        await self.restore_task(context)
         return await self.invoke(None, context)
+
+    async def restore_task(self, context):
+        self.build(context)
+        assert self.graph is not None
+        checkpoint = await self.graph.aget_state(self.config(context))
+        state = checkpoint.values
+        assert context.history_store is not None
+        snapshot = await context.history_store.snapshot()
+        path = SessionTree(snapshot.index).path(snapshot.leaf_id)
+        start = next(
+            i
+            for i, entry in enumerate(path)
+            if entry.run_id == context.run_id and entry.data.get("kind") == "run_start"
+        )
+        input_id = path[start].data["input_id"]
+        context.completed = [
+            entry.message
+            for entry in path
+            if entry.message is not None and entry.message.id == input_id
+        ]
+        context.initial_inputs = tuple(context.completed)
+        context.completed.extend(
+            entry.message
+            for entry in path[start + 1 :]
+            if entry.message is not None and entry.message.id != input_id
+        )
+        context.model_tools = tuple(ToolSpec(**item) for item in state.get("model_tools", ()))
+        names = state.get("disclosed_tool_names")
+        context.disclosed_tool_names = tuple(names) if names is not None else None
+        # Rebuild the transient settlement buffer from durable results, including results
+        # saved after the last checkpoint. Completed effects must not run again.
+        calls = {}
+        for message in context.completed:
+            for call in message.tool_calls:
+                calls[(message.id, call.id)] = call
+            result = message.tool_result
+            if result is not None:
+                if context.workspace_files is not None:
+                    context.workspace_files.receipts.update(result.details.get("read_receipts", {}))
+                call = calls[(result.details["source_assistant_id"], result.call_id)]
+                context.failure_guard = failure_update(
+                    context.failure_guard, call, result, data_hash(call.arguments)
+                )
+        assistant = context.assistant
+        if assistant is not None:
+            for message in context.completed:
+                result = message.tool_result
+                if result is not None and result.details.get("source_assistant_id") == assistant.id:
+                    context.settled_calls.add(result.call_id)
+                    context.dispatched_calls.add(result.call_id)
+        # Persist the reconstructed guard at the next tool boundary. Locks, waiting calls
+        # and in-flight result buffers start empty in the replacement runtime.
 
     def discard(self) -> None:
         self.graph = None
@@ -212,7 +265,9 @@ class AgentRuntime:
         if graph is None:
             raise StorageError("run_expired", "This runtime has no live execution graph")
         try:
-            state = await graph.ainvoke(value, config=self.config(context), context=context)
+            state = await graph.ainvoke(
+                value, config=self.config(context), context=context, durability="sync"
+            )
         except asyncio.CancelledError:
             await self.collect_tools(context)
             if context.summary is not None:

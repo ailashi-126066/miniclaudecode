@@ -4,13 +4,13 @@ from pycode.context.services.context_projector import ContextProjector
 from pycode.kernel.domain.errors import StorageError
 from pycode.kernel.domain.history import EntryDraft, SessionHeader
 from pycode.kernel.domain.messages import Message
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.session.services.durable_inputs import DurableInputs
 from tests.support.requests import TestTiming
 
 
 async def setup(tmp_path):
-    store = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
+    store = SqliteSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     await store.append_message(Message("u1", "user", "task"))
     await store.append_entry(
         EntryDraft(
@@ -37,7 +37,7 @@ async def test_queued_input_is_durable_invisible_and_idempotent_until_real_model
     with pytest.raises(StorageError):
         await queue.submit(user, "follow_up", "r1")
     await store.aclose()
-    store = JsonlSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
+    store = SqliteSessionStore(tmp_path / "s1", SessionHeader("s1", "/project", "t"), TestTiming())
     queue = DurableInputs(store)
     selected = await queue.pending("r1")
     assert selected.take("steer") == (user,)

@@ -35,7 +35,7 @@ MewCode 无项目级 LICENSE/NOTICE；使用用户的作者授权，并保留部
 固定来源清单和作者授权保持不变。以下说明当前复用边界；真实命令、源码摘要及结果以
 `archive/verification/deepagents-migration.json` 为准，历史阶段报告不证明当前版本。
 
-- `agent/adapters/agent.py`：Deep Agents 0.7.23 公共 create_deep_agent，唯一主 harness；
+- `agent/adapters/agent.py`：Deep Agents 0.7.32 公共 create_deep_agent，唯一主 harness；
   `agent/adapters/state.py`、`agent/adapters/history.py`、`agent/adapters/boundaries.py`、`tools/adapters/settlement.py` 保存 Pi 的原始消息、顺序、
   重复失败与产品事实边界，删除旧调度循环、操作表及 after-model 调度。
   中断不阻塞后续完成工具；结算、事件和 Hook 始终使用对应 operation_id。

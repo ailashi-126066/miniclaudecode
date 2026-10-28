@@ -78,17 +78,17 @@
     },
     {
       "port": "pycode.kernel.ports.history.MessageJournal",
-      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "implementation": "pycode.session.adapters.storage.session.SqliteSessionStore",
       "kind": "class"
     },
     {
       "port": "pycode.kernel.ports.history.HistoryReader",
-      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "implementation": "pycode.session.adapters.storage.session.SqliteSessionStore",
       "kind": "class"
     },
     {
       "port": "pycode.kernel.ports.history.HistoryJournal",
-      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "implementation": "pycode.session.adapters.storage.session.SqliteSessionStore",
       "kind": "class"
     },
     {
@@ -213,7 +213,7 @@
     },
     {
       "port": "pycode.session.ports.history.SessionStore",
-      "implementation": "pycode.session.adapters.storage.session.JsonlSessionStore",
+      "implementation": "pycode.session.adapters.storage.session.SqliteSessionStore",
       "kind": "class"
     },
     {
@@ -223,7 +223,7 @@
     },
     {
       "port": "pycode.session.ports.sessions.SessionRepository",
-      "implementation": "pycode.session.adapters.storage.session_repository.JsonlSessionRepository",
+      "implementation": "pycode.session.adapters.storage.session_repository.SqliteSessionRepository",
       "kind": "class"
     },
     {

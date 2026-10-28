@@ -75,13 +75,13 @@ PowerShell 中用 `Copy-Item` 复制示例，用 `$env:DEEPSEEK_API_KEY = '自�
 | Skill | TUI `/skill create NAME DESCRIPTION`、`/skill read NAME`、`/skill install URL` |
 | 存储清理预览 | `storage gc --dry-run` |
 
-非交互 CLI 需要审批时输出 `needs_input` 并退出 2；审批要在同一进程的 TUI 中回答。
-重启后可打开 JSONL 历史，旧等待过期，未完成工具不会自动重跑。
+非交互 CLI 需要审批时输出 `needs_input` 并退出 2；重新打开后可通过 resume 回答保存的审批。
+完整记录保存于 SQLite Store，执行位置保存于 checkpoint；重新打开不自动执行工具。
 
 ## 团队、命令与权限
 
 主 Agent 可按需派出 readonly 或独立 Git worktree worker；`--max-agents 1` 到
-`--max-agents 4` 控制同时运行人数。任务板、消息与状态保存到 JSONL，
+`--max-agents 4` 控制同时运行人数。任务板、消息与状态保存到 SQLite Store，
 子 Agent 的审批转发到主界面。取消主运行会收拢子任务；重启不会自动续跑。
 worker 完成后主 Agent 先 review，逐次审批 merge，再按依赖顺序集成和清理。
 
@@ -146,4 +146,6 @@ Team 邮箱、worktree 和合并不变。旧配置使用已移除模式时明确
 
 工具发现：本地与 MCP 统一通过 ToolSearch。模型先看分类名称和一句话用途，再按需加载完整定义；无额外模型工具选择器。参见 [工具发现设计](docs/design/tool-discovery.md)。
 
-Team 任务状态、无活动超时与进程内 A→B 交接见 [TeamState 设计](docs/design/team-state-handoff.md)。完整会话继续保存 JSONL；不新增磁盘 checkpoint 数据库。
+Team 任务状态、无活动超时与进程内 A→B 交接见 [TeamState 设计](docs/design/team-state-handoff.md)。完整记录使用官方 SqliteStore，执行图使用本地 AsyncSqliteSaver。
+
+框架基线：Deep Agents 0.7.32、LangChain 1.4.7 / Core 1.7.0、LangGraph 1.2.18 / Checkpoint 4.3.1、FastMCP 4.1.4。具体开发依赖见 `requirements-dev.lock`。Team 继续使用进程内执行与邮箱，不引入 Agent Server；会话持久化已迁移为 SqliteStore + AsyncSqliteSaver。

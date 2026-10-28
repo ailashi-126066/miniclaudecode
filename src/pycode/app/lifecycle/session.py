@@ -128,13 +128,9 @@ class ConfiguredRuntimeLauncher:
     ):
         if not self.config.workspace.is_dir():
             raise StorageError("workspace_missing", "Execution workspace no longer exists")
-        if resume:
-            container = self._active_container
-            if container is None or container.context.run_id != run_id:
-                raise StorageError(
-                    "run_expired", "Old execution has ended; start a new task from saved history"
-                )
-        else:
+        container = self._active_container if resume else None
+        restoring = resume and container is None
+        if container is None:
             self._handoff_requested = False
             assert self._prompt_factory is not None and self._runtime_factory is not None
             await self._prompt_factory(store).refresh()
@@ -142,9 +138,13 @@ class ConfiguredRuntimeLauncher:
             self._active_container = container
             self.summary = container.context.summary
             container.owns_summary = False
+            if resume and answers is not None:
+                await container.runtime.restore_task(container.context)
         keep_waiting = False
         try:
-            if resume:
+            if restoring and answers is None:
+                result = await container.runtime.continue_task(container.context)
+            elif resume:
                 result = await container.runtime.resume(container.context, answers)
             else:
                 result = await container.runtime.run(inputs, container.context, history=history)
@@ -197,20 +197,6 @@ class ConfiguredRuntimeLauncher:
         )
         # Rebind only runtime resources. The task's in-process execution data survives.
         fresh = container.context
-        fresh.completed = execution.completed
-        fresh.initial_inputs = execution.initial_inputs
-        fresh.assistant = execution.assistant
-        fresh.call_order = execution.call_order
-        fresh.ready_results = execution.ready_results
-        fresh.settled_calls = execution.settled_calls
-        fresh.dispatched_calls = execution.dispatched_calls
-        fresh.interrupted_calls = execution.interrupted_calls
-        fresh.failure_guard = execution.failure_guard
-        fresh.serial_failure_signature = execution.serial_failure_signature
-        fresh.turn_end_sent = execution.turn_end_sent
-        fresh.model_tools = execution.model_tools
-        fresh.disclosed_tool_names = execution.disclosed_tool_names
-        fresh.output_continuations = execution.output_continuations
         if fresh.workspace_files is not None and execution.workspace_files is not None:
             fresh.workspace_files.receipts.update(execution.workspace_files.receipts)
         self._active_container = container

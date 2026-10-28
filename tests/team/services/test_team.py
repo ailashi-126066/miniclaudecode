@@ -11,7 +11,6 @@ from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.session.services.durable_inputs import DurableInputs
 from pycode.team.api import AgentTeam
-from pycode.team.framework import transition_graph
 from tests.models.services.test_model_control import store_for
 
 
@@ -85,9 +84,7 @@ class Children:
 
 def team_at(tmp_path, *, limit=4):
     ledger, lead = store_for(tmp_path / "ledger"), store_for(tmp_path / "lead")
-    return AgentTeam(
-        ledger, lead, Children(), None, Events(), transition=transition_graph(), max_agents=limit
-    )
+    return AgentTeam(ledger, lead, Children(), None, Events(), max_agents=limit)
 
 
 async def close(team):
@@ -250,7 +247,6 @@ async def test_completed_child_wakes_for_direct_message_and_new_process_does_not
             Children(),
             None,
             Events(),
-            transition=transition_graph(),
         )
         await restored.initialize()
         assert restored.records[record["agent_id"]]["status"] == "interrupted"
@@ -395,7 +391,6 @@ async def test_synthetic_interrupted_wait_result_does_not_ack_undelivered_messag
             Children(),
             None,
             Events(),
-            transition=transition_graph(),
         )
         await restored.initialize()
         assert result["messages"][0]["id"] in {m["id"] for m in restored.inbox.pending("lead")}
@@ -483,7 +478,6 @@ async def test_failed_startup_without_jsonl_cannot_queue_unrecoverable_wake(tmp_
             Children(),
             None,
             Events(),
-            transition=transition_graph(),
         )
         await restored.initialize()
         assert restored.records[identifier]["status"] == "failed"

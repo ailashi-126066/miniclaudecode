@@ -51,7 +51,7 @@ async def build_configured_run(
     options = RunOptions(
         provider=provider,
         run_id=run_id,
-        checkpointer=checkpointer if checkpointer is not None else modules.agent.checkpoint(),
+        checkpointer=checkpointer,
         effective_tools=inherited,
         skills_run=skills_run,
         mcp_run=mcp_run,

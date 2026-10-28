@@ -46,6 +46,7 @@ async def test_changed_server_schema_is_recorded_but_pending_call_keeps_old_cont
             "s1", refresh_models=False
         )
         try:
+            await session.cancel()
             with pytest.raises(StorageError) as error:
                 await session.resume(
                     {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
@@ -148,6 +149,7 @@ async def test_actual_parent_exit_reuses_confirmed_mcp_result_without_second_ser
             "s1", refresh_models=False
         )
         try:
+            await session.cancel()
             with pytest.raises(StorageError):
                 await session.resume()
             assert len(requests) == 1

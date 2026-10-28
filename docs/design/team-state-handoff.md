@@ -2,11 +2,11 @@
 
 ## 数据归属
 
-TeamState 包含 agents、tasks、mailboxes。`state.py` 定义 schema 和按 ID 合并的 reducer，`framework.py` 用不调用模型的 LangGraph 执行一次业务状态更新。协调图明确关闭 checkpoint 继承，不占用子 Agent 的执行 checkpoint。
+TeamState 包含 agents、tasks、mailboxes。`state.py` 定义 schema 和按 ID 合并的 reducer，业务更新直接应用 reducer；不再为了合并字典运行单节点图。`framework.py` 的成员生命周期图负责等待、审批暂停、超时和失败后的交接路由。它不继承子 Agent checkpoint，子任务执行位置仍由原有持久化 checkpointer 保存。
 
-Team 的业务变更仍追加到原来的 `team_transition` JSONL；落盘成功后更新同一份 State。成员、任务和邮箱的旧 records 属性只是这份 State 的访问入口，不是三套独立副本。原始会话、工具结果和消息 parent_id 继续保存在各会话 JSONL 中。没有新增磁盘 checkpoint 数据库。
+Team 的业务变更仍追加到原来的 `team_transition` SQLite Store；落盘成功后更新同一份 State。成员、任务和邮箱的旧 records 属性只是这份 State 的访问入口，不是三套独立副本。原始会话、工具结果和消息 parent_id 继续保存在各会话 SQLite Store 中。执行 checkpoint 使用本地 execution.sqlite。
 
-任务执行对象持有子会话及活动通知；子会话的运行容器持有该任务的图和内存 checkpointer。A→B 交接保留 session_id、run_id、thread_id、worktree 和已完成结果，只更换成员身份、执行代次及运行资源。
+任务执行对象持有子会话及活动通知；子会话的运行容器持有该任务的图和持久化 checkpointer。A→B 交接保留 session_id、run_id、thread_id、worktree 和已完成结果，只更换成员身份、执行代次及运行资源。
 
 ## 派发和验收
 
@@ -32,9 +32,11 @@ send_message 支持 to、text、task_id、kind 和 artifact_refs。kind 为 mess
 
 ChildEventRelay 接收模型请求开始/结束、文本与推理输出、工具实际调用/输出/结束、图运行边界和审批事件。现有 tool_execution_start 仍表示准备；新增 tool_action_start 位于权限检查之后，tool_action_end 表示调用退出；tool_execution_end 仍只在结果保存后发布。
 
-`TeamState.agents[id].last_activity_at` 是最近有效活动时间。phase 和按请求/操作 ID 区分的 active_steps 用于解释正在等待什么。活动只接受当前会话、当前运行和当前代次，重复事件、普通通知、其他任务和旧成员不能续期。高频输出只更新内存 State，阶段边界落盘，不逐 token 追加 Team JSONL。
+`TeamState.agents[id].last_activity_at` 是最近有效活动时间。phase 和按请求/操作 ID 区分的 active_steps 用于解释正在等待什么。活动只接受当前会话、当前运行和当前代次，重复事件、普通通知、其他任务和旧成员不能续期。高频输出只更新内存 State，阶段边界落盘，不逐 token 追加 Team SQLite Store。
 
-watchdog 等待活动通知或到期时间，不扫描日志文件，不请求模型。没有活动超过 idle_timeout 才触发处理。模型/工具实际输出会重新计时；审批等待暂停计时。安静的 Bash 使用其自身执行期限，加上停止确认时间供进程收尾；并行工具保留各自期限。任务总时长默认不设硬限制。
+成员图使用 `TimeoutPolicy(idle_timeout=..., refresh_on="heartbeat")` 等待有效活动。ChildEventRelay 筛选后的事件调用当前节点的 `runtime.heartbeat()`；倒计时、续期和超时由 LangGraph 管理，不再维护 asyncio.timeout 等待循环。阶段变化唤醒节点，由条件边重新选择等待方式。审批节点不设超时；安静 Bash 使用最早尚未完成工具的绝对期限，加上停止确认时间，作为 Send 的 run_timeout，其他工具持续输出不能延长这个期限。任务总时长默认不设硬限制。
+
+NodeTimeoutError 通过原生 error_handler 和 Command 转入 handoff 节点。已结束成员由条件边判断：允许的 provider_timeout/provider_connection 在预算内交接，其他终态结束观察。成功提交与失败记录仍由 finish 统一落盘，finish 不再另外启动自动交接。框架超时取消的是等待节点；真正的子执行仍须经过 handoff_task 的停止确认，不能把框架取消当作工具已停止。
 
 默认配置：
 
@@ -54,17 +56,21 @@ lead 可以调用 handoff_task(task_id)。无活动超时、可恢复的 provide
 2. 标记 stopping，取消旧 driver，并等待其工具清理。
 3. 停止未确认时记录 stop_unconfirmed，不创建 B；旧执行后来退出才更新为 interrupted。
 4. 停止确认后更换负责人、递增 generation，转交待处理邮件，保留原 worktree。
-5. 新成员重建模型/工具资源，复用任务的内存 checkpointer 和执行数据，通过原 thread_id 继续。
+5. 新成员重建模型/工具资源，复用任务的持久化 checkpointer，通过原 thread_id 继续。续写次数、模型工具声明和失败字段由图 State 保存；运行容器不再逐字段复制旧 Context。
 6. ToolSearch 披露结果和已读取文件版本一并衔接。已保存的结果不重复执行；中断的写操作先保存效果不确定的结果，不能从 checkpoint 直接盲重放。
+
+助手消息和调用顺序从本轮已保存消息取得。continue_task 从原分支的 run_start 恢复本轮消息，结合 checkpoint 恢复模型声明；已经落盘、但尚未进入 checkpoint 的工具结果也参与恢复。失败计数在工具批次内使用临时结算缓冲，并通过同一个 failure_update 规则从真实结果重建。交接取消时先把 ready_results 中已经完成、但仍在等前序调用的结果落盘；该队列、锁和正在等待的调用不转交；settled_calls/dispatched_calls 从本轮已保存的结果重建。文件读取版本凭据仍随同一工作区资源绑定，不把活动进程或锁塞进 State。
 
 如果旧执行在取消期间已经正常完成，任务进入待验收，不再创建替代者。用户取消与交接竞争时，取消阻止后续替代者启动。
 
 ## 整个程序退出
 
-当前 checkpointer 仍在内存。整个程序退出后只能从 JSONL 恢复历史与业务状态，旧执行标记 interrupted，不宣称恢复丢失的图位置。用户明确发起的新运行使用历史重新开始；进程内的 handoff_task 与此区别清楚。
-
-本实现不声称能在同一个 Python 事件循环硬卡死时强制杀死单个 Agent，也不增加跨进程租约或取证式恢复系统。
+会话记录保存于 session.sqlite，执行图由 AsyncSqliteSaver 写入 execution.sqlite。重新打开只恢复记录，不自动启动工作；明确 resume 时重建图和连接，使用原 thread_id 继续。旧 Team 成员仍标为 interrupted，运行句柄不会从数据库复活。写操作在调用前记录 tool_started，已开始但缺少结果的操作保存 tool_interrupted，阻止恢复时盲目重放。
 
 ## 验证
 
-测试覆盖有效输出续期、重复与其他任务事件不续期、安静长工具、审批暂停、停止未确认、自动交接预算、邮件转交、旧代次写入拒绝、验收与依赖。真实 SDK/LangGraph 测试验证同一 run_id 续接、用户输入只保存一次、已完成读取不重复、文件读取版本衔接，以及已批准写操作中断后不重复执行。
+测试覆盖有效输出续期、重复与其他任务事件不续期、安静长工具、审批暂停、停止未确认、自动交接预算、邮件转交、旧代次写入拒绝、验收与依赖。真实 SDK/LangGraph 测试验证同一 run_id 续接、用户输入只保存一次、已完成读取不重复、文件读取版本衔接，以及已批准写操作中断后不重复执行。新增覆盖并行输出不能延长另一工具的期限、模型故障的图路由、续写预算跨交接保持，以及已完成但等待顺序结算的工具不重复执行。
+
+## 本轮范围
+
+后台摘要预生成、旧工具输出清理和模型请求重试保持不变。没有新增备用模型、自动工具重试或定时假心跳。

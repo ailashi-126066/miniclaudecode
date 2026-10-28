@@ -12,7 +12,7 @@ from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.kernel.domain.tools import ToolContext
 from pycode.kernel.services.events import EventStream
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.context.services.test_summary import Generator
 from tests.support.requests import TestTiming
@@ -22,7 +22,7 @@ async def test_eviction_protects_generating_prefix_and_all_original_outputs_surv
     tmp_path,
 ):
     directory = tmp_path / "sessions"
-    history = JsonlSessionStore(
+    history = SqliteSessionStore(
         directory / "s1", SessionHeader("s1", "/project", "t"), TestTiming()
     )
     outputs = FileToolOutputStore(

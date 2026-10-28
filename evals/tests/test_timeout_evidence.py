@@ -66,10 +66,14 @@ async def test_timeout_preserves_settled_request_usage_trace_and_independent_tes
         assert result["independent_tests"]["junit"]["tests"] > 0
         assert result["artifacts"]["trace"]["complete"]
         trace = tmp_path / "results" / result["artifacts"]["trace"]["path"]
-        with gzip.open(trace, "rt", encoding="utf-8") as stream:
-            entries = [json.loads(line) for line in stream]
-        assert entries[0]["record_type"] == "header"
-        assert any(entry.get("type") == "message" for entry in entries)
+        from pycode.session.adapters.storage.session import read_records
+
+        exported = tmp_path / "exported-session.sqlite"
+        with gzip.open(trace, "rb") as stream:
+            exported.write_bytes(stream.read())
+        metadata, entries = read_records(exported)
+        assert metadata["header"]["session_id"] == "evaluation"
+        assert any(entry.type == "message" for entry in entries)
         summary = json.loads((tmp_path / "results/summary.json").read_bytes())
         assert summary["outcomes"] == {"agent_timeout": 1}
         assert not list((tmp_path / "work").iterdir())

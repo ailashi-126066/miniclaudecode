@@ -215,7 +215,7 @@ async def test_hidden_tool_schema_error_is_redacted_in_result_history_and_comple
     from dataclasses import replace
 
     from pycode.kernel import SessionHeader, json_dumps
-    from pycode.session.adapters.storage.session import JsonlSessionStore
+    from pycode.session.adapters.storage.session import SqliteSessionStore
     from pycode.tools.adapters.output_store import FileToolOutputStore
     from tests.support.requests import TestTiming
 
@@ -236,7 +236,7 @@ async def test_hidden_tool_schema_error_is_redacted_in_result_history_and_comple
     )
     context.registry.replace_source("builtin", (tool,))
     sessions = tmp_path / "sessions"
-    journal = JsonlSessionStore(
+    journal = SqliteSessionStore(
         sessions / context.session_id,
         SessionHeader(context.session_id, context.workspace, "created"),
         TestTiming(),

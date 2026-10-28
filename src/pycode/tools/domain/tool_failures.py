@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypedDict
 
 from pycode.kernel import SECRET_PATTERNS, ToolError, ToolResult
 
@@ -35,3 +35,28 @@ def repeated_tool_failure(guard: Mapping[str, Any], name: str, arguments_hash: s
         and guard.get("failure_tool") == name
         and guard.get("failure_arguments") == arguments_hash
     )
+
+
+class FailureGuard(TypedDict, total=False):
+    failure_tool: str
+    failure_arguments: str
+    failure_code: str
+    failure_count: int
+
+
+def failure_update(previous, call, result, arguments_hash) -> FailureGuard:
+    count = 0
+    if result.is_error:
+        same = (
+            previous.get("failure_tool") == call.name
+            and previous.get("failure_arguments") == arguments_hash
+            and previous.get("failure_code") == result.error_code
+        )
+        count = previous.get("failure_count", 0) + 1 if same else 1
+    repeated = result.error_code == "repeated_tool_failure"
+    return {
+        "failure_tool": call.name if result.is_error else "",
+        "failure_arguments": arguments_hash if result.is_error else "",
+        "failure_code": previous.get("failure_code", "") if repeated else result.error_code or "",
+        "failure_count": previous.get("failure_count", 3) if repeated else count,
+    }

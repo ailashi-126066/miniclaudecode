@@ -13,7 +13,8 @@ from pycode.kernel import StorageError, json_dumps, plain_data
 from pycode.kernel.adapters.file_lease import FileLease
 from pycode.kernel.adapters.path_io import atomic_write, file_sha256, owned_io
 from pycode.session.adapters.storage.layout import StorageLayout
-from pycode.session.adapters.storage.session_codec import decode_entry, decode_header
+from pycode.session.adapters.storage.session import read_header, read_records
+from pycode.session.adapters.storage.session_codec import encode_header
 from pycode.session.domain.storage import StorageInventory, StoredObject, mark_objects
 
 
@@ -128,7 +129,7 @@ class FileStorageObjects:
         self.inventory_plans(project, workspaces, scan)
 
     def inventory_session_log(self, project, session, workspaces, scan):
-        log = session / "entries.jsonl"
+        log = session / "session.sqlite"
         if log.exists():
             writer_lock = session / "writer.lock"
             owned = project.resolve() == self.project and session.name == self.owned_session_id
@@ -140,38 +141,26 @@ class FileStorageObjects:
                     scan.active_projects.add(project.name)
                 finally:
                     probe.close()
-            with log.open("rb") as source:
-                header = decode_header(source.readline())
-                if (
-                    header.session_id != session.name
-                    or StorageLayout(Path(header.workspace), self.root).project.name != project.name
-                ):
-                    raise StorageError(
-                        "gc_session_identity_conflict",
-                        "Session references belong to another project",
-                    )
-                workspaces.add(header.workspace)
-                scan.known_workspaces.add(header.workspace)
-                for line in source:
-                    if not line.strip():
-                        continue
-                    try:
-                        entry = decode_entry(line)
-                    except StorageError:
-                        if not line.endswith(b"\n"):
-                            scan.uncertain_projects.add(project.name)
-                            break
-                        raise
-                    tokens = string_values(plain_data(entry))
-                    scan.root_tokens.extend(tokens)
-                    for token in tokens:
-                        previous = scan.reference_details.get(token)
-                        if previous is None or entry.timestamp >= previous["timestamp"]:
-                            scan.reference_details[token] = {
-                                "session_id": session.name,
-                                "entry_id": entry.id,
-                                "timestamp": entry.timestamp,
-                            }
+            header = read_header(log)
+            _, entries = read_records(log)
+            if (
+                header.session_id != session.name
+                or StorageLayout(Path(header.workspace), self.root).project.name != project.name
+            ):
+                raise StorageError("gc_session_identity_conflict", "Session identity differs")
+            workspaces.add(header.workspace)
+            scan.known_workspaces.add(header.workspace)
+            for entry in entries:
+                tokens = string_values(plain_data(entry))
+                scan.root_tokens.extend(tokens)
+                for token in tokens:
+                    previous = scan.reference_details.get(token)
+                    if previous is None or entry.timestamp >= previous["timestamp"]:
+                        scan.reference_details[token] = {
+                            "session_id": session.name,
+                            "entry_id": entry.id,
+                            "timestamp": entry.timestamp,
+                        }
 
     def inventory_outputs(self, project, session, scan):
         results = session / "tool-results"
@@ -316,17 +305,11 @@ class FileStorageObjects:
                     scan.aliases.setdefault(data["session_id"], []).append(identifier)
                     references = []
                     for filename in files:
-                        if Path(filename).name != "entries.jsonl":
+                        if Path(filename).name != "session.sqlite":
                             continue
-                        with Path(filename).open("rb") as stream:
-                            stream.readline()
-                            for raw in stream:
-                                if not raw.endswith(b"\n"):
-                                    raise StorageError(
-                                        "gc_incomplete_deleted_session",
-                                        "Deleted history has a partial tail",
-                                    )
-                                references.extend(string_values(plain_data(decode_entry(raw))))
+                        _, entries = read_records(Path(filename))
+                        for entry in entries:
+                            references.extend(string_values(plain_data(entry)))
                     scan.tokens_by_object[identifier] = references
 
     def inventory_memory_roots(self, scan):
@@ -571,10 +554,9 @@ class FileStorageObjects:
                 directory = self.project / "sessions" / session_id
                 record = self.session_record(session_id)
                 moved = []
-                with (directory / "entries.jsonl").open("rb") as source:
-                    header_bytes = source.readline()
+                header_bytes = encode_header(read_header(directory / "session.sqlite"))
                 atomic_write(self.project / "session-info" / (session_id + ".json"), header_bytes)
-                for name in ("entries.jsonl", "position.json"):
+                for name in ("session.sqlite", "execution.sqlite"):
                     source = directory / name
                     if source.exists():
                         moved.append(

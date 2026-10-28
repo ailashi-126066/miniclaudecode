@@ -1,4 +1,4 @@
-"""Native read-only access to original active-branch JSONL entry references."""
+"""Native read-only access to original active-branch session Store entry references."""
 
 import asyncio
 import fnmatch

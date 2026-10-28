@@ -755,14 +755,14 @@ def check_harness(root: Path = ROOT) -> list[str]:
     errors = []
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     dependencies = set(project["dependencies"])
-    for locked in ("deepagents==0.7.23", "langchain[mcp]==1.4.4", "langgraph==1.2.14"):
+    for locked in ("deepagents==0.7.32", "langchain[mcp]==1.4.7", "langgraph==1.2.18"):
         if locked not in dependencies:
             errors.append("Final harness dependency is missing: " + locked)
     if project.get("scripts") != {"pycode": "pycode.app.cli.main:main"}:
         errors.append("Only the pycode console entry point may be registered")
     for dependency in dependencies:
         name = re.split(r"[<>=\[ ]", dependency)[0]
-        if name in {"mcp", "langchain-mcp-adapters", "langgraph-checkpoint-sqlite"}:
+        if name in {"mcp", "langchain-mcp-adapters"}:
             errors.append("Obsolete main-runtime direct dependency: " + name)
     for path in sorted((root / "src" / "pycode").rglob("*.py")):
         source = path.read_text(encoding="utf-8")
@@ -788,7 +788,6 @@ def check_harness(root: Path = ROOT) -> list[str]:
         for obsolete in (
             "CREATE TABLE IF NOT EXISTS tool_operations",
             "CREATE TABLE IF NOT EXISTS runtime_events",
-            "AsyncSqliteSaver",
         ):
             if obsolete in source:
                 errors.append(f"{relative}: obsolete main-runtime persistence: {obsolete}")

@@ -228,7 +228,7 @@
           "轨迹大小和完整性都明确记录；output_objects_retained=False说明并不保留全部大输出对象。",
           "每题JSON与追加记录分别写入，比较器会读回核对；flush/fsync减少只留在内存而未交给文件系统的内容。"
         ],
-        "guide": "一题已经有了结果，runner把它交给save_result。这里保存压缩JSONL、日志等文件的身份信息、源码清单和每题JSON，再追加results.jsonl。正常保存后，后续才清理工作目录；但保存本身失败时finally仍可能清理，不能承诺所有异常都保住完整证据。",
+        "guide": "一题已经有了结果，runner把它交给save_result。这里保存压缩会话 Store、日志等文件的身份信息、源码清单和每题JSON，再追加results.jsonl。正常保存后，后续才清理工作目录；但保存本身失败时finally仍可能清理，不能承诺所有异常都保住完整证据。",
         "edge": "runner请求保存本题结果"
       },
       {
@@ -267,7 +267,7 @@
       }
     ],
     "result": [
-      "正常保存后，有界JSONL、日志、patch和JUnit独立于可选遥测保留；不保留全部输出对象。",
+      "正常保存后，有界会话 Store、日志、patch和JUnit独立于可选遥测保留；不保留全部输出对象。",
       "保存失败仍可能进入owned清理，不能承诺异常时证据完整；双轮比较要求实际完整身份与轨迹。"
     ],
     "groups": false

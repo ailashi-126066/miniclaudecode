@@ -8,7 +8,7 @@ from pycode.session.adapters.storage.header_reader import FileSessionHeaderReade
 from pycode.session.adapters.storage.history_backend import ConversationHistoryBackend
 from pycode.session.adapters.storage.layout import StorageLayout
 from pycode.session.adapters.storage.objects import FileStorageObjects
-from pycode.session.adapters.storage.session_repository import JsonlSessionRepository
+from pycode.session.adapters.storage.session_repository import SqliteSessionRepository
 from pycode.session.adapters.storage.workspace import FileWorkspaceInspector
 from pycode.session.services.application import ApplicationService
 from pycode.session.services.ownership import SessionCleanup
@@ -36,7 +36,7 @@ class SessionsModule:
         return SessionCleanup()
 
     def repository(self):
-        return JsonlSessionRepository(self.layout.sessions, str(self.workspace), self.timing)
+        return SqliteSessionRepository(self.layout.sessions, str(self.workspace), self.timing)
 
     def service(self):
         return SessionService(self.repository())

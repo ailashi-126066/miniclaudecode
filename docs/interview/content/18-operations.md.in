@@ -92,3 +92,7 @@ doctor调用 `compose_application(config).status()`和`sandbox_status()`；stora
 下次任务没有开始，先从doctor检查位置和工具；历史或输出越来越多，先看status和dry-run，弄清引用再考虑动作；准备交付，查看各个验证脚本的实际结果，而不是只记住一句“本地能跑”。
 
 到这里，我们既走完了修文件的正常过程，也知道怎样检查结果和环境。[最后一章](19-interview.md)会把这条路线再串一次，看看你能否用自己的话解释每一步为什么需要下一步。
+
+## 框架升级基线
+
+当前使用 Deep Agents 0.7.32、LangChain 1.4.7、Core 1.7.0、LangGraph 1.2.18、Checkpoint 4.3.1 和 FastMCP 4.1.4。锁文件由干净依赖解析报告生成，并保留 Windows 平台标记。升级验证覆盖现有 Team、审批、交接、流式事件与 MCP；不启用服务端 AsyncSubAgent，不改变 会话 Store、后台摘要或旧工具输出清理。

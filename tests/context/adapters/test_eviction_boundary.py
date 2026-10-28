@@ -9,7 +9,7 @@ from pycode.kernel.domain.history import SessionHeader
 from pycode.kernel.domain.messages import Message, ToolCall, ToolResult
 from pycode.kernel.domain.tools import ToolContext
 from pycode.session.adapters.storage.header_reader import FileSessionHeaderReader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.tools.adapters.output_store import FileToolOutputStore
 from tests.agent.adapters.test_agent import assemble
 from tests.support.model import ScriptedChatModel
@@ -20,7 +20,7 @@ async def test_next_framework_request_uses_persistent_evictions_not_original_gra
     tmp_path,
 ):
     _, context, _, _, _, _ = assemble([])
-    store = JsonlSessionStore(
+    store = SqliteSessionStore(
         tmp_path / context.session_id,
         SessionHeader(context.session_id, "/workspace", "t"),
         TestTiming(),

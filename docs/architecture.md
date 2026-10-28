@@ -1,3 +1,5 @@
+> 当前存储与恢复行为以 [存储格式](storage-format.md) 为准：完整记录使用 SqliteStore，执行位置使用 AsyncSqliteSaver。
+
 > 当前 TeamState、任务验收、无活动续期和交接以 [TeamState 设计](design/team-state-handoff.md) 为准。
 
 # 当前工具发现流程
@@ -258,3 +260,7 @@ names and still rejects credential-shaped names (including bare API_KEY/TOKEN/CR
 Bash, Hook and Python Skill policy hashes bind sandbox settings and the validated name list;
 environment values and provider secrets never enter those policy hashes. The configured
 process/grant callbacks and strict worker sandbox remain injected through the selected module entries.
+
+## Team 框架复用边界
+
+成员图负责 TimeoutPolicy、有效活动 heartbeat、审批等待和交接路由；engine 保留实际子执行的停止确认、成员资源、邮箱与 worktree。公共 TeamState 更新直接使用 reducer。子图 checkpoint 保存执行位置，JSONL 提供中断边界已持久化的工具事实；不复制旧 RunContext 的整套执行字段。后台摘要和工具输出清理保持原实现。

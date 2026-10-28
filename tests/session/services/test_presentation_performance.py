@@ -6,12 +6,12 @@ from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.history import SessionEntry, SessionHeader
 from pycode.kernel.domain.messages import Message
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from tests.support.requests import TestTiming
 
 
 async def test_5000_entry_presentation_reuses_messages_and_appends_one_view(tmp_path, monkeypatch):
-    store = JsonlSessionStore(
+    store = SqliteSessionStore(
         tmp_path / "session", SessionHeader("s", str(tmp_path), "t"), TestTiming()
     )
     entries = []

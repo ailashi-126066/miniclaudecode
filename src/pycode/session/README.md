@@ -1,8 +1,8 @@
 # Session
 
-负责 JSONL 历史、会话列表/分支、恢复、回退编排和存储清理。
+负责 SQLite Store 历史、会话列表/分支、恢复、回退编排和存储清理。
 `domain/` 定义会话规则；`ports/` 接收执行、快照、模型等能力；`services/` 提供应用命令；
-`adapters/storage/` 实现文件存储与布局。不会创建模型 SDK、Skill catalog 或 MCP 连接。
+`adapters/storage/` 实现官方 SqliteStore、AsyncSqliteSaver 与文件对象布局。不会创建模型 SDK、Skill catalog 或 MCP 连接。
 
 装配入口 `module.py:SessionsModule` 输入 workspace、user_data、Timing，输出 repository、
 session service、header reader、history backend、storage GC 和本地 application status。

@@ -321,22 +321,18 @@ class EvaluationWorkspaces:
             trace_info = None
             if trace_path is not None:
                 source = self.owned(trace_path)
-                target = self.result_path(task_id, ".entries.jsonl.gz")
+                target = self.result_path(task_id, ".session.sqlite.gz")
                 digest = hashlib.sha256()
                 saved = 0
                 total = 0
                 with source.open("rb") as stream, gzip.open(target, "xb") as output:
                     while True:
-                        line = stream.readline(MAX_FILE_BYTES + 1)
+                        line = stream.read(MAX_FILE_BYTES)
                         if not line:
                             break
                         digest.update(line)
                         total += len(line)
-                        if (
-                            len(line) <= MAX_FILE_BYTES
-                            and saved + len(line) <= MAX_TRACE_BYTES
-                            and line.endswith(b"\n")
-                        ):
+                        if len(line) <= MAX_FILE_BYTES and saved + len(line) <= MAX_TRACE_BYTES:
                             output.write(line)
                             saved += len(line)
                 trace_info = {

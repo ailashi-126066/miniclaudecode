@@ -65,9 +65,9 @@
 
 ## 框架在刚才的故事里做了什么
 
-`AgentRuntime.build` 把文件后端、按顺序排列的 middleware、运行上下文类型和 `InMemorySaver` 交给 `create_deep_agent`。Deep Agents 与 LangGraph 负责模型和工具如何轮流执行、何处暂停、如何把恢复答案送回去；launcher 负责保留或关闭那次执行使用的容器。这是两个对象合作，不是两套执行循环。
+`AgentRuntime.build` 把文件后端、按顺序排列的 middleware、运行上下文类型和 `AsyncSqliteSaver` 交给 `create_deep_agent`。Deep Agents 与 LangGraph 负责模型和工具如何轮流执行、何处暂停、如何把恢复答案送回去；launcher 负责保留或关闭那次执行使用的容器。这是两个对象合作，不是两套执行循环。
 
-`HistoryMiddleware.abefore_model`、`awrap_model_call`、`aafter_agent` 是框架在相应时点触发的回调：分别准备本次请求、保存完整助手回复、处理结束前输入。磁盘 JSONL、重复输入识别、旧运行整理、分支与资源关闭则由项目自己补充，框架的内存检查点没有替项目提供跨进程续跑。
+`HistoryMiddleware.abefore_model`、`awrap_model_call`、`aafter_agent` 是框架在相应时点触发的回调：分别准备本次请求、保存完整助手回复、处理结束前输入。磁盘 会话 Store、重复输入识别、旧运行整理、分支与资源关闭则由项目自己补充，框架持久化检查点支持重建资源后继续原图。
 
 下面的表格是读完故事后的查找索引。遇到“谁创建、谁使用、谁关闭”的问题，可对照组装表回到相应步骤；每一行都说明该对象什么时候交给下一步，以及谁负责在成功、失败和取消时等待它结束。
 
@@ -75,21 +75,21 @@
 
 | 想知道什么 | 到哪里找 | 能确认什么 |
 |---|---|---|
-| 用户说过什么、工具有没有正式结果 | `entries.jsonl`；`parent_id` 连接前后记录 | 沿当前分支读取完整对话，不用猜屏幕曾显示过什么 |
+| 用户说过什么、工具有没有正式结果 | `session.sqlite`；`parent_id` 连接前后记录 | 沿当前分支读取完整对话，不用猜屏幕曾显示过什么 |
 | 这条输入属于哪轮任务，现在是否在等人 | `run_start`、`run_wait`、`run_end` | 用 `input_id` 找到 `run_id` 及保存的等待或结束结果 |
-| 现在能否回答审批并继续执行 | 当前进程的 `AgentRuntime.graph` 和 `InMemorySaver` | 只有原图仍在时才能继续；关闭进程后失效 |
+| 现在能否回答审批并继续执行 | 当前进程的 `AgentRuntime.graph` 和 `AsyncSqliteSaver` | 有持久化 checkpoint 时可重建图后继续，打开会话本身不执行任务 |
 | 执行中补充的话有没有被接受 | `input_queued`、`input_expired` | 分清已排队与旧任务结束后仍未处理的输入 |
 | 准备撤回哪些对话或文件 | `RevertPlan` 与文件快照记录 | 核对用户选的范围、目标版本和预期当前版本 |
 | 页面该显示哪些消息、用量和问题 | `SessionView` 的只读返回值 | 从保存记录重新生成画面，不改变日志或文件 |
 
-“历史还能打开”不代表“旧工具还能继续”。重启时整理保存记录，不重新执行旧命令。
+重新打开会话只读取记录，不自动执行命令。显式 resume 可以继续原 checkpoint；已开始但未完成记录的写操作先记录中断，不盲目重放。
 
 ## 查找：从哪里创建，交给谁使用，谁负责关闭
 
 | 创建入口 | 调用前要提供什么 | 得到什么，交给谁 | 谁负责关闭 |
 |---|---|---|---|
 | `SessionsModule(workspace,user_data,timing)` | 项目目录、数据目录、时钟 | 计算会话存放位置，给应用打开记录使用 | 模块本身不运行模型任务；打开后的会话另行关闭 |
-| `SessionsModule.repository`、`service` | 已确定的会话存放位置 | `JsonlSessionRepository`、`SessionService`，供CLI/TUI查列表、分支和复制会话 | 调用者关闭自己打开的store |
+| `SessionsModule.repository`、`service` | 已确定的会话存放位置 | `SqliteSessionRepository`、`SessionService`，供CLI/TUI查列表、分支和复制会话 | 调用者关闭自己打开的store |
 | `SessionsModule.storage`、`history_backend` | 文件对象存储和读取历史的方法 | `StorageGC`供维护操作使用；历史文件后端供只读工具使用 | 创建它们的应用操作或会话 |
 | `composition.open_agent_session` | 所选模块、模型配置、事件接收方 | 完整`AgentSession`，交CLI/TUI调用运行、恢复等操作 | `AgentSession.aclose` |
 | `ConfiguredRuntimeLauncher` | 创建运行容器、钩子、提示的方法 | 开始或继续执行的方法，交会话调用；同时记住摘要、Hook和连接 | `launcher.aclose`；等待审批时先保留本轮容器 |
@@ -106,7 +106,7 @@
 | `RuntimeContainer`、`RunAssembly` | 前者关闭成功组装的一轮资源；后者关闭组装失败前已创建的资源 |
 | `AgentRuntime` | 创建图、调用`graph.ainvoke`、读出待答问题，不另写模型循环 |
 | `HistoryMiddleware` | 被框架回调时准备模型输入、保存完整助手回复、检查结束前补充输入 |
-| `JsonlSessionStore` | 防止多个进程同时写同一会话，检查分支并追加、修复日志和保存当前位置 |
+| `SqliteSessionStore` | 防止多个进程同时写同一会话，检查分支并追加、修复日志和保存当前位置 |
 | `DurableInputs` | 先保存补充输入，再交给模型；结束前检查是否还能接受新输入 |
 | `SessionView`、`RevertService` | 前者提供只读显示数据；后者计算并应用用户确认的对话或文件回退 |
 
@@ -115,11 +115,11 @@
 | 文件或记录 | 保存什么 | 防止哪类错误 |
 |---|---|---|
 | `user_data/projects/工作区哈希/sessions/s1` | 按规范化的完整项目路径计算SHA-256，取前24位作项目目录名 | 两个同名但不同路径的项目混用历史 |
-| `entries.jsonl` | 会话头、记录ID、父ID、类型与消息 | 分支与原始对话散落后无法重新对应 |
+| `session.sqlite` | 会话头、记录ID、父ID、类型与消息 | 分支与原始对话散落后无法重新对应 |
 | `writer.lock` | 表明哪个进程当前可以写这份会话的锁 | 多进程同时追加同一会话导致写入冲突 |
-| position文件 | 当前历史节点和日志读取位置 | 为切分支重写旧记录，或沿错误位置继续 |
+| Store 的 position 记录 | 当前历史节点、版本和会话头 | 与新增记录同一事务提交，不再有独立 position 文件 |
 | `run_start` | 输入ID、执行会话ID、配置校验值、运行ID | 工具执行找不到自己来自哪条用户输入 |
-| `run_wait` | 问题内容`pending`和检查点ID | 不知道当时等什么；这条记录不能代替跨进程续跑能力 |
+| `run_wait` | 问题内容`pending`和检查点ID | 不知道当时等什么；实际执行位置由 execution.sqlite 保存 |
 | `run_end` | 结束类型、输入ID列表、最终回复记录ID | 已结束运行仍接受新输入，或找不到最终回复 |
 | `input_queued` | 输入内容、队列类型、所属运行 | 只在内存显示“已排队”，重启后却找不到 |
 | `input_expired` | 未处理输入的记录ID与类型 | 把旧任务未读的补充说明假装成已经响应 |
@@ -138,13 +138,13 @@
 
 返回 input_branch_conflict。历史重读只对当前活动分支成立。
 
-**进程重启后为什么不能提交昨天的 approve？**
+**进程重启后如何继续审批？**
 
-内存中的 graph 已不存在；JSONL能说明之前发生过什么，但不能让新进程继续原来的图。
+从 execution.sqlite 读取同一 thread_id 的 checkpoint，重建模型和工具资源；通过原 interrupt ID 回答。工具定义变化仍不能借旧批准执行。
 
 **排队后立即取消，会丢掉用户补充吗？**
 
-input_queued 已落盘；恢复把未消费输入变成 input_expired 提示，不伪装成已响应。
+input_queued 已落盘；恢复原任务时继续消费，明确取消或无 checkpoint 的旧任务才标记 input_expired。
 
 **run 已结束却还有消息到达？**
 
@@ -152,7 +152,7 @@ input_queued 已落盘；恢复把未消费输入变成 input_expired 提示，�
 
 **展示出错会损坏会话吗？**
 
-SessionView和UI只读取并展示记录；原始 JSONL 不随展示失败重写，重新打开可重建视图。
+SessionView和UI只读取并展示记录；原始 会话 Store 不随展示失败重写，重新打开可重建视图。
 
 **回退对话会自动回退文件吗？**
 

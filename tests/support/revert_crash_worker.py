@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 
 from pycode.kernel.domain.history import SessionHeader
-from pycode.session.adapters.storage.session import JsonlSessionStore
+from pycode.session.adapters.storage.session import SqliteSessionStore
 from pycode.session.domain.revert_state import decode_plan
 from pycode.session.services.revert import RevertService
 from pycode.snapshot.adapters.git_tree import GitSnapshotStore
 from tests.support.requests import TestTiming
 
 
-class CrashHistory(JsonlSessionStore):
+class CrashHistory(SqliteSessionStore):
     def __init__(self, directory, header, stage):
         super().__init__(directory, header, TestTiming())
         self.stage = stage

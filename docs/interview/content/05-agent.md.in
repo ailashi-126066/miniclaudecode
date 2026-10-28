@@ -53,7 +53,7 @@ Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，�
 
 现在可以想象两个读工具：parser.py先返回，测试文件稍后返回；也可能反过来。允许并行时结果先进入`ready_results`，但`settle_ready`仍按assistant的`call_order`推进。当前序结果还没准备好，它不会越过去先公布后项。
 
-真正保存时，Tools调用注入的publisher。`AgentMessagePublisher`绑定了这次run，把结果交给`save_message`写入JSONL、绑定完整输出，并发布完成消息。然后才确认Skill正文已读入，或告诉Team该消息已正式收到（ACK），最后调用executor.completed触发结束和后置Hook。读文件的结果有了可引用记录，框架下一次才让模型据此决定怎样改parser.py、怎样跑测试。
+真正保存时，Tools调用注入的publisher。`AgentMessagePublisher`绑定了这次run，把结果交给`save_message`写入会话 Store、绑定完整输出，并发布完成消息。然后才确认Skill正文已读入，或告诉Team该消息已正式收到（ACK），最后调用executor.completed触发结束和后置Hook。读文件的结果有了可引用记录，框架下一次才让模型据此决定怎样改parser.py、怎样跑测试。
 
 如果工具需要批准，流程在这里可能中断。对于仍持有会话的同进程TUI或嵌入宿主，接下来可以等用户回答；非交互CLI遇到needs_input会退出2并关闭会话，不能在另一个进程复活这张图。最后一步只讨论前一种仍保留图的情况。
 
@@ -71,7 +71,7 @@ Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，�
 
 ## 走完五步，再回查组装和框架职责
 
-这次任务始终只有当前run的一张Deep Agents图。`AgentModule`提供runtime、Bindings、publisher和默认InMemorySaver；应用提供已经选好的模型、后端、工具方法和可选扩展。Launcher保留等待中的runtime，运行不再需要时由它和RuntimeContainer负责关闭；Agent不会自己创建一套模型客户端。
+这次任务始终只有当前run的一张Deep Agents图。`AgentModule`提供runtime、Bindings、publisher和独立测试使用的 InMemorySaver；正式会话使用 Store 持有的 AsyncSqliteSaver；应用提供已经选好的模型、后端、工具方法和可选扩展。Launcher保留等待中的runtime，运行不再需要时由它和RuntimeContainer负责关闭；Agent不会自己创建一套模型客户端。
 
 框架负责在模型和工具节点间转交执行、按约定调用中间件、保存图的运行位置，以及暂停等待用户回答。项目在相应回调中补的是：问模型前怎样整理输入，完整assistant何时落盘，实际工具是否获准，多个结果怎样保存，以及取消时要等待哪些已开始的任务。因此，读到下面这些名字时，应该能把它们放回刚才经过的步骤，而不是把它们当成互不相关的功能清单。
 
@@ -94,7 +94,7 @@ Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，�
 - **完整assistant为什么必须在工具执行前保存？** 后续调用要证明它属于这条模型指令，部分流式文字不能提供这个保证。
 - **为什么不能构图时就说所有工具已经给模型看过？** MCP会在模型前刷新，Skill资源由resolver按需加入，最终名单要在它们完成后确认。
 - **模型前去掉写工具，是否已经安全？** 还不够。真实调用仍要检查当前参数、说明版本、权限和沙箱条件。
-- **两个工具反序返回，谁决定JSONL顺序？** Settlement按原assistant的call_order保存，不按网络返回快慢排序。
+- **两个工具反序返回，谁决定会话 Store顺序？** Settlement按原assistant的call_order保存，不按网络返回快慢排序。
 - **用户回答后为什么不重新打开一个Agent？** 正确恢复需要仍存在的图、它保存的运行位置，以及正在等待的问题；新图不能继承旧批准。
 - **aafter_agent再跳回model，是否是第二套执行循环？** 不是，它返回框架支持的jump_to，让同一张图继续。
 - **为什么不能说run结束就是会话关闭？** TUI会话可以继续接受下一任务；后台摘要、Hook和连接的关闭由对应持有者处理。
@@ -103,4 +103,6 @@ Launcher随后调用`AgentRuntime.run`。run先确认输入已写入journal，�
 
 ## Team 的进程内交接
 
-子任务无活动超时后，Team 先停止旧执行并确认工具收尾，再把同一任务的执行线程、内存 checkpoint、历史和 worktree 交给新成员。continue_task 继续原图；普通取消与程序重启不会假装保留这种续接能力。活动来自模型和工具事件，不依赖成员自报存活。详细状态和验收流程见 Team 章节。
+子任务无活动超时后，Team 先停止旧执行并确认工具收尾，再把同一任务的执行线程、持久化 checkpoint、历史和 worktree 交给新成员。continue_task 继续原图；普通取消结束运行；程序重启后有持久化 checkpoint 的运行可显式恢复。活动来自模型和工具事件，不依赖成员自报存活。详细状态和验收流程见 Team 章节。
+
+交接时 continue_task 读取原 checkpoint 和本轮 会话 Store。output_continuations 与模型声明由 State 提供，assistant/call_order 从保存消息推导；临时结算队列不复制，已持久化工具结果用于重建完成集合。后台摘要与旧工具输出清理仍使用原流程。

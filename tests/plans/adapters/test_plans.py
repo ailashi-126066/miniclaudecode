@@ -199,7 +199,7 @@ async def test_changed_plan_during_wait_cannot_be_approved_silently(tmp_path, mo
             await session.aclose()
 
 
-async def test_restart_keeps_markdown_but_invalidates_old_plan_interrupt(tmp_path, monkeypatch):
+async def test_restart_preserves_markdown_and_plan_interrupt(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     write = write_plan_reply()
@@ -212,7 +212,7 @@ async def test_restart_keeps_markdown_but_invalidates_old_plan_interrupt(tmp_pat
         reopened = await open_plan_session(config, url, create=False)
         try:
             state = await reopened.inspect()
-            assert state["pending"] == () and state["pending_run_id"] is None
+            assert state["pending"] and state["pending_run_id"] is not None
             assert state["plan"]["plan_id"] == plan.plan_id and state["plan"]["mode"] == "planning"
             assert (
                 await asyncio.to_thread(Path(plan.storage_path).read_text)

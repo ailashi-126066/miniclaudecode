@@ -163,28 +163,12 @@ def test_command_cli_keeps_approval_persistent_and_resume_does_not_repeat_first_
                     "stream-json",
                 ]
             )
-            == 1
-        )
-        resumed = rows(capsys)
-        assert resumed[0]["error"]["code"] == "run_expired"
-        assert not (tmp_path / "effect.txt").exists() and len(requests) == 1
-        assert (
-            main(
-                [
-                    *common,
-                    "run",
-                    "Continue without rerunning the old command",
-                    *execution,
-                    "--output-format",
-                    "json",
-                ]
-            )
             == 0
         )
-        resumed = rows(capsys)[0]
-        assert resumed["run_id"] != first["run_id"]
-        assert resumed["usage"]["main_turn"]["tokens"]["input_tokens"] == 20
-        assert not (tmp_path / "effect.txt").exists()
+        resumed = rows(capsys)[-1]
+        assert resumed["data"]["outcome"] == "completed"
+        assert resumed["run_id"] == first["run_id"]
+        assert (tmp_path / "effect.txt").read_text() == "approved"
         assert len(requests) == 2
 
 

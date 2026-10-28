@@ -40,7 +40,7 @@
             "helpers": [
               {
                 "file": "src/pycode/session/adapters/storage/session.py",
-                "name": "JsonlSessionStore.append_message",
+                "name": "SqliteSessionStore.append_message",
                 "purpose": "将完成消息的身份转为EntryDraft",
                 "notes": [
                   "从 `tool_result` 取得工具消息所属运行和操作，普通用户消息不套用工具身份。",
@@ -49,7 +49,7 @@
                 "helpers": [
                   {
                     "file": "src/pycode/session/adapters/storage/session.py",
-                    "name": "JsonlSessionStore.append_entry",
+                    "name": "SqliteSessionStore.append_entry",
                     "purpose": "load、写者租约、去重、分支检查和写入日志",
                     "notes": [
                       "内部追加过程先 `load` 并取得写入资格，重复ID只有同内容、同分支才可当作成功重放。",
@@ -58,7 +58,7 @@
                     "helpers": [
                       {
                         "file": "src/pycode/session/adapters/storage/session.py",
-                        "name": "JsonlSessionStore.write_entry",
+                        "name": "SqliteSessionStore.write_entry",
                         "purpose": "日志字节落盘并fsync，再更新文件内容校验值",
                         "notes": [
                           "首次写入先准备完整临时文件，再用 `os.replace` 发布，读者不会见到半个会话头。",
@@ -461,7 +461,7 @@
         "helpers": [
           {
             "file": "src/pycode/session/adapters/storage/session.py",
-            "name": "JsonlSessionStore.branch",
+            "name": "SqliteSessionStore.branch",
             "purpose": "持writer lease校验目标并发布当前位置",
             "notes": [
               "先验证目标叶节点存在，再持写入资格发布新位置，原日志记录仍然不变。",
@@ -954,7 +954,7 @@
               {
                 "file": "src/pycode/plans/services/plans.py",
                 "name": "PlanService.save",
-                "purpose": "plan_state先落JSONL，再更新内存和后端active文件",
+                "purpose": "plan_state先落会话 Store，再更新内存和后端active文件",
                 "notes": [
                   "先追加 `plan_state` 记录，成功后才替换 `self.state` 并配置活动方案文件。",
                   "所有模式变化共用此出口；日志失败不能只在内存变成已批准，让执行权限无记录可查。"
@@ -1085,7 +1085,7 @@
       {
         "file": "src/pycode/plans/services/plans.py",
         "name": "PlanService.save",
-        "purpose": "plan_state先落JSONL，再更新内存和后端active文件",
+        "purpose": "plan_state先落会话 Store，再更新内存和后端active文件",
         "notes": [
           "先追加 `plan_state` 记录，成功后才替换 `self.state` 并配置活动方案文件。",
           "所有模式变化共用此出口；日志失败不能只在内存变成已批准，让执行权限无记录可查。"
@@ -1232,7 +1232,7 @@
           {
             "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
-            "purpose": "单JSONL transition是团队状态权威",
+            "purpose": "单会话 Store transition是团队状态权威",
             "notes": [
               "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
               "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
@@ -1370,7 +1370,7 @@
           {
             "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
-            "purpose": "单JSONL transition是团队状态权威",
+            "purpose": "单会话 Store transition是团队状态权威",
             "notes": [
               "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
               "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
@@ -1767,7 +1767,7 @@
           {
             "file": "src/pycode/team/engine.py",
             "name": "AgentTeam.commit",
-            "purpose": "单JSONL transition是团队状态权威",
+            "purpose": "单会话 Store transition是团队状态权威",
             "notes": [
               "持保存锁追加一条 `team_transition`，成功才应用关联成员、任务和消息，再通知等待者。",
               "追加失败不确定时查相同记录ID并停止正常调度，避免拿未经确认的内存变化继续派活。"
@@ -2003,7 +2003,7 @@
         "purpose": "有序发布事件，隔离失败消费者",
         "notes": [
           "在事件锁下取得顺序，再把事件副本交每个consume；消费者不能改原事件影响其它人。",
-          "普通显示错误停用该消费者，管道关闭请求受控停止；事件刷新不是会话持久消息，不能替代JSONL。"
+          "普通显示错误停用该消费者，管道关闭请求受控停止；事件刷新不是会话持久消息，不能替代会话 Store。"
         ],
         "helpers": [
           {
@@ -2018,7 +2018,7 @@
             "guide": "事件发布器可能从模型、摘要或其它任务调用这里，所以此处只把事件包装成Textual消息并投递。它随即返回，不直接查控件渲染。后续由框架消息泵在正确位置处理，既不会把后台任务上下文带进控件，也不能把投递成功说成画面已经更新。"
           }
         ],
-        "guide": "模型和工具想更新界面时，先在这个发布入口取得顺序号并把事件副本交给各消费者。普通显示失败可停用该消费者，输出管道关闭则触发受控停止。事件用于及时展示，不替代会话JSONL；调用方不能因为界面收到事件就认定结果已经可靠保存。"
+        "guide": "模型和工具想更新界面时，先在这个发布入口取得顺序号并把事件副本交给各消费者。普通显示失败可停用该消费者，输出管道关闭则触发受控停止。事件用于及时展示，不替代会话会话 Store；调用方不能因为界面收到事件就认定结果已经可靠保存。"
       },
       {
         "file": "src/pycode/ui/adapters/tui.py",
@@ -2211,18 +2211,18 @@
     ]
   },
   "15-team:state": {
-    "title": "统一业务状态，保留原有 JSONL",
+    "title": "统一业务状态，保留原有 会话 Store",
     "input_label": "当前 Team 功能入口",
-    "request": "TeamModule.create → transition_graph → AgentTeam.commit",
+    "request": "AgentTeam.commit → apply_transition → TeamState",
     "nodes": [
       {
-        "file": "src/pycode/team/framework.py",
-        "name": "transition_graph",
-        "purpose": "建立不调用模型的状态更新图",
-        "guide": "协调图将团队业务更新交给 TeamState reducers。它显式禁用 checkpoint 继承，避免在子 Agent 回调中误用任务 checkpoint。团队 JSONL 继续承担业务记录持久化。",
+        "file": "src/pycode/team/state.py",
+        "name": "apply_transition",
+        "purpose": "直接合并已落盘的业务更新",
+        "guide": "成员、任务和邮箱按稳定 ID 使用 reducer 合并。这里不运行状态图，也不接触子任务 checkpoint；实际生命周期由 member_graph 调度。",
         "notes": [
-          "compile(checkpointer=False)：协调更新不写子图执行位置。",
-          "agents/tasks/mailboxes 按稳定 ID 合并。"
+          "agents 保留同代次的新活动字段。",
+          "tasks/mailboxes 按稳定 ID 合并，不维护额外可写副本。"
         ]
       },
       {
@@ -2244,7 +2244,7 @@
   "15-team:activity": {
     "title": "真实活动续期，无活动才超时",
     "input_label": "当前 Team 功能入口",
-    "request": "ChildEventRelay → activity → monitor",
+    "request": "ChildEventRelay → activity → member_graph",
     "nodes": [
       {
         "file": "src/pycode/team/module.py",
@@ -2267,13 +2267,13 @@
         ]
       },
       {
-        "file": "src/pycode/team/engine.py",
-        "name": "AgentTeam.monitor",
-        "purpose": "等待活动或到期通知",
-        "guide": "监督器根据 last_activity_at 计算期限，有活动就重新等待。审批暂停计时，安静的有界命令按自己的期限及清理时间等待；到期后发起受次数限制的交接。",
+        "file": "src/pycode/team/framework.py",
+        "name": "member_graph",
+        "purpose": "原生超时和条件边管理成员等待与交接",
+        "guide": "有效活动调用当前节点 heartbeat。阶段变化触发条件边，审批无超时，工具期限使用 Send 的 run_timeout。原生超时错误由 error_handler 转到 handoff 节点，停止确认仍由宿主执行。",
         "notes": [
-          "不用循环扫描 JSONL 或请求模型判断。",
-          "停止未确认时禁止新成员接管。"
+          "不再手写倒计时、续期或 asyncio.timeout 等待循环。",
+          "并行工具按最早绝对期限处理，其他输出不能延长硬期限。"
         ]
       }
     ],
@@ -2311,10 +2311,10 @@
         "file": "src/pycode/app/lifecycle/session.py",
         "name": "ConfiguredRuntimeLauncher.continue_handoff",
         "purpose": "重新接好资源，沿用任务 checkpoint",
-        "guide": "运行工厂接收旧任务的 checkpointer，新成员获得新的模型和工具绑定。已有结果、工具披露和文件读取版本随执行数据衔接，之后调用框架继续原执行线程。",
+        "guide": "新成员获得新模型和工具资源，沿用持久化 checkpointer 和工作区读取凭据。执行数据不再逐字段复制旧 Context，而由 AgentRuntime 从 checkpoint 和已保存结果恢复。",
         "notes": [
           "旧模型资源在新图执行之前关闭。",
-          "原始 JSONL 历史不因交接被覆盖或复制成新的任务输入。"
+          "原始 会话 Store 历史不因交接被覆盖或复制成新的任务输入。"
         ]
       },
       {
@@ -2323,8 +2323,8 @@
         "purpose": "由 LangGraph 继续任务",
         "guide": "运行图使用当前资源重新构建，然后以原 thread_id 调用图。没有输入一份新的任务状态来重置原流程，执行位置来自保留的 checkpoint。",
         "notes": [
-          "这是进程内续接，不是磁盘 checkpoint 恢复。",
-          "中断的副作用调用仍由公共工具结算边界处理。"
+          "同一 thread_id 续接；续写次数和模型声明来自 State。",
+          "从本轮 会话 Store 恢复已保存结果，包括尚未进入 checkpoint 的工具事实。"
         ]
       }
     ],

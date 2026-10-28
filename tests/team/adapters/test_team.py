@@ -9,6 +9,7 @@ from pycode.app.bootstrap import compose_application
 from pycode.app.configuration.settings import AppConfig
 from pycode.kernel.domain.messages import Message
 from pycode.session.adapters.storage.layout import StorageLayout
+from pycode.session.adapters.storage.session import read_records
 from tests.skills.adapters.test_skills_http import skill_reply
 from tests.snapshot.adapters.test_git_tree import git, repository
 from tests.support.execution import provider
@@ -75,10 +76,19 @@ async def test_spawn_readonly_has_own_history_and_cannot_write(
         finally:
             await session.aclose()
     child_history = (
-        StorageLayout(tmp_path, config.user_data).sessions / record["session_id"] / "entries.jsonl"
+        StorageLayout(tmp_path, config.user_data).sessions / record["session_id"] / "session.sqlite"
     )
-    assert '"team_parent"' in child_history.read_text()
-    assert ('"unknown_tool"' in child_history.read_text()) is write_attempt
+    _, entries = read_records(child_history)
+    assert any(entry.type == "team_parent" for entry in entries)
+    assert (
+        any(
+            entry.message
+            and entry.message.tool_result
+            and entry.message.tool_result.error_code == "unknown_tool"
+            for entry in entries
+        )
+        is write_attempt
+    )
 
 
 async def test_worker_native_file_write_keeps_lead_unchanged_and_history_retained(
@@ -118,7 +128,7 @@ async def test_worker_native_file_write_keeps_lead_unchanged_and_history_retaine
                 StorageLayout(Path(record["workspace"]), config.user_data).sessions
                 / record["session_id"]
             )
-            assert (history / "entries.jsonl").exists()
+            assert (history / "session.sqlite").exists()
         finally:
             await session.aclose()
 

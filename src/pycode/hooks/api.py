@@ -143,7 +143,7 @@ class Hooks:
                     operation_id=operation_id,
                 )
             else:
-                # hook_call is a durable JSONL boundary even before first input.
+                # hook_call is a durable session Store boundary even before first input.
                 await self._history.append_entry(
                     EntryDraft(
                         "hook_call",

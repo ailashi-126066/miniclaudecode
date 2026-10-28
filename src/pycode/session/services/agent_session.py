@@ -409,7 +409,7 @@ class AgentSession:
                 )
             except StorageError:
                 logging.getLogger("pycode.session").exception(
-                    "Could not persist failed-run recovery; restart requires JSONL reconciliation"
+                    "Failed-run recovery was not saved; reopen the session to reconcile"
                 )
             raise
         return await self.settle_run(start, result)

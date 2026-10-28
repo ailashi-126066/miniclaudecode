@@ -5,14 +5,24 @@ from dataclasses import replace
 from langgraph.func import task
 from langgraph.types import interrupt
 
-from pycode.kernel import StorageError, ToolError, plain_data
+from pycode.kernel import ToolError, plain_data
 from pycode.sandbox import SandboxBackend, SandboxSettings, auto_approvable, denied_command
 from pycode.tools.domain.operations import operation_spec_hash
 
 
 @task(name="pycode_permission")
 async def permission_answer(question):
-    return interrupt(question)
+    return interrupt(
+        question,
+        response_schema={
+            "type": "object",
+            "properties": {
+                "operation_id": {"type": "string", "const": question["operation_id"]},
+                "decision": {"type": "string", "enum": ["approve", "deny"]},
+            },
+            "required": ["operation_id", "decision"],
+        },
+    )
 
 
 class InterruptToolGate:
@@ -59,12 +69,8 @@ class InterruptToolGate:
             "approval_details": spec.approval_details,
         }
         answer = await permission_answer(question)
-        if not isinstance(answer, dict) or answer.get("operation_id") != context.operation_id:
-            raise StorageError("invalid_approval", "Approval must identify the pending operation")
         if answer.get("decision") == "deny":
             raise ToolError("permission_denied", "User denied this tool operation")
-        if answer.get("decision") != "approve":
-            raise StorageError("invalid_approval", "Approval decision must be approve or deny")
 
 
 class TeamToolGate:

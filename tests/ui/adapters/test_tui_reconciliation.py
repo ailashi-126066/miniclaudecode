@@ -17,7 +17,10 @@ async def test_process_crash_has_unknown_fact_without_replaying_effect_or_old_ap
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
-    with protocol_server([chat_completion(tool=True), chat_completion()]) as (url, requests):
+    with protocol_server([chat_completion(tool=True), chat_completion(), chat_completion()]) as (
+        url,
+        requests,
+    ):
         child = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -45,7 +48,7 @@ async def test_process_crash_has_unknown_fact_without_replaying_effect_or_old_ap
             await app.ready.wait()
             await app.command("/resume")
             await settled(app)
-            assert not app.query("#reconcile-inline") and tool.executed == 0 and len(requests) == 1
+            assert not app.query("#reconcile-inline") and tool.executed == 0 and len(requests) == 2
             outputs = [
                 message["tool_result"]
                 for message in app.state["context"]["messages"]
@@ -58,7 +61,7 @@ async def test_process_crash_has_unknown_fact_without_replaying_effect_or_old_ap
             await settled(app)
             if app.last_error:
                 raise app.last_error
-            assert app.state["pending_run_id"] is None and len(requests) == 2
+            assert app.state["pending_run_id"] is None and len(requests) == 3
             assert (
                 tool.executed == 0
                 and (tmp_path / "effect.txt").read_text(encoding="utf-8") == "wire"

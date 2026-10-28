@@ -1,4 +1,4 @@
-"""Final JSONL recovery: old waits expire; only this process can resume tools."""
+"""Persistent execution resumes saved approvals; cancellation ends the old run."""
 
 import asyncio
 import os
@@ -57,7 +57,7 @@ async def test_same_process_resumes_permission_without_reissuing_first_model(
     assert tables == {"model_requests"}
 
 
-async def test_restart_ends_old_permission_and_new_task_uses_new_run(tmp_path, monkeypatch):
+async def test_reopen_resumes_saved_permission_without_reissuing_model(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
     with protocol_server([chat_completion(tool=True), chat_completion()]) as (url, received):
@@ -68,23 +68,13 @@ async def test_restart_ends_old_permission_and_new_task_uses_new_run(tmp_path, m
         restored = await session_at(config, provider(url), tool)
         try:
             state = await restored.inspect()
-            assert state["pending"] == () and state["pending_run_id"] is None
-            results = [
-                entry["message"]["tool_result"]
-                for entry in state["snapshot"]["entries"]
-                if entry["message"] and entry["message"]["tool_result"]
-            ]
-            assert len(results) == 1 and results[0]["error_code"] == "tool_interrupted"
-            with pytest.raises(StorageError) as error:
-                await restored.resume(
-                    {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
-                )
-            assert error.value.code == "no_pending_run"
-            assert len(received) == 1 and tool.executed == 0
-            result = await restored.run(Message("u2", "user", "inspect current state"))
-            assert result.outcome == "completed" and len(received) == 2
-            assert result.run_id != waiting.run_id
-            assert tool.executed == 0 and not (tmp_path / "effect.txt").exists()
+            assert state["pending_run_id"] == waiting.run_id
+            assert state["pending"] and tool.executed == 0 and len(received) == 1
+            result = await restored.resume(
+                {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
+            )
+            assert result.outcome == "completed" and result.run_id == waiting.run_id
+            assert tool.executed == 1 and len(received) == 2
         finally:
             await restored.aclose()
 
@@ -194,6 +184,8 @@ async def test_real_process_death_preserves_facts_and_never_replays_old_effects(
         restored = await session_at(config, provider(url), tool)
         try:
             assert tool.executed == 0 and len(received) == 1
+            # Reopening never executes work. Explicit cancellation closes a resumable run.
+            await restored.cancel()
             state = await restored.inspect()
             assert state["pending"] == () and state["pending_run_id"] is None
             results = [
@@ -296,20 +288,29 @@ async def test_cancellation_collects_tool_and_marks_unknown_effect_without_repea
             await session.aclose()
 
 
-async def test_changed_tool_declaration_cannot_reactivate_expired_approval(tmp_path, monkeypatch):
+async def test_changed_tool_declaration_cannot_execute_after_reopen(tmp_path, monkeypatch):
     monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
     config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
-    with protocol_server([chat_completion(tool=True)]) as (url, received):
+    with protocol_server([chat_completion(tool=True), chat_completion()]) as (url, received):
         tool = WritingEcho()
         first = await session_at(config, provider(url), tool, create=True)
-        await first.run(Message("u1", "user", "write"))
+        waiting = await first.run(Message("u1", "user", "write"))
         await first.aclose()
         tool.spec = replace(tool.spec, implementation_hash="changed")
         restored = await session_at(config, provider(url), tool)
         try:
-            with pytest.raises(StorageError):
-                await restored.resume()
-            assert tool.executed == 0 and len(received) == 1
+            result = await restored.resume(
+                {"operation_id": waiting.pending[0]["operation_id"], "decision": "approve"}
+            )
+            assert result.outcome == "completed"
+            assert tool.executed == 0 and len(received) == 2
+            saved = (await restored.inspect())["snapshot"]["entries"]
+            assert any(
+                e["message"]
+                and e["message"]["tool_result"]
+                and e["message"]["tool_result"]["error_code"] == "tool_declaration_changed"
+                for e in saved
+            )
         finally:
             await restored.aclose()
 
@@ -340,3 +341,38 @@ async def test_independent_sessions_can_execute_concurrently_with_shared_request
 
 # This suite tests execution with tool definitions already disclosed.
 pytestmark = pytest.mark.usefixtures("disclosed_tools")
+
+
+async def test_process_death_then_resume_does_not_repeat_completed_external_effect(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PYCODE_RECOVERY_TEST_KEY", "test-key")
+    with protocol_server([chat_completion(tool=True), chat_completion()]) as (url, received):
+        child = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "tests.support.crash_worker",
+            str(tmp_path),
+            url,
+            "effect_written",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(child.communicate(), 20)
+            assert child.returncode == 73, (stdout, stderr)
+        finally:
+            if child.returncode is None:
+                child.kill()
+                await child.wait()
+        tool = WritingEcho()
+        config = AppConfig(tmp_path, tmp_path / "data", memory_mode="off")
+        restored = await session_at(config, provider(url), tool)
+        try:
+            before = (tmp_path / "effect.txt").read_text()
+            result = await restored.resume()
+            assert result.outcome == "completed"
+            assert tool.executed == 0 and (tmp_path / "effect.txt").read_text() == before
+            assert len(received) == 2
+        finally:
+            await restored.aclose()

@@ -1,147 +1,43 @@
-# Storage authorities and recovery
+# 当前存储格式
 
-```text
-~/.pycode/
-  model-catalog.json
-  mcp.json / hooks.json
-  skills/
-  AGENTS.md                     # optional user instructions (MemoryMiddleware)
-  memory/                       # memory.json, settings.json, changes.jsonl, memory.lock
-  projects/<normalized-workspace-hash>/
-    runtime.sqlite              # model_requests accounting only
-    sessions/<opaque-session-id>/
-      entries.jsonl             # immutable original messages/tree/product facts
-      position.json             # derived active leaf, revision and byte offset
-      writer.lock
-      tool-results/             # metadata + optional one complete byte/artifact object
-    summaries/                  # source/ready result/invalidation references
-    snapshots/repository.git/   # independent tree objects and refs
-    worktrees/                  # registry and cleanup audit; no automatic commits
-    quarantine/sessions/        # explicitly deleted conversations
-  quarantine/objects/           # 30-day content-object quarantine
-<workspace>/.pycode/
-  plans/<session-id>/<plan-id>.md
-  memory/                       # memory.json, memory.lock
-  skills/ / mcp.json / hooks.json
-<workspace>/AGENTS.md           # loaded by MemoryMiddleware only with --trust-project
-```
+## 两种框架存储的职责
 
-Main Graph checkpoint and progress events are memory-only. runtime.sqlite has no current
-tool-operation, stream-event, approval or main-chat checkpoint tables.
+每个会话目录包含 `session.sqlite` 与 `execution.sqlite`。
 
-Only the current defined formats are accepted. Session headers require application `pycode`
-and integer schema_version 1; v0 is rejected rather than upgraded. Unknown header, entry and
-message fields are rejected, and run_start records require execution_session_id instead of
-inferring an owner from older parent-session conventions. Removed Hook review records and old
-Hook action fields are unsupported. No old record is rewritten into the current schema.
+- `session.sqlite` 使用 LangGraph 官方 `SqliteStore`。`entries` namespace 按记录 ID 保存不可变 SessionEntry 与追加顺序；`session/position` 保存 SessionHeader、当前 leaf_id 和 revision。
+- 新记录与 position 使用一次 `Store.batch` 事务提交。完整记录树不因选择分支、摘要或清理投影而删除。
+- `execution.sqlite` 使用 `AsyncSqliteSaver`，按 `session_id:run_id` 保存 State、执行位置、interrupt 和 pending writes。图以 durability="sync" 执行。
+- Store 接收外部输入和邮箱记录；不向正在运行的图并发调用 update_state。
+- 大输出、摘要对象和 Git 快照仍为独立文件，Store 保存稳定引用。
 
-Memory snapshots require exactly the current schema fields (schema_version, namespace, revision,
-records); removed migration/pipeline receipts are errors, not ignored fields. Memory `review` mode
-is not converted into `auto`. Keys are exact strings, without UUID-hex/hyphen alias lookup.
-Request-accounting records no longer contain candidate_index; records carrying it are rejected.
-Existing files remain on disk when validation fails. There is no automatic import, upgrade or wipe.
+不再读取 entries.jsonl 或 position.json，不自动转换旧文件。旧文件不会被覆盖或删除。
 
-Torn-tail recovery, branch position repair and interrupted-effect recording remain: these handle
-incomplete writes in the current format, not old-version compatibility. The session-info header
-copy used after explicit session deletion is also a current GC/ancestry record, not a legacy fallback.
+## 记录结构与业务语义
 
-JSONL model responses precede tool execution. Final ToolResult precedes object binding, snapshot
-boundary and finish events. A streamed object can be durable before its JSONL fact; restart treats
-that gap as interrupted, retains byte evidence and never promotes it to a confirmed success.
-Partial filenames are operation-scoped so restart can recover observed bytes. Small completed
-output uses original JSONL text; metadata has checksums/references, no saved ToolResult or preview
-body. Large output has one complete file plus bounded JSONL preview. Readback validates owner,
-current branch/fork ancestry, source entry, identity, byte/artifact hash and UTF-8 ranges.
+SessionEntry 保留 id、parent_id、type、timestamp、data、message、selection、run_id、operation_id。完整原文和各分支保留在 Store 中，active leaf 只选择当前路径。message ID 去重、分支归属、上下文编辑目标与工具配对规则保持不变。
 
-Opaque ID is stable across renames. session_metadata adds display names; no log directory uses
-a title. Branch position is a derived file. Fork keeps parent/source references and original IDs.
-Missing tools are paired once by assistant and call identity. Lost run/queued input facts remain
-visible, but old tools and waits cannot resume after process exit.
+主要记录类型：message、input_queued/input_expired、model_change、thinking_level_change、system_prompt、tool_set_change、skill_catalog/skill_load/skill_install、mcp_catalog、memory_load、plan_state、hook_call/hook_result/hook_context、compaction、context_edit、team_transition，以及 custom 运行/快照/回退记录。
 
-Summary objects are produced independently and adopted only against matching source/config/branch
-boundaries. Plan approval stores exact content/hash; changed files require a new review. Memory
-snapshots are distinct from conversation summaries.
+## 执行恢复与审批
 
-GC inventories managed roots, treats corrupt/partial/live state conservatively, and marks original
-branches, fork ancestry, output/summary/Plan/team references. Memory directories
-(`~/.pycode/memory/`, `<workspace>/.pycode/memory/`) are explicitly excluded: no path under them
-can become a managed object, so GC never moves `memory.json`, settings or the change log. Unreferenced objects move to
-quarantine first; renewed references restore content, sessions require explicit restoration. Purge
-after 30 days never targets the user's Git repository. Snapshot Git ref removal/GC is isolated.
-Worktrees are retained while dirty, active, cancelled, unintegrated or unverified; checked clean
-integration and stopped status are required for removal. Cleanup is audited and scanned every 30 days.
+run_start/run_wait/run_end 保存业务运行身份。打开会话不会自动执行任务；已有 checkpoint 时保留未结束运行，显式 resume 重建图和模型/工具资源。审批由原生 interrupt 的 response_schema 校验操作 ID 和决定值。
 
-GC rechecks current references and active owners under its mutation lease before destructive
-actions. Audit records retain the actual source session/entry/timestamp when known, plus a
-separate reference-at-collection flag.
+非只读工具实际调用前记录 tool_started。进程退出后，已开始但没有保存结果的操作记录 tool_interrupted；没有开始的审批不会被误标记成已经执行。已经保存的结果参与恢复，即使尚未成为完整 checkpoint，也不重复执行。
 
-Review fixes add no main-chat persistence authority. Team task facts may contain a current
-Worker pending question plus an explicit worktree start choice; cancelling/updating clears that
-live wait. Human answers are validated against a fresh native check and cannot resume a lost
-executor. Plan state is rebuilt when dialogue revert/recovery changes the active path.
+读文件版本凭据随工具结果保存。锁、Task、模型连接和正在运行的进程不保存到 State。
 
-Evaluation results use schema version 2. One fresh run directory stores `results.jsonl`, per-task
-summaries, `summary.json`, source/dependency manifests, bounded patch/log/JUnit evidence and
-compressed session JSONL. Source hashes cover actual package bytes; the verification report also
-hashes tests/tools and the dependency lock. Exported traces explicitly state whether every raw
-entry was retained and that ephemeral output objects were removed with the workspace. Earlier
-reports are immutable historical evidence and are never rewritten by normal test execution.
+## 摘要、清理和分支
 
-JsonMemoryStore (a LangGraph BaseStore) binds configured namespaces (non-path user/project
-identities) to separate memory.json files. Schema version 1 contains namespace, revision and
-records: `{key: {value: {kind, content}, created_at, updated_at}}`. LangMem's current tools and
-Store Manager inputs are normalized into this current value structure at the SDK boundary;
-this is not a legacy file converter. Text values display their content; other structured values
-are displayed as JSON without old Semantic/Episodic/Procedural title/body conversion.
-Each write takes the scope's `memory.lock` FileLease and publishes the
-whole file with atomic_write. Duplicate keys, invalid records and corrupt files fail without
-overwrite. Search supports namespace prefixes, dotted equality filters and simple token overlap
-for text queries; there are no embeddings, staging views or job leases. `settings.json` in the
-user scope holds the `auto`/`off` mode.
+后台摘要预生成与采用规则不变，compaction 保存摘要和保留边界；context_edit 只改变发给模型的投影。原始消息不修改。分支通过 Store position 改变活动叶子，fork 将选定路径写到新会话，不复制未完成执行的 checkpoint。
 
-`~/.pycode/memory/changes.jsonl` is the append-only memory change log (one JSON object per line;
-a torn final line is skipped):
+## Team 与输入队列
 
-```json
-{"id": "<hex>", "at": 1760000000.0, "origin": "consolidate|tool|edit|delete|clear|undo",
- "reason": "session_end|compaction|manual", "session_id": "...", "run_id": "...",
- "undoes": "<id, undo only>", "error_code": "<on failure>", "rejected": [...],
- "changes": [{"scope": "user|project", "namespace": [...], "key": "...",
-              "before": <record|null>, "after": <record|null>}]}
-```
+TeamState 的 agents/tasks/mailboxes 业务变化继续通过 team_transition 保存，但底层为 Store。邮箱 ACK 仍表示内容已可靠接收，不代表完成。输入队列在运行期间独立持久化，在图边界消费。
 
-`memory undo` restores the `before` records of the newest `consolidate` entry for the current
-scopes that has not been undone, and refuses if any of those entries changed since (`after`
-no longer matches). The comparison and restore hold every affected scope's file lease, so
-another session cannot change a record between the check and restore. Repeated writes to one
-entry within a pass are logged as its original `before` and final `after` state. If a disk
-error prevents restoring a later scope, changes already published are logged with
-`attempted_undo`; `undoes` is recorded only after every affected scope has been restored.
+## 会话列表、文件引用与 GC
 
-## Local team records
+会话列表读取 session.sqlite 的 header/position。文件输出使用 output_id 与 source_entry_id 关联。GC 遍历 Store 中所有分支记录收集引用；会话隔离移动 session.sqlite 与 execution.sqlite，保留原有 30 天隔离和恢复规则。
 
-The lead project contains a hidden `team-<lead hash>` session ledger with its own writer lease.
-Each `team_transition` atomically stores complete `agents`, `tasks` and `messages` snapshots;
-replay applies the last record per ID and skips malformed transitions as a whole.
-Lead history contains `team_agent` child links, and each child history starts with `team_parent`.
-Child histories use their own workspace's StorageLayout outside the Git worktree and share
-the lead runtime request database, so cleanup preserves conversations and usage accounting.
+## 其他存储
 
-Message delivery uses pending/delivering/delivered/dropped plus receiver run/input IDs.
-Successful wait_agents results carry `details.team_message_ids`; interrupted or synthetic results
-do not acknowledge delivery. Idle wake inputs record message IDs and retain sender/kind text.
-On restart active children become interrupted, unfinished claims reopen, old child messages
-are dropped, and notifications wait for the next user-started run. No child or lead auto-runs.
-Worktree recovery flags are inspected and shown without automatically merging, aborting or cleaning.
-
-Hook command/prompt actions are synchronous. Calls and results are recorded; there is no Hook
-review/retry UI. A recorded unfinished operation is not automatically rerun. Regular check failures
-are reported to the Agent; failed pre-tool checks and explicit rejections block the related tool.
-Automatic model fallback is removed. Each request retries only its selected model under RetryPolicy;
-after exhaustion it reports an error. Explicit model selection remains available.
-
-## TeamState 与任务执行
-
-TeamState 的 agents、tasks、mailboxes 共用原有 Team entries.jsonl，业务更新追加为 team_transition。记录包含任务验收条件、范围、代次、交付证据及成员活动字段；不转换缺少当前契约字段的旧团队记录。成员 records 属性仅为 State 的访问入口。高频活动只更新内存，阶段边界保存。
-
-子任务的执行容器在进程内交接时保留 checkpointer，接管复用 execution session/run/thread 和 worktree。checkpoint 不代替原始消息树；整个进程退出后它消失，JSONL 历史仍保留。
+模型请求与计费使用 runtime.sqlite。长期记忆的 JSON 文件及 changes.jsonl、存储/worktree 清理审计日志属于独立用途，未改为 Agent 执行 State。评测结果仍可使用 results.jsonl；会话证据导出改为 .session.sqlite.gz，不把数据库按文本行截断。
