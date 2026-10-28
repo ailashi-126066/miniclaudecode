@@ -10,8 +10,11 @@ from pycode.team.types import ACTIVE_AGENT_STATES, bounded_text, team_message_te
 class TeamInbox:
     def __init__(self, team):
         self.team = team
-        self.records = {}
         self.sent = {}
+
+    @property
+    def records(self):
+        return self.team.state["mailboxes"]
 
     def pending(self, recipient, *, wake_only=False):
         return [
@@ -33,11 +36,28 @@ class TeamInbox:
             "wake": wake,
         }
 
-    async def send(self, sender, to, text, run_id):
+    async def send(
+        self,
+        sender,
+        to,
+        text,
+        run_id,
+        *,
+        task_id=None,
+        kind="message",
+        artifact_refs=(),
+        generation=None,
+    ):
         team = self.team
         text = bounded_text(text, "message", 4000)
         async with team.lock:
             team.require_open()
+            if sender != "lead" and generation is not None:
+                record = team.require_agent(sender)
+                if record["generation"] != generation or record["status"] != "running":
+                    raise ToolError("stale_generation", "Sender no longer owns this execution")
+            if task_id is not None and task_id not in team.board.records:
+                raise ToolError("unknown_task", "Message refers to an unknown task")
             if to == sender:
                 raise ToolError("cannot_message_self", "Send to a different team member")
             key = (sender, run_id)
@@ -64,7 +84,15 @@ class TeamInbox:
                             not agent.get("session_created", False)
                             and agent["status"] not in ACTIVE_AGENT_STATES
                         )
-                        or agent["status"] in {"cancelled", "merged", "merging"}
+                        or agent["status"]
+                        in {
+                            "cancelled",
+                            "merged",
+                            "merging",
+                            "handed_off",
+                            "stopping",
+                            "stop_unconfirmed",
+                        }
                         or agent["kind"] == "delegate"
                     ):
                         raise ToolError("agent_closed", "This agent cannot receive messages")
@@ -72,7 +100,7 @@ class TeamInbox:
                     m
                     for m in self.records.values()
                     if m["recipient"] == target
-                    and m["kind"] == "message"
+                    and m["kind"] in {"message", "progress", "blocked", "delivery"}
                     and m["status"] in {"pending", "delivering"}
                 ]
                 if len(ordinary) >= 20:
@@ -82,8 +110,11 @@ class TeamInbox:
                     "id": uuid4().hex[:16],
                     "sender": sender,
                     "recipient": target,
-                    "kind": "message",
+                    "kind": kind,
                     "text": text,
+                    "task_id": task_id,
+                    "artifact_refs": list(artifact_refs),
+                    "generation": generation,
                     "status": "pending",
                     "wake": True,
                 }
@@ -190,8 +221,13 @@ class TeamInbox:
                         if self.pending("lead"):
                             reason = "message"
                             break
+                        if any(
+                            team.records[key]["status"] == "stop_unconfirmed" for key in targets
+                        ):
+                            reason = "stop_unconfirmed"
+                            break
                         if not any(
-                            team.records[key]["status"] in {"starting", "running"}
+                            team.records[key]["status"] in {"starting", "running", "stopping"}
                             for key in targets
                         ):
                             reason = "settled" if targets else "idle"

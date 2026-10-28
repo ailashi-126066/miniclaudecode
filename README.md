@@ -145,3 +145,5 @@ Team 邮箱、worktree 和合并不变。旧配置使用已移除模式时明确
 不自动转换，也不删除或重写原文件。当前格式的半行写入恢复、分支恢复和执行记录保留。
 
 工具发现：本地与 MCP 统一通过 ToolSearch。模型先看分类名称和一句话用途，再按需加载完整定义；无额外模型工具选择器。参见 [工具发现设计](docs/design/tool-discovery.md)。
+
+Team 任务状态、无活动超时与进程内 A→B 交接见 [TeamState 设计](docs/design/team-state-handoff.md)。完整会话继续保存 JSONL；不新增磁盘 checkpoint 数据库。

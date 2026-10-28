@@ -47,6 +47,7 @@ class PycodeBackend(BackendProtocol):
         workspace: Path,
         *,
         read_only=False,
+        write_roots=None,
         excluded_roots=(),
         rg=None,
         search_timeout=15,
@@ -58,6 +59,9 @@ class PycodeBackend(BackendProtocol):
         self.path_guard = path_guard
         self.search_scope = search_scope
         self.read_only = read_only
+        self.write_roots = (
+            None if write_roots is None else tuple(Path(path).resolve() for path in write_roots)
+        )
         self.empty_missing_root = empty_missing_root
         excluded = []
         for value in excluded_roots:
@@ -229,11 +233,18 @@ class PycodeBackend(BackendProtocol):
             if source is not None:
                 await owned_io(source.close)
 
+    def check_write_scope(self, path):
+        if self.write_roots is not None and not any(
+            path.is_relative_to(root) for root in self.write_roots
+        ):
+            raise ToolError("outside_task_scope", "File is outside the task write scope")
+
     def write(self, file_path: str, content: str) -> WriteResult:
         try:
             if self.read_only:
                 raise ToolError("permission_denied", "This backend is read only")
             path = self.resolve(file_path)
+            self.check_write_scope(path)
             with self.lock(path):
                 self.check_version(path)
                 encoded = content.encode("utf-8")
@@ -253,6 +264,7 @@ class PycodeBackend(BackendProtocol):
             if not old_string or old_string == new_string:
                 raise ToolError("invalid_edit", "Provide a nonempty, changed replacement")
             path = self.resolve(file_path)
+            self.check_write_scope(path)
             with self.lock(path):
                 self.check_version(path)
                 text = path.read_bytes().decode("utf-8")

@@ -19,6 +19,8 @@ EventKind = Literal[
     "thinking_delta",
     "message_end",
     "tool_execution_start",
+    "tool_action_start",
+    "tool_action_end",
     "tool_output_ready",
     "tool_execution_update",
     "tool_execution_end",

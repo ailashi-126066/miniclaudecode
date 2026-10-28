@@ -1211,7 +1211,7 @@
   "15-team:spawn": {
     "title": "主助手把测试任务分出去",
     "input_label": "lead工具与后台子驱动",
-    "request": "create_task；spawn_agent；claim_task",
+    "request": "create_task → spawn_agent(task_id) → 自动派发契约",
     "intro": "创建、派发与认领是独立工具入口；派发后的drive为异步子任务，不是spawn同步等到测试完成。",
     "why": "先保存身份、归属和启动状态，再创建工作区与子会话，角色文字不产生权限。",
     "result": [
@@ -1336,13 +1336,13 @@
       },
       {
         "file": "src/pycode/team/tasks.py",
-        "name": "TeamManager.claim_task",
-        "purpose": "子Agent认领任务受同一锁和依赖约束",
+        "name": "TeamManager.claimed",
+        "purpose": "派发时检查任务依赖与唯一负责人",
         "notes": [
-          "检查已有归属和前置任务是否完成，再持任务板锁保存认领结果，防并发双方都宣布成功。",
-          "工具拿到结果后知道自己负责什么；认领不会创建新工作区或扩大已有成员权限。"
+          "检查依赖已经验收，worker 成果已集成。",
+          "任务和成员在同一次业务更新中关联。"
         ],
-        "guide": "已有子助手想接一个任务时，任务板在锁内检查是否被占用、前置任务是否完成，再保存认领结果。并发调用不能同时宣称自己抢到了同一工作。结果返回当前工具让子助手知道负责范围；它改变任务归属，不创建工作区或扩大该成员已有权限。"
+        "guide": "spawn 在持有看板锁时检查依赖和负责人，并将认领与成员 starting 状态一起保存。成员不能通过工具随意认领其他任务。"
       }
     ]
   },
@@ -2208,6 +2208,129 @@
         ],
         "guide": "用户退出窗口时，这里先标关闭以拒绝后续渲染，再停止并等待主操作，取消和等待所有子审批答复任务，最后关闭真实会话。重复退出不会再次启动关闭副作用。函数结束才允许界面离开，避免窗口消失后模型、子任务或连接仍在后台工作。"
       }
+    ]
+  },
+  "15-team:state": {
+    "title": "统一业务状态，保留原有 JSONL",
+    "input_label": "当前 Team 功能入口",
+    "request": "TeamModule.create → transition_graph → AgentTeam.commit",
+    "nodes": [
+      {
+        "file": "src/pycode/team/framework.py",
+        "name": "transition_graph",
+        "purpose": "建立不调用模型的状态更新图",
+        "guide": "协调图将团队业务更新交给 TeamState reducers。它显式禁用 checkpoint 继承，避免在子 Agent 回调中误用任务 checkpoint。团队 JSONL 继续承担业务记录持久化。",
+        "notes": [
+          "compile(checkpointer=False)：协调更新不写子图执行位置。",
+          "agents/tasks/mailboxes 按稳定 ID 合并。"
+        ]
+      },
+      {
+        "file": "src/pycode/team/engine.py",
+        "name": "AgentTeam.commit",
+        "purpose": "落盘后更新当前 State",
+        "guide": "任务、成员和邮箱的业务变化经过同一提交入口。保存过程中若收到取消，等待本次实际写入和状态应用结束，再传播取消；没有另一份推测式恢复账本。",
+        "notes": [
+          "先检查当前契约，再追加 team_transition。",
+          "更新作用于落盘后的当前 State，不覆盖期间发生的其他成员活动。"
+        ]
+      }
+    ],
+    "result": [
+      "成员、任务、邮箱共享 TeamState。",
+      "完整会话继续使用原来的消息树。"
+    ]
+  },
+  "15-team:activity": {
+    "title": "真实活动续期，无活动才超时",
+    "input_label": "当前 Team 功能入口",
+    "request": "ChildEventRelay → activity → monitor",
+    "nodes": [
+      {
+        "file": "src/pycode/team/module.py",
+        "name": "ChildEventRelay.consume",
+        "purpose": "转交真实执行事件",
+        "guide": "子会话把已有模型、工具事件发送给绑定成员。成员身份和 generation 在绑定时确定，不能由消息正文伪造。",
+        "notes": [
+          "不发送模型心跳请求。",
+          "事件保留原始 session_id、run_id 和 sequence。"
+        ]
+      },
+      {
+        "file": "src/pycode/team/engine.py",
+        "name": "AgentTeam.activity",
+        "purpose": "更新最近有效活动时间",
+        "guide": "活动必须来自当前任务运行和代次，重复事件不续期。模型流式输出和工具输出更新 last_activity_at；按操作 ID 保留并行工具，审批进入暂停阶段。",
+        "notes": [
+          "高频输出只更新同一份内存 State。",
+          "工具实际开始和结果持久化是不同事件，不能混为一谈。"
+        ]
+      },
+      {
+        "file": "src/pycode/team/engine.py",
+        "name": "AgentTeam.monitor",
+        "purpose": "等待活动或到期通知",
+        "guide": "监督器根据 last_activity_at 计算期限，有活动就重新等待。审批暂停计时，安静的有界命令按自己的期限及清理时间等待；到期后发起受次数限制的交接。",
+        "notes": [
+          "不用循环扫描 JSONL 或请求模型判断。",
+          "停止未确认时禁止新成员接管。"
+        ]
+      }
+    ],
+    "result": [
+      "超时表示达到无活动策略，不宣称已证明死锁。",
+      "正常长任务可以持续续期，没有统一总时长限制。"
+    ]
+  },
+  "15-team:handoff": {
+    "title": "任务从 A 转给 B，保留代码与执行位置",
+    "input_label": "当前 Team 功能入口",
+    "request": "handoff_task(task_id)",
+    "nodes": [
+      {
+        "file": "src/pycode/team/engine.py",
+        "name": "AgentTeam.handoff_task",
+        "purpose": "停止确认后转移任务归属",
+        "guide": "交接先停止原 driver，等待其工具收尾。确认停止后更新负责人和 generation，转投待处理邮件，并让新成员继续任务；超过确认期限则保留停止未确认状态。",
+        "notes": [
+          "原任务会话和 worktree 保持不变。",
+          "取消或正常完成与交接竞争时，不再启动替代者。"
+        ]
+      },
+      {
+        "file": "src/pycode/session/services/agent_session.py",
+        "name": "AgentSession.continue_handoff",
+        "purpose": "继续未结束的任务会话",
+        "guide": "新成员使用原任务的 pending run，恢复时不再次写入原用户请求。普通取消仍使用原来的结束流程，交接暂停不执行该收尾。",
+        "notes": [
+          "复用原 run_id。",
+          "整个进程退出后不提供这一内存续接入口。"
+        ]
+      },
+      {
+        "file": "src/pycode/app/lifecycle/session.py",
+        "name": "ConfiguredRuntimeLauncher.continue_handoff",
+        "purpose": "重新接好资源，沿用任务 checkpoint",
+        "guide": "运行工厂接收旧任务的 checkpointer，新成员获得新的模型和工具绑定。已有结果、工具披露和文件读取版本随执行数据衔接，之后调用框架继续原执行线程。",
+        "notes": [
+          "旧模型资源在新图执行之前关闭。",
+          "原始 JSONL 历史不因交接被覆盖或复制成新的任务输入。"
+        ]
+      },
+      {
+        "file": "src/pycode/agent/adapters/agent.py",
+        "name": "AgentRuntime.continue_task",
+        "purpose": "由 LangGraph 继续任务",
+        "guide": "运行图使用当前资源重新构建，然后以原 thread_id 调用图。没有输入一份新的任务状态来重置原流程，执行位置来自保留的 checkpoint。",
+        "notes": [
+          "这是进程内续接，不是磁盘 checkpoint 恢复。",
+          "中断的副作用调用仍由公共工具结算边界处理。"
+        ]
+      }
+    ],
+    "result": [
+      "B 接管未完成任务，A 的旧代次不能继续写入。",
+      "会话、代码和证据保留原来源。"
     ]
   }
 }

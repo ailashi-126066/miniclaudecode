@@ -1,3 +1,5 @@
+> 当前 TeamState、任务验收、无活动续期和交接以 [TeamState 设计](design/team-state-handoff.md) 为准。
+
 # 当前工具发现流程
 
 2026-10-22：模型工具选择器已删除，本地与 MCP 统一采用名称/一句话分类目录和 ToolSearch 按需加载。详见 [统一工具发现](design/tool-discovery.md)。

@@ -46,6 +46,8 @@ class TitleAssignment(Protocol):
 
 
 class WorkspaceReadback(Protocol):
+    receipts: dict[str, str]
+
     async def offload_read(self, context, arguments, outputs) -> ToolResult: ...
 
 
@@ -53,6 +55,11 @@ RuntimeContextT = TypeVar("RuntimeContextT", contravariant=True)
 
 
 class Runtime(Protocol[RuntimeContextT]):
+    @property
+    def checkpointer(self) -> object: ...
+
+    async def continue_task(self, context: RuntimeContextT) -> RunResult: ...
+
     async def run(
         self,
         inputs: tuple[Message, ...],

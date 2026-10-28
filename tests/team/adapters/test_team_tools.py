@@ -29,7 +29,6 @@ def test_team_tools_have_valid_schemas_and_separate_child_capabilities():
         "send_message",
         "list_agents",
         "list_tasks",
-        "claim_task",
         "update_task",
     }
     assert next(tool for tool in lead if tool.spec.name == "merge_agent").spec.category == "write"

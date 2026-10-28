@@ -69,6 +69,7 @@ class SettlementContext(Protocol):
     session_id: str
     run_id: str
     workspace: str
+    handoff_pending: bool
     agent_id: str
     selection: ModelSelection
     events: EventSink
@@ -206,6 +207,27 @@ class ToolSettlementMiddleware(AgentMiddleware[ToolSettlementState]):
                     result = await context.executor.execute(
                         tool_context, call, context.assistant.stop_reason, spec=spec, invoke=invoke
                     )
+                except asyncio.CancelledError:
+                    if context.handoff_pending and spec.category != "read":
+                        result = ToolResult(
+                            call.id,
+                            call.name,
+                            "Task handoff interrupted this operation. "
+                            "Inspect existing effects before another call.",
+                            is_error=True,
+                            session_id=context.session_id,
+                            run_id=context.run_id,
+                            error_code="tool_interrupted",
+                            operation_id=tool_context.operation_id,
+                            details={"source_assistant_id": context.assistant.id},
+                        )
+                        if context.outputs is not None:
+                            result = await context.outputs.prepare(tool_context, result, "head")
+                        message = Message(
+                            "result:" + tool_context.operation_id, "tool", tool_result=result
+                        )
+                        await self.publisher.publish(message)
+                    raise
                 except GraphInterrupt:
                     async with context.settlement:
                         context.interrupted_calls.add(call.id)

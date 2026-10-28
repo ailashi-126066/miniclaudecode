@@ -8,6 +8,7 @@ from typing import Literal
 class SandboxSettings:
     mode: Literal["off", "on", "on-auto"] = "off"
     network_enabled: bool = False
+    write_roots: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.mode not in {"off", "on", "on-auto"} or not isinstance(self.network_enabled, bool):

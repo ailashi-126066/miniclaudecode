@@ -79,6 +79,7 @@ class AgentSession:
         self._team = team
         self._closing = False
         self._cleanup = SessionCleanup()
+        self._handoff_requested = False
 
     async def submit_input(self, message: Message, kind: InputKind) -> bool:
         if self._durable_inputs is None:
@@ -156,6 +157,28 @@ class AgentSession:
         except asyncio.CancelledError:
             pass
         return True
+
+    def prepare_handoff(self):
+        self._handoff_requested = True
+        self._launcher.prepare_handoff()
+
+    def reassign_team(self, member, agent_id, prompt_factory, consumer):
+        self._launcher.reassign_team(member, agent_id, prompt_factory, consumer)
+
+    async def continue_handoff(self):
+        async with self.execution():
+            start = self.pending_run(await self._store.snapshot())
+            if start is None:
+                raise StorageError("no_pending_run", "Task has no pending execution to hand off")
+            provider = await self._models.restore(self._default)
+            self._handoff_requested = False
+            result = await self._launcher.continue_handoff(
+                provider, self._store, self.require_run_id(start)
+            )
+            return await self.settle_run(start, result)
+
+    async def task_evidence(self):
+        return await self._store.snapshot()
 
     async def select_model(self, provider: str, model_id: str):
         if self._execution.locked():
@@ -282,6 +305,7 @@ class AgentSession:
         if self._team is not None:
             self._team.stopping = False
         async with self.execution():
+            self._handoff_requested = False
             return await self._run_locked(message)
 
     async def _run_locked(self, message):
@@ -369,9 +393,10 @@ class AgentSession:
         try:
             result = await self._launcher.run(provider, self._store, (message,), history)
         except asyncio.CancelledError:
-            await recover_conversation(
-                self._store, self._recovery_outputs, recover_tool=self._recover_tool
-            )
+            if not self._handoff_requested:
+                await recover_conversation(
+                    self._store, self._recovery_outputs, recover_tool=self._recover_tool
+                )
             raise
         except DomainError:
             try:
@@ -422,9 +447,10 @@ class AgentSession:
                 provider, self._store, self.require_run_id(start), answers
             )
         except asyncio.CancelledError:
-            await recover_conversation(
-                self._store, self._recovery_outputs, recover_tool=self._recover_tool
-            )
+            if not self._handoff_requested:
+                await recover_conversation(
+                    self._store, self._recovery_outputs, recover_tool=self._recover_tool
+                )
             raise
         return await self.settle_run(start, result)
 
@@ -446,6 +472,8 @@ class AgentSession:
                     run_id=self.require_run_id(start),
                 )
             )
+            return result
+        if result.outcome == "error" and self._launcher.has_live_task():
             return result
         message_id = start.data["input_id"]
         after = await self._store.snapshot()

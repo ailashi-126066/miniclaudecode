@@ -67,6 +67,7 @@ class ConfiguredRuntimeLauncher:
         self._lifecycle_context = None
         self._active_container = None
         self._close_task: asyncio.Task | None = None
+        self._handoff_requested = False
 
     async def startup(self, store):
         if not self.configured_hooks:
@@ -134,6 +135,7 @@ class ConfiguredRuntimeLauncher:
                     "run_expired", "Old execution has ended; start a new task from saved history"
                 )
         else:
+            self._handoff_requested = False
             assert self._prompt_factory is not None and self._runtime_factory is not None
             await self._prompt_factory(store).refresh()
             container = await self._runtime_factory(self, provider, store, run_id)
@@ -146,7 +148,11 @@ class ConfiguredRuntimeLauncher:
                 result = await container.runtime.resume(container.context, answers)
             else:
                 result = await container.runtime.run(inputs, container.context, history=history)
-            keep_waiting = result.outcome == "needs_input"
+            if result.outcome == "completed":
+                self._handoff_requested = False
+            keep_waiting = result.outcome == "needs_input" or (
+                self.config.agent_id != "lead" and result.outcome == "error"
+            )
             return result
         except StorageError as error:
             if resume and error.code in {
@@ -159,7 +165,67 @@ class ConfiguredRuntimeLauncher:
                 keep_waiting = True
             raise
         finally:
-            if not keep_waiting:
+            if not keep_waiting and not self._handoff_requested:
+                self._active_container = None
+                await container.aclose()
+
+    def has_live_task(self):
+        return self.config.agent_id != "lead" and self._active_container is not None
+
+    def prepare_handoff(self):
+        if self._active_container is None:
+            raise StorageError("task_checkpoint_missing", "No live task execution is available")
+        self._handoff_requested = True
+        self._active_container.context.handoff_pending = True
+
+    def reassign_team(self, member, agent_id, prompt_factory, consumer):
+        self.team_member = member
+        self.config = replace(self.config, agent_id=agent_id)
+        self._prompt_factory = prompt_factory
+        self.consumers = (consumer,)
+
+    async def continue_handoff(self, provider, store, run_id):
+        previous = self._active_container
+        if previous is None or previous.context.run_id != run_id:
+            raise StorageError("task_checkpoint_missing", "Task checkpoint is no longer live")
+        assert self._prompt_factory is not None and self._runtime_factory is not None
+        checkpoint = previous.runtime.checkpointer
+        execution = previous.context
+        await self._prompt_factory(store).refresh()
+        container = await self._runtime_factory(
+            self, provider, store, run_id, checkpointer=checkpoint
+        )
+        # Rebind only runtime resources. The task's in-process execution data survives.
+        fresh = container.context
+        fresh.completed = execution.completed
+        fresh.initial_inputs = execution.initial_inputs
+        fresh.assistant = execution.assistant
+        fresh.call_order = execution.call_order
+        fresh.ready_results = execution.ready_results
+        fresh.settled_calls = execution.settled_calls
+        fresh.dispatched_calls = execution.dispatched_calls
+        fresh.interrupted_calls = execution.interrupted_calls
+        fresh.failure_guard = execution.failure_guard
+        fresh.serial_failure_signature = execution.serial_failure_signature
+        fresh.turn_end_sent = execution.turn_end_sent
+        fresh.model_tools = execution.model_tools
+        fresh.disclosed_tool_names = execution.disclosed_tool_names
+        fresh.output_continuations = execution.output_continuations
+        if fresh.workspace_files is not None and execution.workspace_files is not None:
+            fresh.workspace_files.receipts.update(execution.workspace_files.receipts)
+        self._active_container = container
+        self._handoff_requested = False
+        self.summary = fresh.summary
+        container.owns_summary = False
+        await previous.aclose()
+        keep = False
+        try:
+            await container.prepare_tools()
+            result = await container.runtime.continue_task(fresh)
+            keep = result.outcome in {"needs_input", "error"}
+            return result
+        finally:
+            if not keep and not self._handoff_requested:
                 self._active_container = None
                 await container.aclose()
 

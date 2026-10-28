@@ -166,6 +166,10 @@ class AgentRuntime:
             context,
         )
 
+    async def continue_task(self, context):
+        self.build(context)
+        return await self.invoke(None, context)
+
     def discard(self) -> None:
         self.graph = None
 

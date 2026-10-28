@@ -1,18 +1,18 @@
 # Team
 
-保留进程内 Team、邮箱通信、任务板、独立 Git worktree、审查、合并和清理。
-子任务仍是项目自己的 AgentSession；框架只负责每个会话中的图执行。
+进程内 Team 使用邮箱沟通、任务看板和独立 worktree。TeamState 是成员、任务、邮箱的统一内存状态，业务变更仍使用现有 Team JSONL；完整对话保存在任务会话 JSONL 中。
 
-- `api.py`：AgentTeam/TeamMember 的公开入口；`engine.py` 实现协调与生命周期。
-- `mailbox.py`：消息投递、接收和结果持久化后的 ACK。
-- `tasks.py`：负责人、任务状态与依赖。
-- `worktrees.py`：创建、检查差异、审查/合并与安全清理。
-- `tools.py`：主 Agent 和成员可调用的工具。
-- `types.py`：状态与纯策略；`contracts.py`：子会话与工作区依赖。
-- `module.py`：供应用组装，普通调用方不构造内部实现。
+- state.py / framework.py：State schema、按 ID 的 reducers 和无模型协调图。协调图不继承子图 checkpoint。
+- engine.py：派发、活动更新、无活动超时、停止确认、A→B 交接与合并。
+- execution.py：任务持有的子会话和运行通知，保持进程内 checkpoint 生命周期。
+- tasks.py：依赖、写入权限、状态迁移、提交与 lead 验收。
+- mailbox.py：定向消息、任务关联、预约、ACK 与交接转投。
+- worktrees.py：代码版本、范围内成果、审查与合并。
+- tools.py：工具 schema。子成员提交 submitted，lead 使用 update_task 验收；handoff_task 用于未完成任务的接管。
+- module.py：装配及 ChildEventRelay。
 
-普通 Team 委派经 AgentTeam 进入原有子会话工厂。移除的是只用于旧 agent Hook 的
-TeamDelegate 包装，以及 Skill 自带的 fork 入口；邮箱、TeamSpawn/查询/消息等操作不变。
+默认无活动 180 秒、停止确认 15 秒、最多自动交接一次。任务总时长不设统一上限；有效模型/工具活动续期，审批暂停，安静命令由其自身超时负责。停止未确认不启动替代者。
 
-取消信号直接作用于所拥有的任务，不依赖成员及时读取邮箱。合并需要对应审批和验证；
-冲突、取消、未知执行影响时保留工作成果。任务完成不等于可以删除 worktree。
+交接保持任务会话、执行线程、worktree、已有输出和读取版本。正常任务结果先进入待验收；必须验收后才能请求 merge_agent。整个进程重启不恢复内存 checkpoint，也不自动执行旧调用。
+
+详见 docs/design/team-state-handoff.md。

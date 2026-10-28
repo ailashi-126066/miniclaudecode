@@ -74,8 +74,12 @@ def python_read_paths():
     return paths
 
 
-def build_profile(workspace, network_enabled, home=None, *, skill_read_roots=()):
+def build_profile(workspace, network_enabled, home=None, *, skill_read_roots=(), write_roots=None):
     root = Path(workspace).resolve()
+    if write_roots is not None and any(
+        not Path(path).resolve().is_relative_to(root) for path in write_roots
+    ):
+        raise ToolError("outside_task_scope", "Task write roots must stay inside the workspace")
     home = Path(home if home is not None else Path.home()).resolve()
 
     def quote(path):
@@ -134,11 +138,19 @@ def build_profile(workspace, network_enabled, home=None, *, skill_read_roots=())
         # Standard logging and redirected commands use the null device. This
         # grants no write access to an ordinary file outside the workspace.
         '(allow file-write-data (literal "/dev/null"))',
-        f"(allow file-write* (subpath {quote(root)}))",
+        *(
+            [f"(allow file-write* (subpath {quote(root)}))"]
+            if write_roots is None
+            else [
+                f"(allow file-write* (subpath {quote(Path(path).resolve())}) "
+                f"(literal {quote(Path(path).resolve())}))"
+                for path in write_roots
+            ]
+        ),
         f"(deny file-write-unlink (literal {quote(root)}))",
         # Renaming or linking a dotenv file would escape the name-based read deny.
         f"(deny file-write* {DOTENV})",
-        *([f"(allow file-write* {example})"] if example else []),
+        *([f"(allow file-write* {example})"] if example and write_roots is None else []),
     ]
     for name in (".git", ".pycode", ".env"):
         path = quote(root / name)
@@ -156,7 +168,9 @@ class UnavailableSandbox:
 
 
 class SeatbeltSandbox:
-    def __init__(self, executable="/usr/bin/sandbox-exec", *, skill_read_roots=()):
+    def __init__(
+        self, executable="/usr/bin/sandbox-exec", *, skill_read_roots=(), write_roots=None
+    ):
         self._executable = executable
         self._skill_read_roots = tuple(skill_read_roots)
 
@@ -220,6 +234,7 @@ class SeatbeltSandbox:
             workspace,
             settings.network_enabled,
             skill_read_roots=self._skill_read_roots,
+            write_roots=settings.write_roots,
         )
         return (self._executable, "-p", profile, *argv)
 

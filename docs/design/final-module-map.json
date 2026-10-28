@@ -1,5 +1,5 @@
 {
-  "baseline": "working tree 2026-10-22: unified ToolSearch",
+  "baseline": "working tree 2026-10-28: TeamState and task handoff",
   "modules": {
     "pycode": {
       "path": "src/pycode/__init__.py",
@@ -1513,6 +1513,18 @@
       "layer": null,
       "package": false
     },
+    "pycode.team.execution": {
+      "path": "src/pycode/team/execution.py",
+      "feature": "team",
+      "layer": null,
+      "package": false
+    },
+    "pycode.team.framework": {
+      "path": "src/pycode/team/framework.py",
+      "feature": "team",
+      "layer": null,
+      "package": false
+    },
     "pycode.team.mailbox": {
       "path": "src/pycode/team/mailbox.py",
       "feature": "team",
@@ -1523,6 +1535,12 @@
       "path": "src/pycode/team/module.py",
       "feature": "team",
       "layer": "module",
+      "package": false
+    },
+    "pycode.team.state": {
+      "path": "src/pycode/team/state.py",
+      "feature": "team",
+      "layer": null,
       "package": false
     },
     "pycode.team.tasks": {

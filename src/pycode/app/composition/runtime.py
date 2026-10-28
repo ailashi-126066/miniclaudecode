@@ -127,7 +127,10 @@ async def build_runtime(
             else None
         )
         workspace_files = modules.tools.backend(
-            config.workspace, read_only=config.read_only, excluded_roots=(config.user_data,)
+            config.workspace,
+            read_only=config.read_only,
+            excluded_roots=(config.user_data,),
+            write_roots=config.sandbox.write_roots,
         )
         owner = await modules.models.owner(
             provider,

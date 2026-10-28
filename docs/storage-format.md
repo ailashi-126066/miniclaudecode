@@ -139,3 +139,9 @@ review/retry UI. A recorded unfinished operation is not automatically rerun. Reg
 are reported to the Agent; failed pre-tool checks and explicit rejections block the related tool.
 Automatic model fallback is removed. Each request retries only its selected model under RetryPolicy;
 after exhaustion it reports an error. Explicit model selection remains available.
+
+## TeamState 与任务执行
+
+TeamState 的 agents、tasks、mailboxes 共用原有 Team entries.jsonl，业务更新追加为 team_transition。记录包含任务验收条件、范围、代次、交付证据及成员活动字段；不转换缺少当前契约字段的旧团队记录。成员 records 属性仅为 State 的访问入口。高频活动只更新内存，阶段边界保存。
+
+子任务的执行容器在进程内交接时保留 checkpointer，接管复用 execution session/run/thread 和 worktree。checkpoint 不代替原始消息树；整个进程退出后它消失，JSONL 历史仍保留。

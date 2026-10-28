@@ -86,9 +86,25 @@ class ToolExecutor:
         if result is None:
 
             async def action():
-                if invoke is None:
-                    return await tool.execute(context, arguments)
-                return await invoke(context, call, spec)
+                assert spec is not None
+                timeout = arguments.get("timeout", 120) if spec.name == "Bash" else None
+                await self.events.emit(
+                    "tool_action_start",
+                    {
+                        "name": call.name,
+                        "category": spec.category,
+                        "timeout": timeout,
+                    },
+                    operation_id=context.operation_id,
+                )
+                try:
+                    if invoke is None:
+                        return await tool.execute(context, arguments)
+                    return await invoke(context, call, spec)
+                finally:
+                    await self.events.emit(
+                        "tool_action_end", {"name": call.name}, operation_id=context.operation_id
+                    )
 
             result = await self.error_boundary(replace(call, name=result_name), spec, action)
         result = replace(result, call_id=call.id, name=result_name)

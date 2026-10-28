@@ -65,11 +65,17 @@ async def test_upstream_echo_result_and_event_contract():
     assert tool.executed == ["hello"]
     assert result.call_id == "tool-1"
     assert result.text == "echoed: hello"
-    assert [event.kind for event in recorder.events] == ["tool_execution_start"]
+    assert [event.kind for event in recorder.events] == [
+        "tool_execution_start",
+        "tool_action_start",
+        "tool_action_end",
+    ]
     # Execution does not announce completion before the settlement owner saves it.
     await executor.completed(context, ToolCall("tool-1", "echo", {"value": "hello"}), result)
     assert [event.kind for event in recorder.events] == [
         "tool_execution_start",
+        "tool_action_start",
+        "tool_action_end",
         "tool_execution_end",
     ]
     assert all(event.operation_id == "operation-1" for event in recorder.events)

@@ -251,6 +251,9 @@ class WorktreeManager:
         )
         return head.decode().strip() if status == 0 else None
 
+    async def version(self, identifier):
+        return await owned_io(self.candidate_tree, self.path(identifier))
+
     def changes_sync(self, identifier, limit):
         if type(limit) is not int or not 1 <= limit <= 50000:
             raise ToolError("invalid_diff_limit", "Diff limit must be between 1 and 50000")

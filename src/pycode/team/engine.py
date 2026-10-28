@@ -2,10 +2,13 @@
 
 import asyncio
 import logging
+import time
 from uuid import uuid4
 
 from pycode.kernel import DomainError, EntryDraft, Message, StorageError, ToolError, plain_data
+from pycode.team.execution import TaskExecution
 from pycode.team.mailbox import TeamInbox
+from pycode.team.state import empty_state
 from pycode.team.tasks import TeamManager
 from pycode.team.types import (
     ACTIVE_AGENT_STATES,
@@ -29,7 +32,11 @@ class AgentTeam:
         worktrees,
         events,
         *,
+        transition,
         max_agents=4,
+        idle_timeout=180,
+        stop_timeout=15,
+        max_handoffs=1,
         plans=None,
         lead_read_only=False,
     ):
@@ -42,14 +49,21 @@ class AgentTeam:
         self.ledger, self.lead_history = ledger, lead_history
         self.children, self.worktrees, self.events = children, worktrees, events
         self.max_agents, self.plans, self.lead_read_only = max_agents, plans, lead_read_only
-        self.records, self.sessions = {}, {}
+        self.state, self.transition = empty_state(), transition
+        self.sessions = {}
+        self.executions = {}
+        self.idle_timeout, self.stop_timeout, self.max_handoffs = (
+            idle_timeout,
+            stop_timeout,
+            max_handoffs,
+        )
         self.lock, self.persist_lock, self.merge_lock = (
             asyncio.Lock(),
             asyncio.Lock(),
             asyncio.Lock(),
         )
         self.changed = asyncio.Event()
-        self.board, self.inbox = TeamManager(self.commit), TeamInbox(self)
+        self.board, self.inbox = TeamManager(self), TeamInbox(self)
         self.tasks, self.startups, self.drivers = set(), {}, {}
         self.stopping = self.closing = self.closed = self.degraded = False
         self.epoch = 0
@@ -57,6 +71,7 @@ class AgentTeam:
         self.previews = {}
         self.wake_eligible = {}
         self.cancelling = set()
+        self.handing_off = set()
 
     def require_open(self, *, delegate=False):
         if self.closed or self.degraded or self.stopping or (self.closing and not delegate):
@@ -67,32 +82,21 @@ class AgentTeam:
             raise ToolError("unknown_agent", "Unknown agent: " + identifier)
         return self.records[identifier]
 
+    @property
+    def records(self):
+        return self.state["agents"]
+
+    def validate_transition(self, data):
+        for kind in ("agents", "tasks", "messages"):
+            if any(not valid_record(kind, value) for value in data.get(kind, ())):
+                raise StorageError("invalid_team_record", "Invalid team transition")
+        prospective = {**self.board.records, **{v["task_id"]: v for v in data.get("tasks", ())}}
+        for task in data.get("tasks", ()):
+            validate_dependencies(task["task_id"], task["dependencies"], prospective)
+
     def apply(self, data):
-        groups = (
-            ("agents", self.records, "agent_id"),
-            ("tasks", self.board.records, "task_id"),
-            ("messages", self.inbox.records, "id"),
-        )
-        if not isinstance(data, dict) or any(
-            not isinstance(data.get(kind, ()), (list, tuple))
-            or any(not valid_record(kind, value) for value in data.get(kind, ()))
-            for kind, _, _ in groups
-        ):
-            _LOG.warning("Ignored malformed atomic team transition")
-            return
-        prospective = {
-            **self.board.records,
-            **{value["task_id"]: value for value in data.get("tasks", ())},
-        }
-        try:
-            for value in data.get("tasks", ()):
-                validate_dependencies(value["task_id"], value["dependencies"], prospective)
-        except ToolError:
-            _LOG.warning("Ignored team transition with invalid dependencies")
-            return
-        for kind, target, key in groups:
-            for value in data.get(kind, ()):
-                target[value[key]] = plain_data(value)
+        self.validate_transition(data)
+        self.state = self.transition(self.state, plain_data(data))
 
     async def commit(self, *, agents=(), tasks=(), messages=()):
         if not agents and not tasks and not messages:
@@ -100,23 +104,25 @@ class AgentTeam:
         data = plain_data(
             {"id": uuid4().hex, "agents": agents, "tasks": tasks, "messages": messages}
         )
-        async with self.persist_lock:
-            try:
-                await self.ledger.append_entry(EntryDraft("team_transition", data=data))
-            except BaseException:
-                self.degraded = True
-                snapshot = await self.ledger.snapshot()
-                if any(
-                    entry.type == "team_transition" and entry.data.get("id") == data["id"]
-                    for entry in snapshot.entries
-                ):
-                    self.apply(data)
-                    self.changed.set()
-                else:
+
+        async def persist():
+            async with self.persist_lock:
+                self.validate_transition(data)
+                try:
+                    await self.ledger.append_entry(EntryDraft("team_transition", data=data))
+                except StorageError:
                     self.degraded = True
-                raise
-            self.apply(data)
-            self.changed.set()
+                    self.changed.set()
+                    raise
+                self.state = self.transition(self.state, data)
+                self.changed.set()
+
+        operation = asyncio.create_task(persist())
+        try:
+            await asyncio.shield(operation)
+        except asyncio.CancelledError:
+            await operation
+            raise
 
     async def initialize(self):
         for entry in (await self.ledger.snapshot()).entries:
@@ -201,6 +207,12 @@ class AgentTeam:
                     "final_text",
                     "error_code",
                     "runs",
+                    "generation",
+                    "last_activity_at",
+                    "phase",
+                    "active_steps",
+                    "handoffs",
+                    "replaced_by",
                     "resolution_pending",
                 )
             }
@@ -276,6 +288,9 @@ class AgentTeam:
                 raise ToolError("agent_limit_reached", "Wait or cancel an agent before spawning")
             if len(self.records) >= 64:
                 raise ToolError("agent_total_limit", "This session has reached 64 children")
+            if task_id is None:
+                created = await self.board.create_task(role[:200], task[:4000])
+                task_id = created["task_id"]
             identifier = uuid4().hex[:8]
             while identifier in self.records:
                 identifier = uuid4().hex[:8]
@@ -287,6 +302,7 @@ class AgentTeam:
                 "role": role,
                 "task": task,
                 "task_id": task_id,
+                "scope": self.board.records[task_id]["scope"],
                 "status": "starting",
                 "workspace": self.children.workspace,
                 "provider": provider.name,
@@ -296,6 +312,12 @@ class AgentTeam:
                 "runs": 1,
                 "generation": 1,
                 "session_created": False,
+                "last_activity_at": time.time(),
+                "activity_sequence": 0,
+                "active_run_id": None,
+                "phase": "starting",
+                "active_steps": {},
+                "handoffs": 0,
                 "worktree_id": None,
                 "branch": None,
                 "base": None,
@@ -346,6 +368,7 @@ class AgentTeam:
                 fork_entry_ids=fork_entry_ids,
             )
             self.sessions[identifier] = session
+            self.executions[record["task_id"]] = TaskExecution(session)
             record = {**record, "session_created": True}
             await self.commit(agents=[record])
             await session.record_team_parent(
@@ -373,9 +396,15 @@ class AgentTeam:
                 await self.commit(agents=[record])
                 self.drivers[identifier] = self.own(
                     self.drive(
-                        identifier, Message("team-start-" + identifier, "user", record["task"])
+                        identifier,
+                        Message(
+                            "team-start-" + identifier,
+                            "user",
+                            self.board.assignment(record["task_id"], record["task"]),
+                        ),
                     )
                 )
+            self.start_monitor(identifier)
             await self.emit("agent", record)
         except BaseException as error:
             if session is not None:
@@ -395,7 +424,7 @@ class AgentTeam:
         finally:
             self.startups.pop(identifier, None)
 
-    async def drive(self, identifier, message=None, *, answers=None):
+    async def drive(self, identifier, message=None, *, answers=None, continuing=False):
         try:
             session = self.sessions.get(identifier)
             if session is None:
@@ -403,9 +432,12 @@ class AgentTeam:
                     self.records[identifier], self.member(identifier), create=False
                 )
                 self.sessions[identifier] = session
-            result = await (
-                session.resume(answers) if answers is not None else session.run(message)
-            )
+            if continuing:
+                result = await session.continue_handoff()
+            else:
+                result = await (
+                    session.resume(answers) if answers is not None else session.run(message)
+                )
             if result.outcome == "needs_input":
                 async with self.lock:
                     record = {
@@ -427,9 +459,11 @@ class AgentTeam:
                     identifier,
                     "completed" if result.outcome == "completed" else "failed",
                     result.final_text,
+                    self.executions[self.records[identifier]["task_id"]].failure_code,
                 )
         except asyncio.CancelledError:
-            await self.finish(identifier, "cancelled", "", notify=False)
+            if identifier not in self.handing_off:
+                await self.finish(identifier, "cancelled", "", notify=False)
             raise
         except Exception as error:
             _LOG.warning("Child execution failed: %s", identifier, exc_info=True)
@@ -437,6 +471,13 @@ class AgentTeam:
                 identifier, "failed", str(error), getattr(error, "code", "agent_internal_error")
             )
         finally:
+            if self.records[identifier]["status"] == "stop_unconfirmed":
+                await self.commit(
+                    agents=[
+                        {**self.records[identifier], "status": "interrupted", "phase": "stopped"}
+                    ]
+                )
+                await self.emit("stopped", {"agent_id": identifier})
             if self.drivers.get(identifier) is asyncio.current_task():
                 self.drivers.pop(identifier, None)
             await self.schedule_wakes()
@@ -475,9 +516,346 @@ class AgentTeam:
                     "Worker stopped; worktree metadata retained: %s",
                     getattr(error, "code", type(error).__name__),
                 )
+        execution = self.executions.get(record["task_id"])
+        if execution is not None:
+            execution.activity.set()
         await self.emit("agent", record)
+        if (
+            status == "failed"
+            and error_code in {"provider_timeout", "provider_connection"}
+            and record["handoffs"] < self.max_handoffs
+        ):
+            self.own(self.handoff_task(record["task_id"], automatic=True))
         if messages:
             await self.emit("wake", {})
+
+    async def activity(self, identifier, generation, event):
+        record = self.records[identifier]
+        if event.session_id != record["session_id"]:
+            return
+        if record.get("active_run_id") is not None and event.run_id != record["active_run_id"]:
+            return
+        if record["generation"] != generation or record["status"] not in {"running", "starting"}:
+            return
+        execution = self.executions.get(record["task_id"])
+        if execution is None:
+            return
+        key = (event.session_id, event.run_id, generation)
+        if event.sequence <= execution.sequences.get(key, 0):
+            return
+        execution.sequences[key] = event.sequence
+        kind, data = event.kind, event.data
+        if kind in {"model_request_start", "model_request_end"} and data["purpose"] not in {
+            "agent",
+            "subagent",
+        }:
+            return
+        accepted = {
+            "model_request_start",
+            "model_request_end",
+            "message_delta",
+            "thinking_delta",
+            "tool_action_start",
+            "tool_action_end",
+            "tool_execution_update",
+            "tool_execution_end",
+            "needs_input",
+            "error",
+            "turn_start",
+            "turn_end",
+        }
+        if kind not in accepted:
+            return
+        now = time.time()
+        steps = dict(record["active_steps"])
+        phase = record["phase"]
+        operation = event.operation_id
+        if kind == "model_request_start":
+            steps[data["request_id"]] = {
+                "kind": "model",
+                "name": data["model_id"],
+                "started_at": now,
+                "deadline_at": None,
+            }
+            phase = "model"
+        elif kind == "model_request_end":
+            steps.pop(data["request_id"], None)
+            phase = "running"
+        elif kind in {"message_delta", "thinking_delta"}:
+            if not data.get("text") or data.get("request_id") not in steps:
+                return
+        elif kind == "tool_action_start":
+            limit = data["timeout"]
+            steps[operation] = {
+                "kind": "tool",
+                "name": data["name"],
+                "started_at": now,
+                "deadline_at": now + limit if limit is not None else None,
+            }
+            phase = "tool"
+            if data["name"] == "Bash" and record["worktree_id"]:
+                execution.source_versions[operation] = await self.worktrees.version(
+                    record["worktree_id"]
+                )
+        elif kind == "tool_action_end":
+            steps.pop(operation, None)
+            phase = "tool" if steps else "running"
+        elif kind == "tool_execution_update":
+            if not data.get("text") or operation not in steps:
+                return
+        elif kind == "needs_input":
+            phase = "approval"
+            steps = {}
+        elif kind == "error":
+            execution.failure_code = data.get("code")
+            return
+        # Activity has one timestamp in the same TeamState. No per-token JSONL writes.
+        current = self.records[identifier]
+        if current["status"] not in {"running", "starting"} or current["generation"] != generation:
+            return
+        self.apply(
+            {
+                "agents": [
+                    {
+                        **current,
+                        "last_activity_at": now,
+                        "activity_sequence": event.sequence,
+                        "active_run_id": event.run_id,
+                        "phase": phase,
+                        "active_steps": steps,
+                    }
+                ]
+            }
+        )
+        execution.activity.set()
+        if kind == "tool_execution_end" and data.get("output_id"):
+            source = None
+            if operation in execution.source_versions:
+                before = execution.source_versions.pop(operation)
+                after = await self.worktrees.version(record["worktree_id"])
+                source = before if before == after else None
+            async with self.board.lock:
+                task = self.board.records[record["task_id"]]
+                evidence = {
+                    **task["evidence"],
+                    data["output_id"]: {
+                        "name": data["name"],
+                        "source_tree": source,
+                        "passed": not data["is_error"] and data.get("exit_code") in {None, 0},
+                        "operation_id": operation,
+                    },
+                }
+                await self.commit(tasks=[{**task, "evidence": evidence}])
+        if kind not in {"message_delta", "thinking_delta", "tool_execution_update"}:
+            async with self.lock:
+                current = self.records[identifier]
+                if current["generation"] == generation and current["status"] in {
+                    "running",
+                    "starting",
+                }:
+                    await self.commit(agents=[current])
+            await self.emit("activity", {"agent_id": identifier, "phase": phase})
+
+    def start_monitor(self, identifier):
+        record = self.records[identifier]
+        execution = self.executions[record["task_id"]]
+        if (
+            execution.watcher is not None
+            and execution.watcher is not asyncio.current_task()
+            and not execution.watcher.done()
+        ):
+            execution.watcher.cancel()
+        execution.watcher = self.own(self.monitor(identifier, record["generation"]))
+
+    async def monitor(self, identifier, generation):
+        execution = self.executions[self.records[identifier]["task_id"]]
+        while True:
+            execution.activity.clear()
+            record = self.records[identifier]
+            if record["generation"] != generation or record["status"] not in {
+                "running",
+                "needs_approval",
+            }:
+                return
+            if record["status"] == "needs_approval" or record["phase"] == "approval":
+                await execution.activity.wait()
+                continue
+            deadlines = [
+                step["deadline_at"] + self.stop_timeout
+                for step in record["active_steps"].values()
+                if step["deadline_at"] is not None
+            ]
+            # Quiet bounded commands use their own limit, plus time for process cleanup.
+            deadline = (
+                min(deadlines) if deadlines else record["last_activity_at"] + self.idle_timeout
+            )
+            delay = deadline - time.time()
+            if delay <= 0:
+                await self.handoff_task(record["task_id"], automatic=True)
+                return
+            try:
+                async with asyncio.timeout(delay):
+                    await execution.activity.wait()
+            except TimeoutError:
+                continue
+
+    async def handoff_task(self, task_id, *, automatic=False):
+        async with self.lock:
+            self.require_open()
+            task = self.board.records[task_id]
+            if task["status"] not in {"in_progress", "failed"} or task["assignee"] is None:
+                raise ToolError(
+                    "task_not_running", "Only an unfinished owned task can be handed off"
+                )
+            identifier = task["assignee"]
+            record = self.records[identifier]
+            if record["status"] in {"needs_approval", "stopping", "handed_off", "stop_unconfirmed"}:
+                raise ToolError(
+                    "handoff_unavailable", "Resolve approval or the current stop before handoff"
+                )
+            execution = self.executions[task_id]
+            session = execution.session
+            session.prepare_handoff()
+            self.handing_off.add(identifier)
+            self.wake_eligible.pop(identifier, None)
+            await self.commit(agents=[{**record, "status": "stopping", "phase": "stopping"}])
+            driver = self.drivers.get(identifier)
+            if driver is not None and not driver.done():
+                driver.cancel()
+        if driver is not None:
+            finished, _ = await asyncio.wait({driver}, timeout=self.stop_timeout)
+            if not finished:
+                await self.commit(
+                    agents=[{**self.records[identifier], "status": "stop_unconfirmed"}]
+                )
+                return {"task_id": task_id, "status": "stop_unconfirmed"}
+        if self.records[identifier]["status"] == "completed":
+            self.handing_off.discard(identifier)
+            return {"task_id": task_id, "agent_id": identifier, "status": "completed"}
+        if automatic and record["handoffs"] >= self.max_handoffs:
+            await self.finish(
+                identifier,
+                "failed",
+                "Idle timeout; automatic handoff limit reached",
+                "agent_idle_timeout",
+            )
+            self.handing_off.discard(identifier)
+            return {"task_id": task_id, "status": "failed", "error_code": "agent_idle_timeout"}
+        replacement = uuid4().hex[:8]
+        async with self.lock, self.board.lock:
+            if identifier in self.cancelling or self.stopping:
+                self.handing_off.discard(identifier)
+                return {"task_id": task_id, "agent_id": identifier, "status": "cancelled"}
+            self.require_open()
+            current = self.records[identifier]
+            updated = {
+                **current,
+                "agent_id": replacement,
+                "generation": current["generation"] + 1,
+                "status": "running",
+                "phase": "resuming",
+                "last_activity_at": time.time(),
+                "active_steps": {},
+                "pending": [],
+                "review": None,
+                "error_code": None,
+                "handoffs": record["handoffs"] + 1,
+                "replaces": identifier,
+            }
+            assigned = {
+                **self.board.records[task_id],
+                "status": "in_progress",
+                "assignee": replacement,
+                "generation": updated["generation"],
+                "last_assignee": identifier,
+            }
+            messages = [
+                {**message, "recipient": replacement, "status": "pending", "delivery": None}
+                for message in self.inbox.records.values()
+                if message["recipient"] == identifier
+                and message["status"] in {"pending", "delivering"}
+                and message.get("task_id") in {None, task_id}
+            ]
+            await self.commit(
+                agents=[{**current, "status": "handed_off", "replaced_by": replacement}, updated],
+                tasks=[assigned],
+                messages=messages,
+            )
+            self.sessions.pop(identifier, None)
+            self.sessions[replacement] = session
+            if updated["worktree_id"]:
+                worktree = await self.worktrees.inspect(updated["worktree_id"])
+                await self.worktrees.update({**worktree, "worker_stopped": False})
+            self.children.reassign(session, updated, self.member(replacement))
+            execution.failure_code = None
+            self.handing_off.discard(identifier)
+            self.drivers[replacement] = self.own(self.drive(replacement, continuing=True))
+            self.start_monitor(replacement)
+        await self.emit("handoff", {"task_id": task_id, "from": identifier, "to": replacement})
+        return {
+            "task_id": task_id,
+            "agent_id": replacement,
+            "generation": updated["generation"],
+            "status": "running",
+        }
+
+    async def check_evidence(self, task, *, accepting):
+        owner = self.records.get(task["assignee"])
+        if owner is None:
+            raise ToolError("task_not_owned", "Assign a member before submitting a result")
+        if accepting and owner["status"] != "completed":
+            raise ToolError(
+                "agent_not_completed", "Wait for the member to finish before acceptance"
+            )
+        snapshot = await self.children.evidence(owner)
+        outputs = {
+            entry.message.tool_result.output_id: entry.message.tool_result
+            for entry in snapshot.entries
+            if entry.message is not None
+            and entry.message.tool_result is not None
+            and entry.message.tool_result.output_id
+        }
+        files = ()
+        if owner["worktree_id"]:
+            changes = await self.worktrees.changes(owner["worktree_id"])
+            files = changes["files"]
+            source = changes["source_tree"]
+            if accepting and task["source_fingerprint"] not in {None, source}:
+                raise ToolError("evidence_stale", "Code changed after submission")
+            task["source_fingerprint"] = source
+        for reference in task["artifact_refs"]:
+            if reference not in outputs and not (
+                reference.startswith("file:") and reference[5:] in files
+            ):
+                raise ToolError(
+                    "invalid_artifact", "Artifact must reference this task's output or changed file"
+                )
+        names = set()
+        for check in task["checks"]:
+            if check["name"] in names:
+                raise ToolError("duplicate_check", "Each acceptance check has one result")
+            names.add(check["name"])
+            if check["status"] == "not_run":
+                continue
+            result = outputs.get(check["output_id"])
+            if result is None or (check["status"] == "passed") != (
+                not result.is_error and result.exit_code in {None, 0}
+            ):
+                raise ToolError(
+                    "invalid_evidence", "Check status must match its saved execution result"
+                )
+            if owner["worktree_id"]:
+                evidence = task["evidence"].get(check["output_id"])
+                if evidence is None or evidence["source_tree"] != task["source_fingerprint"]:
+                    raise ToolError(
+                        "evidence_stale", "Verification must refer to the submitted code tree"
+                    )
+        if accepting:
+            passed = {check["name"] for check in task["checks"] if check["status"] == "passed"}
+            if set(task["acceptance"]) - passed:
+                raise ToolError("acceptance_pending", "Required acceptance checks have not passed")
+            if not task["result"] and not task["artifact_refs"]:
+                raise ToolError("result_missing", "A completed task needs a result or artifact")
 
     async def schedule_wakes(self):
         async with self.lock:
@@ -509,7 +887,20 @@ class AgentTeam:
                     "generation": record["generation"] + 1,
                     "review": None,
                 }
-                await self.commit(agents=[updated])
+                task = self.board.records[record["task_id"]]
+                updates = (
+                    [{**task, "generation": updated["generation"]}]
+                    if task["assignee"] == identifier
+                    else []
+                )
+                updated.update(
+                    last_activity_at=time.time(),
+                    phase="running",
+                    active_steps={},
+                    active_run_id=None,
+                    activity_sequence=0,
+                )
+                await self.commit(agents=[updated], tasks=updates)
                 self.drivers[identifier] = self.own(self.wake_child(identifier))
 
     async def wake_child(self, identifier):
@@ -523,16 +914,22 @@ class AgentTeam:
                     self.records[identifier], self.member(identifier), create=False
                 )
                 self.sessions[identifier] = session
+            if self.records[identifier]["task_id"] not in self.executions:
+                self.executions[self.records[identifier]["task_id"]] = TaskExecution(session)
             await session.cancel()
+            self.children.reassign(session, self.records[identifier], self.member(identifier))
+            self.executions[self.records[identifier]["task_id"]].failure_code = None
             message = Message(
                 input_id,
                 "user",
                 "\n\n".join(team_message_text(m) for m in messages),
                 provider_metadata={"team_wake": [m["id"] for m in messages]},
             )
+            self.start_monitor(identifier)
             await self.drive(identifier, message)
         except asyncio.CancelledError:
-            await self.finish(identifier, "cancelled", "", notify=False)
+            if identifier not in self.handing_off:
+                await self.finish(identifier, "cancelled", "", notify=False)
             raise
         except Exception as error:
             await self.finish(
@@ -571,7 +968,18 @@ class AgentTeam:
                     )
                 for key, value in answers.items():
                     validate_operation_answer(questions[key], value)
-            await self.commit(agents=[{**record, "status": "running", "pending": []}])
+            await self.commit(
+                agents=[
+                    {
+                        **record,
+                        "status": "running",
+                        "pending": [],
+                        "phase": "running",
+                        "last_activity_at": time.time(),
+                    }
+                ]
+            )
+            self.executions[record["task_id"]].activity.set()
             self.drivers[identifier] = self.own(self.drive(identifier, answers=answers))
         return {"agent_id": identifier, "status": "running"}
 
@@ -580,6 +988,9 @@ class AgentTeam:
             record = self.require_agent(identifier)
             if record["status"] not in ACTIVE_AGENT_STATES:
                 return {"agent_id": identifier, "cancelled": False, "status": record["status"]}
+            execution = self.executions.get(record["task_id"])
+            if execution is not None and execution.watcher is not None:
+                execution.watcher.cancel()
             self.cancelling.add(identifier)
             self.wake_eligible.pop(identifier, None)
             tasks = [
@@ -669,6 +1080,8 @@ class AgentTeam:
         error = merge_order_error(record, self.board.records, self.records)
         if error:
             raise ToolError(error, "Merge dependencies first")
+        if self.board.records[record["task_id"]]["status"] != "done":
+            raise ToolError("task_not_accepted", "Accept the submitted task before merging")
         if not record.get("review"):
             raise ToolError("review_required", "Call review_agent before merge_agent")
         return await self.worktrees.merge_preview(record["worktree_id"], record["review"], action)
@@ -681,6 +1094,8 @@ class AgentTeam:
                 error = merge_order_error(record, self.board.records, self.records)
                 if error:
                     raise ToolError(error, "Task dependencies changed during approval")
+                if self.board.records[record["task_id"]]["status"] != "done":
+                    raise ToolError("task_not_accepted", "Task acceptance changed before merge")
                 if record.get("review") != preview.get("fingerprint"):
                     raise ToolError("review_stale", "Review changed during approval")
                 if record["status"] != "completed":
@@ -746,7 +1161,7 @@ class AgentTeam:
                 active = [r for r in self.records.values() if r["status"] in ACTIVE_AGENT_STATES]
                 if not active:
                     return "idle"
-                if all(r["status"] == "needs_approval" for r in active):
+                if all(r["status"] in {"needs_approval", "stop_unconfirmed"} for r in active):
                     return "blocked"
             await self.changed.wait()
 
@@ -774,6 +1189,19 @@ class AgentTeam:
 class TeamMember:
     def __init__(self, team, agent_id):
         self.team, self.agent_id = team, agent_id
+        self.generation = team.records[agent_id]["generation"] if agent_id != "lead" else 0
+
+    def check_current(self):
+        if self.agent_id == "lead":
+            return
+        record = self.team.records[self.agent_id]
+        if record["generation"] != self.generation or record["status"] in {
+            "stopping",
+            "handed_off",
+            "cancelled",
+            "stop_unconfirmed",
+        }:
+            raise ToolError("stale_generation", "This member no longer owns its execution")
 
     async def flush_inbox(self, context):
         await self.team.inbox.flush(self.agent_id, context)

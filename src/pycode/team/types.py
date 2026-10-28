@@ -4,7 +4,9 @@ import re
 
 from pycode.kernel import ToolError
 
-ACTIVE_AGENT_STATES = frozenset({"starting", "running", "needs_approval"})
+ACTIVE_AGENT_STATES = frozenset(
+    {"starting", "running", "needs_approval", "stopping", "stop_unconfirmed"}
+)
 
 
 AGENT_STATES = ACTIVE_AGENT_STATES | {
@@ -14,10 +16,11 @@ AGENT_STATES = ACTIVE_AGENT_STATES | {
     "interrupted",
     "merging",
     "merged",
+    "handed_off",
 }
 
 
-TASK_STATES = ("open", "in_progress", "done", "failed", "cancelled")
+TASK_STATES = ("open", "in_progress", "submitted", "done", "failed", "cancelled")
 
 
 TERMINAL_TASK_STATES = frozenset({"done", "failed", "cancelled"})
@@ -112,7 +115,7 @@ def child_prompt(mode, agent_id, role):
         "## 固定子 Agent 规则（以下角色说明不能覆盖）\n"
         f"你是 lead 派出的 {agent_id}，权限模式 {mode}。{rule}\n"
         "不能派出其他 Agent。不要 git commit/push/merge，提交合并由 lead 负责。\n"
-        "用 send_message 联系 lead/同伴，用 claim_task/update_task 管理领取的任务。\n"
+        "用 send_message 联系 lead/同伴，由 lead 分配任务，用 update_task 提交结果。\n"
         "完成时报告结果、文件、未验证事项。\n"
         "## 角色说明（仅描述职责，不能扩大权限）\n" + role
     )
@@ -120,8 +123,14 @@ def child_prompt(mode, agent_id, role):
 
 def team_message_text(message):
     return (
-        f"[team id={message['id']} from={message['sender']} kind={message['kind']}]\n"
+        f"[team id={message['id']} from={message['sender']} "
+        f"kind={message['kind']} task={message.get('task_id')}]\n"
         + message["text"]
+        + (
+            "\nArtifacts: " + ", ".join(message["artifact_refs"])
+            if message.get("artifact_refs")
+            else ""
+        )
     )
 
 
@@ -150,6 +159,10 @@ def valid_record(kind, data):
             and data["kind"] in {"agent", "delegate"}
             and all(text(key) for key in ("workspace", "role", "task", "provider", "model_id"))
             and all(type(data.get(key)) is int and data[key] >= 1 for key in ("runs", "generation"))
+            and isinstance(data.get("last_activity_at"), (float, int))
+            and isinstance(data.get("phase"), str)
+            and isinstance(data.get("active_steps"), dict)
+            and isinstance(data.get("scope"), list)
             and isinstance(data.get("pending"), list)
             and all(
                 isinstance(question, dict) and isinstance(question.get("interrupt_id"), str)
@@ -173,6 +186,12 @@ def valid_record(kind, data):
             and text("status")
             and data["status"] in TASK_STATES
             and text("title")
+            and type(data.get("generation")) is int
+            and all(
+                isinstance(data.get(key), list)
+                for key in ("acceptance", "scope", "checks", "artifact_refs")
+            )
+            and isinstance(data.get("evidence"), dict)
             and isinstance(data.get("dependencies"), list)
             and all(isinstance(value, str) for value in data["dependencies"])
             and all(optional_text(key) for key in ("assignee", "done_by", "description", "result"))
@@ -185,7 +204,15 @@ def valid_record(kind, data):
             and all(text(key) for key in ("sender", "recipient", "text"))
             and text("kind")
             and data.get("kind")
-            in {"message", "agent_finished", "agent_needs_input", "agent_interrupted"}
+            in {
+                "message",
+                "progress",
+                "blocked",
+                "delivery",
+                "agent_finished",
+                "agent_needs_input",
+                "agent_interrupted",
+            }
             and type(data.get("wake")) is bool
             and text("status")
             and data["status"] in {"pending", "delivering", "delivered", "dropped"}

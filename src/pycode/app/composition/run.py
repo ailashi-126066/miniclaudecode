@@ -7,7 +7,15 @@ from pycode.kernel import ToolSpec, plain_data
 
 
 async def build_configured_run(
-    launcher, provider, store, run_id, *, modules, skills_session=None, mcp_session=None
+    launcher,
+    provider,
+    store,
+    run_id,
+    *,
+    modules,
+    skills_session=None,
+    mcp_session=None,
+    checkpointer=None,
 ):
     snapshot = await store.snapshot()
     outputs = build_outputs(modules, snapshot.header.session_id, store)
@@ -43,7 +51,7 @@ async def build_configured_run(
     options = RunOptions(
         provider=provider,
         run_id=run_id,
-        checkpointer=modules.agent.checkpoint(),
+        checkpointer=checkpointer if checkpointer is not None else modules.agent.checkpoint(),
         effective_tools=inherited,
         skills_run=skills_run,
         mcp_run=mcp_run,

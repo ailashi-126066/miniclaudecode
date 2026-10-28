@@ -11,6 +11,7 @@ from pycode.kernel.domain.errors import ToolError
 from pycode.kernel.domain.messages import Message, ToolResult
 from pycode.session.services.durable_inputs import DurableInputs
 from pycode.team.api import AgentTeam
+from pycode.team.framework import transition_graph
 from tests.models.services.test_model_control import store_for
 
 
@@ -42,6 +43,15 @@ class Child:
     async def record_team_parent(self, data):
         self.parent = data
 
+    def prepare_handoff(self):
+        self.handoff_prepared = True
+
+    async def continue_handoff(self):
+        return self.result
+
+    async def task_evidence(self):
+        return SimpleNamespace(entries=())
+
     async def cancel(self):
         return False
 
@@ -63,13 +73,21 @@ class Children:
             await self.open_release.wait()
         return self.values.setdefault(record["agent_id"], Child())
 
+    async def evidence(self, record):
+        return await self.values[record["agent_id"]].task_evidence()
+
+    def reassign(self, session, record, member):
+        self.values[record["agent_id"]] = session
+
     async def input_accepted(self, record, input_id):
         return any(message.id == input_id for message in self.values[record["agent_id"]].inputs)
 
 
 def team_at(tmp_path, *, limit=4):
     ledger, lead = store_for(tmp_path / "ledger"), store_for(tmp_path / "lead")
-    return AgentTeam(ledger, lead, Children(), None, Events(), max_agents=limit)
+    return AgentTeam(
+        ledger, lead, Children(), None, Events(), transition=transition_graph(), max_agents=limit
+    )
 
 
 async def close(team):
@@ -226,7 +244,14 @@ async def test_completed_child_wakes_for_direct_message_and_new_process_does_not
         assert "resolve conflict" in child.inputs[-1].text
         persisted = {**team.records[record["agent_id"]], "status": "running"}
         await team.commit(agents=[persisted])
-        restored = AgentTeam(team.ledger, team.lead_history, Children(), None, Events())
+        restored = AgentTeam(
+            team.ledger,
+            team.lead_history,
+            Children(),
+            None,
+            Events(),
+            transition=transition_graph(),
+        )
         await restored.initialize()
         assert restored.records[record["agent_id"]]["status"] == "interrupted"
         assert restored.children.values == {} and not restored.tasks
@@ -260,7 +285,12 @@ class Worktrees:
         self.record = record
 
     async def changes(self, identifier):
-        return {"fingerprint": "tree", "diff": "change"}
+        return {
+            "fingerprint": "tree",
+            "diff": "change",
+            "source_tree": "tree",
+            "files": ["file.py"],
+        }
 
     async def merge_preview(self, identifier, fingerprint, action):
         return {"fingerprint": fingerprint, "target_head": "head", "preview_id": "preview"}
@@ -283,6 +313,7 @@ async def test_conflict_retains_completed_worker_then_can_wake_to_resolve(tmp_pa
         child.release.set()
         await team.drivers[record["agent_id"]]
         await team.review(record["agent_id"])
+        await team.board.update_task(record["task_id"], actor="lead", status="done")
         preview = await team.merge_preview(record["agent_id"])
         result = await team.merge(record["agent_id"], preview)
         assert result["error_code"] == "merge_conflict"
@@ -319,14 +350,20 @@ async def test_cancellation_during_worktree_create_retains_late_owned_record(tmp
 async def test_corrupt_atomic_transition_does_not_partially_apply(tmp_path):
     team = team_at(tmp_path)
     try:
-        team.apply(
-            {
-                "agents": None,
-                "tasks": [{"task_id": "t1", "status": "open", "title": "bad", "dependencies": []}],
-            }
-        )
+        with pytest.raises(TypeError):
+            team.apply(
+                {
+                    "agents": None,
+                    "tasks": [
+                        {"task_id": "t1", "status": "open", "title": "bad", "dependencies": []}
+                    ],
+                }
+            )
         assert not team.records and not team.board.records
-        team.apply({"agents": [{"agent_id": "12345678", "status": []}], "messages": []})
+        from pycode.kernel import StorageError
+
+        with pytest.raises(StorageError):
+            team.apply({"agents": [{"agent_id": "12345678", "status": []}], "messages": []})
         assert not team.records
     finally:
         await close(team)
@@ -352,7 +389,14 @@ async def test_synthetic_interrupted_wait_result_does_not_ack_undelivered_messag
                 ),
             )
         )
-        restored = AgentTeam(team.ledger, team.lead_history, Children(), None, Events())
+        restored = AgentTeam(
+            team.ledger,
+            team.lead_history,
+            Children(),
+            None,
+            Events(),
+            transition=transition_graph(),
+        )
         await restored.initialize()
         assert result["messages"][0]["id"] in {m["id"] for m in restored.inbox.pending("lead")}
         assert not restored.tasks
@@ -433,7 +477,14 @@ async def test_failed_startup_without_jsonl_cannot_queue_unrecoverable_wake(tmp_
             await team.inbox.send("lead", identifier, "retry startup", "run")
         assert error.value.code == "agent_closed"
         assert not team.inbox.pending(identifier)
-        restored = AgentTeam(team.ledger, team.lead_history, Children(), None, Events())
+        restored = AgentTeam(
+            team.ledger,
+            team.lead_history,
+            Children(),
+            None,
+            Events(),
+            transition=transition_graph(),
+        )
         await restored.initialize()
         assert restored.records[identifier]["status"] == "failed"
         assert not restored.tasks

@@ -162,6 +162,7 @@ async def test_worker_review_merge_requires_live_user_approval_then_cleans_workt
             record = await session._team.spawn("worker", "engineer", "Create new.py", provider(url))
             identifier = record["agent_id"]
             await session._team.inbox.wait(timeout=10)
+            await session._team.board.update_task(record["task_id"], actor="lead", status="done")
             result = await session.run(Message("merge-u", "user", "Review then merge the worker"))
             assert result.outcome == "needs_input" and not (project / "new.py").exists()
             result = await session.resume(

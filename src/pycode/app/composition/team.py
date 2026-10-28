@@ -18,7 +18,14 @@ def child_config(config, record):
         allow_delegation=False,
         agent_id="agent:" + record["agent_id"],
         memory_mode="off",
-        sandbox=replace(config.sandbox, mode="on")
+        sandbox=replace(
+            config.sandbox,
+            mode="on",
+            write_roots=tuple(
+                str(Path(record["workspace"]) / item) for item in record.get("scope", ())
+            )
+            or None,
+        )
         if record["mode"] == "worker"
         else config.sandbox,
         credential_workspace=config.credential_workspace or config.workspace,
@@ -63,6 +70,28 @@ class ConfiguredChildSessions:
         if fork_entry_ids is not None:
             await session.configure_fork_context(fork_entry_ids)
         return session
+
+    def reassign(self, session, record, member):
+        config = child_config(self.config, record)
+        session.reassign_team(
+            member,
+            config.agent_id,
+            lambda history: self.modules.context.prompt(
+                history,
+                config.workspace,
+                suffix=child_prompt(record["mode"], record["agent_id"], record["role"]),
+            ),
+            self.modules.team.event_relay(member),
+        )
+
+    async def evidence(self, record):
+        store = await self.repository_factory(child_config(self.config, record)).open(
+            record["session_id"]
+        )
+        try:
+            return await store.snapshot()
+        finally:
+            await store.aclose()
 
     async def input_accepted(self, record, input_id):
         try:
@@ -127,6 +156,9 @@ async def build_team(
             worktrees,
             EventStream(snapshot.header.session_id, "team", consumers, journal=event_journal),
             max_agents=config.team_max_agents,
+            idle_timeout=config.team_idle_timeout,
+            stop_timeout=config.team_stop_timeout,
+            max_handoffs=config.team_max_handoffs,
             plans=plans,
             lead_read_only=config.read_only,
         )

@@ -12,6 +12,27 @@ _TASK = {"type": "string", "pattern": "^t[0-9]{1,4}$"}
 
 
 _DEPS = {"type": "array", "items": _TASK, "maxItems": 20}
+_TEXTS = {"type": "array", "items": {"type": "string", "maxLength": 500}, "maxItems": 30}
+_CHECKS = {
+    "type": "array",
+    "maxItems": 30,
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "maxLength": 500},
+            "status": {"enum": ["passed", "failed", "not_run"]},
+            "output_id": {"type": "string"},
+        },
+        "required": ["name", "status"],
+        "additionalProperties": False,
+        "allOf": [
+            {
+                "if": {"properties": {"status": {"enum": ["passed", "failed"]}}},
+                "then": {"required": ["output_id"]},
+            }
+        ],
+    },
+}
 
 
 def schema(properties, required=()):
@@ -24,11 +45,15 @@ def schema(properties, required=()):
 
 
 class TeamTool:
-    def __init__(self, member, name, properties=None, required=(), *, provider=None):
+    def __init__(self, member, name: str, properties=None, required=(), *, provider=None):
         self.member, self.provider = member, provider
         self.spec = ToolSpec(
             name,
-            "Local team: " + name.replace("_", " "),
+            {
+                "list_tasks": "List tasks, dependencies and saved output IDs.",
+                "update_task": "Submit evidence; only lead can accept submitted tasks.",
+                "handoff_task": "Transfer an unfinished task after stopping its current member.",
+            }.get(name, "Local team: " + name.replace("_", " ")),
             schema(properties or {}, required),
             category="write" if name == "merge_agent" else "read",
             source="team",
@@ -38,6 +63,7 @@ class TeamTool:
         )
 
     async def execute(self, context, arguments):
+        self.member.check_current()
         team, actor, name = self.member.team, self.member.agent_id, self.spec.name
         try:
             result = await self.dispatch(team, actor, name, context, arguments)
@@ -62,19 +88,23 @@ class TeamTool:
         if name == "spawn_agent":
             return await team.spawn(**args, provider=self.provider, run_id=context.run_id)
         if name == "send_message":
-            return await team.inbox.send(actor, args["to"], args["text"], context.run_id)
+            return await team.inbox.send(
+                actor, run_id=context.run_id, generation=self.member.generation, **args
+            )
         if name == "wait_agents":
             return await team.inbox.wait(**args, operation_id=context.operation_id)
+        if name == "handoff_task":
+            return await team.handoff_task(args["task_id"])
         if name == "cancel_agent":
             return await team.cancel(args["id"])
         if name == "list_agents":
             return team.agents_view()
         if name == "create_task":
             return await team.board.create_task(**args)
-        if name == "claim_task":
-            return await team.board.claim_task(args["task_id"], actor)
         if name == "update_task":
-            return await team.board.update_task(actor=actor, **args)
+            return await team.board.update_task(
+                actor=actor, generation=self.member.generation, **args
+            )
         if name == "list_tasks":
             return {"tasks": list((await team.board.tasks()).values())}
         if name == "review_agent":
@@ -87,17 +117,29 @@ class TeamTool:
 
 def child_tools(member):
     return (
-        TeamTool(member, "send_message", {"to": _TEXT, "text": _TEXT}, ("to", "text")),
+        TeamTool(
+            member,
+            "send_message",
+            {
+                "to": _TEXT,
+                "text": _TEXT,
+                "task_id": _TASK,
+                "kind": {"enum": ["message", "progress", "blocked", "delivery"]},
+                "artifact_refs": _TEXTS,
+            },
+            ("to", "text"),
+        ),
         TeamTool(member, "list_agents"),
         TeamTool(member, "list_tasks"),
-        TeamTool(member, "claim_task", {"task_id": _TASK}, ("task_id",)),
         TeamTool(
             member,
             "update_task",
             {
                 "task_id": _TASK,
-                "status": {"enum": ["in_progress", "done", "failed"]},
+                "status": {"enum": ["in_progress", "submitted", "failed"]},
                 "result": _TEXT,
+                "artifact_refs": _TEXTS,
+                "checks": _CHECKS,
             },
             ("task_id", "status"),
         ),
@@ -105,11 +147,7 @@ def child_tools(member):
 
 
 def lead_tools(member, provider):
-    basic = tuple(
-        tool
-        for tool in child_tools(member)
-        if tool.spec.name != "claim_task" and tool.spec.name != "update_task"
-    )
+    basic = tuple(tool for tool in child_tools(member) if tool.spec.name != "update_task")
     return (
         *basic,
         TeamTool(
@@ -133,10 +171,17 @@ def lead_tools(member, provider):
             },
         ),
         TeamTool(member, "cancel_agent", {"id": _AGENT}, ("id",)),
+        TeamTool(member, "handoff_task", {"task_id": _TASK}, ("task_id",)),
         TeamTool(
             member,
             "create_task",
-            {"title": _TEXT, "description": _TEXT, "depends_on": _DEPS},
+            {
+                "title": _TEXT,
+                "description": _TEXT,
+                "depends_on": _DEPS,
+                "acceptance": _TEXTS,
+                "scope": _TEXTS,
+            },
             ("title",),
         ),
         TeamTool(
@@ -146,9 +191,15 @@ def lead_tools(member, provider):
                 "task_id": _TASK,
                 "title": _TEXT,
                 "description": _TEXT,
-                "status": {"enum": ["open", "in_progress", "done", "failed", "cancelled"]},
+                "status": {
+                    "enum": ["open", "in_progress", "submitted", "done", "failed", "cancelled"]
+                },
                 "result": _TEXT,
+                "artifact_refs": _TEXTS,
+                "checks": _CHECKS,
                 "depends_on": _DEPS,
+                "acceptance": _TEXTS,
+                "scope": _TEXTS,
             },
             ("task_id",),
         ),
